@@ -1,0 +1,250 @@
+{
+  "schema_version": 1,
+  "name": "Courtyard House",
+  "next_id": 13,
+  "stories": [
+    {
+      "id": 0,
+      "name": "Ground floor",
+      "elevation": 0.0
+    },
+    {
+      "id": 1,
+      "name": "First floor",
+      "elevation": 3.2
+    },
+    {
+      "id": 2,
+      "name": "Roof level",
+      "elevation": 6.4
+    }
+  ],
+  "elements": [
+    {
+      "id": 1,
+      "name": "Slab 001",
+      "story": 0,
+      "material": "Concrete",
+      "shape": {
+        "kind": "Slab",
+        "min": {
+          "x": -0.2,
+          "y": -0.2
+        },
+        "max": {
+          "x": 12.2,
+          "y": 8.2
+        },
+        "thickness": 0.28
+      }
+    },
+    {
+      "id": 2,
+      "name": "Wall 002",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 12.0,
+          "y": 0.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 3,
+      "name": "Wall 003",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 12.0,
+          "y": 0.0
+        },
+        "end": {
+          "x": 12.0,
+          "y": 8.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 4,
+      "name": "Wall 004",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 12.0,
+          "y": 8.0
+        },
+        "end": {
+          "x": 0.0,
+          "y": 8.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 5,
+      "name": "Wall 005",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 0.0,
+          "y": 8.0
+        },
+        "end": {
+          "x": 0.0,
+          "y": 0.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 6,
+      "name": "Wall 006",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 7.5,
+          "y": 0.0
+        },
+        "end": {
+          "x": 7.5,
+          "y": 3.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 7,
+      "name": "Wall 007",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 7.5,
+          "y": 4.2
+        },
+        "end": {
+          "x": 7.5,
+          "y": 8.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 8,
+      "name": "Wall 008",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 7.5,
+          "y": 4.0
+        },
+        "end": {
+          "x": 12.0,
+          "y": 4.0
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 9,
+      "name": "Wall 009",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 0.0,
+          "y": 5.2
+        },
+        "end": {
+          "x": 3.0,
+          "y": 5.2
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 10,
+      "name": "Wall 010",
+      "story": 0,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 4.2,
+          "y": 5.2
+        },
+        "end": {
+          "x": 7.5,
+          "y": 5.2
+        },
+        "thickness": 0.22,
+        "height": 3.0
+      }
+    },
+    {
+      "id": 11,
+      "name": "Slab 011",
+      "story": 0,
+      "material": "Timber",
+      "shape": {
+        "kind": "Slab",
+        "min": {
+          "x": 0.3,
+          "y": -2.3
+        },
+        "max": {
+          "x": 7.2,
+          "y": -0.3
+        },
+        "thickness": 0.16
+      }
+    },
+    {
+      "id": 12,
+      "name": "Wall 012",
+      "story": 1,
+      "material": "Plaster",
+      "shape": {
+        "kind": "Wall",
+        "start": {
+          "x": 0.8,
+          "y": 12.0
+        },
+        "end": {
+          "x": 4.8,
+          "y": 12.0
+        },
+        "thickness": 0.22,
+        "height": 4.2
+      }
+    }
+  ]
+}

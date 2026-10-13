@@ -1,0 +1,32 @@
+[package]
+name = "atelier-bim"
+version = "0.1.0"
+edition = "2024"
+default-run = "openarchi"
+rust-version = "1.95"
+description = "OpenArchi native architectural design workbench"
+license = "Apache-2.0"
+
+[package.metadata.openarchi]
+product-name = "OpenArchi"
+version-display = "0.1.0"
+
+[[bin]]
+name = "openarchi"
+path = "src/main.rs"
+
+[dependencies]
+eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "wgpu", "accesskit"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+glam = "0.34"
+bytemuck = { version = "1", features = ["derive"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+strip = "none"
