@@ -1,0 +1,9 @@
+/target/
+/dist/
+*.json.tmp
+.DS_Store
+/courtyard.openarchi.json
+*.log
+*.dSYM/
+.idea/
+.vscode/
