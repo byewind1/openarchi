@@ -1,3 +1,6 @@
+use crate::stairs::StairSpec;
+use crate::view_settings::{DesignOptions, Layer, PlanOptions, RenovationStatus};
+use crate::wall::WallSettings;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
@@ -59,6 +62,25 @@ pub enum Shape {
         max: Point,
         thickness: f32,
     },
+    Stair {
+        spec: StairSpec,
+    },
+    Polyline {
+        points: Vec<Point>,
+        /// One optional exact circular arc per consecutive point pair.
+        /// Empty is accepted for projects written before arc metadata existed.
+        #[serde(default)]
+        arcs: Vec<Option<ArcSegment>>,
+    },
+}
+
+/// Exact circular-arc definition for a Polyline edge. Radius and branch flags
+/// reconstruct the circle from the edge endpoints; no tessellation is stored.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct ArcSegment {
+    pub radius: f32,
+    pub clockwise: bool,
+    pub large_arc: bool,
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Element {
@@ -66,6 +88,17 @@ pub struct Element {
     pub name: String,
     pub story: u32,
     pub material: Material,
+    #[serde(default)]
+    pub layer: Layer,
+    #[serde(default)]
+    pub renovation: RenovationStatus,
+    /// Design option assignment; `None` belongs to the main model.
+    #[serde(default)]
+    pub design_option: Option<u32>,
+    /// AC29-style wall settings. Older wall files without this field remain
+    /// valid and receive defaults when the settings UI first edits the wall.
+    #[serde(default)]
+    pub wall_settings: Option<WallSettings>,
     pub shape: Shape,
 }
 impl Element {
@@ -73,11 +106,15 @@ impl Element {
         match self.shape {
             Shape::Wall { .. } => "Wall",
             Shape::Slab { .. } => "Slab",
+            Shape::Stair { .. } => "Stair",
+            Shape::Polyline { .. } => "Polyline",
         }
     }
     pub fn thickness(&self) -> f32 {
         match self.shape {
             Shape::Wall { thickness, .. } | Shape::Slab { thickness, .. } => thickness,
+            Shape::Stair { ref spec } => spec.slab_thickness,
+            Shape::Polyline { .. } => 0.,
         }
     }
     pub fn area(&self) -> f32 {
@@ -86,6 +123,20 @@ impl Element {
                 start, end, height, ..
             } => start.distance(end) * height,
             Shape::Slab { min, max, .. } => (max.x - min.x) * (max.y - min.y),
+            Shape::Stair { ref spec } => spec.start.distance(spec.end) * spec.width,
+            Shape::Polyline {
+                ref points,
+                ref arcs,
+            } => points
+                .windows(2)
+                .enumerate()
+                .map(|(index, pair)| {
+                    arcs.get(index).and_then(|arc| *arc).map_or_else(
+                        || pair[0].distance(pair[1]),
+                        |arc| crate::geometry::arc_length(pair[0], pair[1], arc),
+                    )
+                })
+                .sum(),
         }
     }
     pub fn translate(&mut self, d: Point) {
@@ -102,11 +153,33 @@ impl Element {
                 max.x += d.x;
                 max.y += d.y;
             }
+            Shape::Stair { spec } => {
+                spec.start.x += d.x;
+                spec.start.y += d.y;
+                spec.end.x += d.x;
+                spec.end.y += d.y;
+            }
+            Shape::Polyline { points, .. } => {
+                for point in points {
+                    point.x += d.x;
+                    point.y += d.y;
+                }
+            }
         }
     }
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
+    #[serde(default)]
+    pub grid_settings: crate::grids::GridSettings,
+    #[serde(default)]
+    pub guide_settings: crate::guides::GuideSettings,
+    #[serde(default)]
+    pub guides: Vec<crate::guides::PersistentGuide>,
+    #[serde(default)]
+    pub plan_options: PlanOptions,
+    #[serde(default)]
+    pub design_options: DesignOptions,
     pub schema_version: u32,
     pub name: String,
     pub next_id: u64,
@@ -116,6 +189,11 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Self {
+            grid_settings: crate::grids::GridSettings::default(),
+            guide_settings: crate::guides::GuideSettings::default(),
+            guides: vec![],
+            plan_options: PlanOptions::default(),
+            design_options: DesignOptions::default(),
             schema_version: 1,
             name: "Courtyard House".into(),
             next_id: 1,
@@ -142,17 +220,39 @@ impl Default for Project {
 }
 impl Project {
     pub fn add(&mut self, story: u32, material: Material, shape: Shape) -> u64 {
+        self.add_with_status(story, material, shape, RenovationStatus::New)
+    }
+
+    pub fn add_with_status(
+        &mut self,
+        story: u32,
+        material: Material,
+        shape: Shape,
+        renovation: RenovationStatus,
+    ) -> u64 {
         let id = self.next_id;
         self.next_id += 1;
         let kind = match shape {
             Shape::Wall { .. } => "Wall",
             Shape::Slab { .. } => "Slab",
+            Shape::Stair { .. } => "Stair",
+            Shape::Polyline { .. } => "Polyline",
         };
+        let layer = match kind {
+            "Slab" => Layer::Structural,
+            "Polyline" => Layer::Drafting,
+            _ => Layer::Architectural,
+        };
+        let wall_settings = matches!(shape, Shape::Wall { .. }).then(WallSettings::default);
         self.elements.push(Element {
             id,
             name: format!("{kind} {id:03}"),
             story,
             material,
+            layer,
+            renovation,
+            design_option: None,
+            wall_settings,
             shape,
         });
         id
@@ -167,6 +267,7 @@ impl Project {
         if self.schema_version != 1 {
             return Err("Unsupported project schema".into());
         }
+        self.grid_settings.validate()?;
         if self.stories.is_empty() || self.stories.len() > 100 || self.elements.len() > 100_000 {
             return Err("Invalid project size".into());
         }
@@ -175,6 +276,17 @@ impl Project {
             if !stories.insert(s.id) || !s.elevation.is_finite() || s.elevation.abs() > 10000. {
                 return Err("Invalid story".into());
             }
+        }
+        self.guide_settings.validate()?;
+        self.plan_options.validate()?;
+        if self.guides.len() > 10000 {
+            return Err("Too many guide lines".into());
+        }
+        for guide in &self.guides {
+            if !stories.contains(&guide.story) {
+                return Err("Invalid guide story".into());
+            }
+            guide.primitive.validate()?;
         }
         let mut ids = std::collections::HashSet::new();
         for e in &self.elements {
@@ -210,16 +322,53 @@ impl Project {
                         && thickness.is_finite()
                         && (0.01..=5.).contains(&thickness)
                 }
+                Shape::Stair { ref spec } => {
+                    point_ok(spec.start) && point_ok(spec.end) && spec.validate().is_ok()
+                }
+                Shape::Polyline {
+                    ref points,
+                    ref arcs,
+                } => {
+                    points.len() >= 2
+                        && points.len() <= 10_000
+                        && points.iter().all(|point| point_ok(*point))
+                        && points
+                            .windows(2)
+                            .all(|pair| pair[0].distance(pair[1]) >= 0.01)
+                        && (arcs.is_empty() || arcs.len() == points.len() - 1)
+                        && arcs
+                            .iter()
+                            .flatten()
+                            .all(|arc| arc.radius.is_finite() && arc.radius > 0.)
+                        && arcs.iter().enumerate().all(|(index, arc)| {
+                            arc.is_none_or(|arc| {
+                                points.get(index).zip(points.get(index + 1)).is_some_and(
+                                    |(a, b)| {
+                                        let chord = a.distance(*b);
+                                        arc.radius.is_finite()
+                                            && arc.radius >= chord * 0.5 - 1e-4
+                                            && crate::geometry::arc_center_sweep(*a, *b, arc)
+                                                .is_some()
+                                    },
+                                )
+                            })
+                        })
+                }
             };
             if !valid {
                 return Err(format!("Invalid geometry: {}", e.name));
+            }
+            if matches!(e.shape, Shape::Wall { .. }) {
+                if let Some(settings) = &e.wall_settings {
+                    settings.validate()?;
+                }
             }
         }
         Ok(())
     }
     pub fn demo() -> Self {
         let mut p = Self::default();
-        p.add(
+        p.add_with_status(
             0,
             Material::Concrete,
             Shape::Slab {
@@ -227,8 +376,9 @@ impl Project {
                 max: Point::new(12.2, 8.2),
                 thickness: 0.28,
             },
+            RenovationStatus::Existing,
         );
-        for (a, b) in [
+        for (index, (a, b)) in [
             ((0., 0.), (12., 0.)),
             ((12., 0.), (12., 8.)),
             ((12., 8.), (0., 8.)),
@@ -238,8 +388,11 @@ impl Project {
             ((7.5, 4.), (12., 4.)),
             ((0., 5.2), (3., 5.2)),
             ((4.2, 5.2), (7.5, 5.2)),
-        ] {
-            p.add(
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            p.add_with_status(
                 0,
                 Material::Plaster,
                 Shape::Wall {
@@ -248,9 +401,14 @@ impl Project {
                     thickness: 0.22,
                     height: 3.,
                 },
+                if index == 4 {
+                    RenovationStatus::Demolition
+                } else {
+                    RenovationStatus::Existing
+                },
             );
         }
-        p.add(
+        p.add_with_status(
             0,
             Material::Timber,
             Shape::Slab {
@@ -258,6 +416,19 @@ impl Project {
                 max: Point::new(7.2, -0.3),
                 thickness: 0.16,
             },
+            RenovationStatus::Existing,
+        );
+        // A small upper-floor balcony gives the default Trace reference visible
+        // content in the demo project.
+        p.add_with_status(
+            1,
+            Material::Timber,
+            Shape::Slab {
+                min: Point::new(8.4, -2.3),
+                max: Point::new(12.0, -0.3),
+                thickness: 0.16,
+            },
+            RenovationStatus::New,
         );
         p
     }
