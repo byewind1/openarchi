@@ -2,19 +2,21 @@
 
 OpenArchi 的长期愿景是：**拥抱 AI 时代快速迭代，提供轻量、原生、可由建筑师掌控的 BIM 工作流；操作效率以 Archicad 为参照，代码、模型、界面和资源保持独立实现。**
 
-当前项目处于早期原型阶段，面向 macOS Apple Silicon，使用 Rust + egui/eframe + wgpu，三维通过 Metal 渲染，**不含 WebView**。它已经可以实际创建和编辑基础墙体、楼板，并在 2D 平面绘制多段线；墙体与楼板可在平面和透视 3D 之间同步。尚不适合生产项目，也不是完整 BIM 引擎。具体功能和限制见下文。
+当前项目处于早期原型阶段，提供 macOS Apple Silicon 与 Windows x64 版本，使用 Rust + egui/eframe + wgpu；macOS 使用 Metal，Windows 使用 DirectX 12，**不含 WebView**。它已经可以实际创建和编辑基础墙体、楼板，并在 2D 平面绘制多段线；墙体与楼板可在平面和透视 3D 之间同步。尚不适合生产项目，也不是完整 BIM 引擎。具体功能和限制见下文。
 
 项目采用 Apache-2.0 许可证。欢迎提交缺陷报告、工作流建议和代码贡献。请先阅读[路线图](docs/roadmap.md)和[贡献指南](CONTRIBUTING.md)。
 
 ## 直接运行
 
-双击 `dist/OpenArchi.app`，或在本目录执行：
+macOS：双击 `dist/OpenArchi.app`，或在本目录执行：
 
 ```sh
 open dist/OpenArchi.app
 ```
 
-界面语言可在窗口标题栏右侧的语言菜单中切换 **English / 简体中文**。选择会自动保存到 macOS 的 `~/Library/Application Support/OpenArchi/language`，下次启动继续使用；语言包内嵌在应用中，无需额外安装文件。中文显示使用 macOS 自带的 CJK 字体。
+Windows：解压 `dist/OpenArchi-0.1-Windows-x64.zip`，运行其中的 `OpenArchi.exe`。无需安装器或额外运行库。该原型未做代码签名，Windows SmartScreen 可能要求确认。
+
+界面语言可在窗口标题栏右侧的语言菜单中切换 **English / 简体中文**。选择会自动保存到 macOS 的 `~/Library/Application Support/OpenArchi/language` 或 Windows 的 `%APPDATA%\OpenArchi\language`，下次启动继续使用；语言包内嵌在应用中，无需额外安装文件。中文显示使用系统 CJK 字体。
 
 源码运行、编译检查与测试：
 
@@ -23,9 +25,18 @@ open dist/OpenArchi.app
 ./scripts/cargo.sh check --locked
 ./scripts/cargo.sh test --locked
 ./scripts/package-macos.sh
+./scripts/package-windows.sh
 ```
 
-要求 Rust ≥ 1.95，实测 Rust 1.98.1 / aarch64-apple-darwin。脚本优先使用 rustup 已安装的 stable，避免系统中较旧的 Homebrew rustc。Cargo package / Rust crate 名 `atelier-bim` / `atelier_bim` 为内部兼容标识，面向用户的程序名、应用包和项目扩展名均为 OpenArchi。首次构建需访问 crates.io。交付的 `.app` 为本地构建，不是 Apple 公证发行包。
+要求 Rust ≥ 1.95，实测 Rust 1.98.1 / aarch64-apple-darwin。脚本优先使用 rustup 已安装的 stable，避免系统中较旧的 Homebrew rustc。Cargo package / Rust crate 名 `atelier-bim` / `atelier_bim` 为内部兼容标识，面向用户的程序名、应用包和项目扩展名均为 OpenArchi。首次构建需访问 crates.io。交付的 `.app` 为本地构建，不是 Apple 公证发行包；Windows 包在 macOS 上通过 `cargo-xwin` 交叉编译，产物为未签名的 x64 PE。
+
+在 macOS 上交叉打包 Windows 版本还需：
+
+```sh
+rustup target add x86_64-pc-windows-msvc
+cargo install cargo-xwin --locked
+./scripts/package-windows.sh
+```
 
 面向 Archicad 29 的后续开发可使用仓库技能 [openarchi-ac29](skills/openarchi-ac29/SKILL.md)：`python3 scripts/ac29-workflow.py context <功能>` 查已有证据与本机版本；`python3 scripts/ac29-workflow.py verify` 完成检查、测试、打包和源码／应用包对应校验。完全相同的成功输入可复用上次记录，桌面实测仍单独记录。
 

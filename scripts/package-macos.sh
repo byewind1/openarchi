@@ -22,4 +22,9 @@ python3 scripts/png-to-icns.py "$OPENARCHI_ICONSET" "$OPENARCHI_CONTENTS/Resourc
 codesign --force --sign - "$OPENARCHI_BUNDLE"
 # Refresh the bundle timestamp so Launch Services and Dock notice replaced icon resources.
 touch "$OPENARCHI_BUNDLE"
+VERSION=$(sed -n 's/^version-display = "\(.*\)"/\1/p' Cargo.toml)
+OPENARCHI_ARCHIVE="dist/OpenArchi-$VERSION-macOS-arm64.zip"
+rm -f "$OPENARCHI_ARCHIVE"
+ditto -c -k --sequesterRsrc --keepParent "$OPENARCHI_BUNDLE" "$OPENARCHI_ARCHIVE"
 printf '%s\n' "Built $OPENARCHI_BUNDLE"
+printf '%s\n' "Packaged $OPENARCHI_ARCHIVE"

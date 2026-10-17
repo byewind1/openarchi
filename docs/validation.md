@@ -344,3 +344,15 @@ Archicad 29 观察：本机 `29.0.0 v1 INT (5101)`，SHA-256 `d86af90a1fc90f0a9e
 语言实测（同一最终包）：标题栏选择器完成简体中文 → English；英文下逐项读取 `Wall`、`Geometry Method`、`Single / Continuous / Polygonal / Rectangular`、`Reference Line: Center / Inside / Outside`、`Reference Offset`、`Thickness`。`视图 > 语言` 完成 English → 简体中文，恢复 `墙`、`几何方法`、`单线 / 连续 / 多边形 / 矩形`、`参考线：居中 / 内部 / 外部`、`参考线偏移`、`厚度`。两次切换前后构件数均为 12、选择均为空、项目均无未保存标记，撤销/重做可用性未因切换改变。选择简体中文后退出并重启最终包，首帧为中文（标题栏 `简体中文`、菜单 `文件 / 编辑 / 视图`、状态 `12 个构件`）。
 
 未完成项：连续、矩形和多边形结果仍是多段 `Shape::Wall`，没有 AC29 单一 PolyWall 元素的参考边、曲边、pet palette、自交警告和专用表面/复合结构限制；连续方法没有弧形段选择；旋转矩形不在本轮四种方法内；修改已有墙的几何方法不会转换既有几何；整条链或整圈在提交后不能作为一个逻辑组重选。AC29 对照依据 Graphisoft 公开帮助，本轮未用 REA 捕获 AC29 运行时交互，因此没有 REA Evidence ID。未提交、推送、打标签或发布。
+
+## 2026-10-18 macOS / Windows 0.1 打包
+
+新增跨平台打包：macOS 继续生成本地 ad-hoc 签名的 `.app`，Windows 通过 Rust 1.98.1、`x86_64-pc-windows-msvc` 与 cargo-xwin 0.23.1 在 macOS 上交叉编译为 GUI 子系统 PE32+。平台相关路径和标签已分离：macOS 语言偏好仍写入 `~/Library/Application Support/OpenArchi/language`，Windows 使用 `%APPDATA%\OpenArchi\language`；侧栏渲染器标签在 macOS 显示 `Apple Silicon / Metal`，Windows 显示 `Windows x64 / DirectX 12`。Windows 可执行文件不弹出控制台窗口。
+
+产物：
+
+- `dist/OpenArchi-0.1-macOS-arm64.zip`（内含 `OpenArchi.app`），SHA-256 `cfc677ebeffedbc686e5b7e96daa1848a23a1135eec3a98af6802ddf7831d4e4`。
+- `dist/OpenArchi-0.1-Windows-x64.zip`（内含 `OpenArchi.exe`、README、LICENSE），SHA-256 `8be9b77deb2d9a3c314bccd6fec62e38647d1acaeb7f0c9cd008b8a4d9a55130`；`OpenArchi.exe` SHA-256 `a341ca61f174a54d54583401ec8fad590f065f56507772d6b454c0b6db1046be`。
+- macOS 包内 `CFBundleShortVersionString` 为 `0.1`；release 与包内 arm64 UUID 均为 `58A6E014-97DB-3A15-8403-E8D3EF950327`，release SHA-256 为 `8d45c32aa0ce5603979548b681dfc5d601b42b32dcf3002b66b3a2e8c84cc2f9`，bundle tree SHA-256 为 `da361d5e3045482842fb77b77c98eb6a8995b5d813b58d3f802cda2d11b7f2f5`，`codesign --verify --deep --strict` 通过。
+
+验证：`cargo test --all-targets` **189 项通过**（153 库、7 Guides、29 工作流）；`python3 scripts/ac29-workflow.py verify --force` 通过格式、全目标检查、189 项 Rust 测试、11 项工具测试、`git diff --check` 与 macOS 打包，报告为 `target/ac29-workflow/runs/20261017T195808Z-285cf98e/report.json`。macOS 最终包已启动，简体中文首帧正常，显示 12 个构件和 `Apple Silicon / Metal`。Windows 产物只做了 PE 类型、压缩包内容与哈希检查，**未在真实 Windows 或 Wine 中启动验证**；Windows 包未签名，也没有安装器。

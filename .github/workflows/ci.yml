@@ -21,3 +21,33 @@ jobs:
         run: cargo check --locked --all-targets
       - name: Run tests
         run: cargo test --locked
+
+  windows-package:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Build Windows release
+        run: cargo build --release --locked
+      - name: Assemble Windows package
+        shell: pwsh
+        run: |
+          $version = (Select-String -Path Cargo.toml -Pattern '^version-display = "(.+)"').Matches.Groups[1].Value
+          $stage = "dist/OpenArchi-$version-Windows-x64"
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          Copy-Item target/release/openarchi.exe "$stage/OpenArchi.exe"
+          Copy-Item LICENSE, README.md $stage
+          @"
+OpenArchi $version for Windows x64
+
+Run OpenArchi.exe. No installer or separate runtime is required.
+This prototype is not code-signed; Windows SmartScreen may ask for confirmation.
+
+Projects are saved as JSON through File > Save project.
+"@ | Set-Content -Path "$stage/README-Windows.txt" -Encoding utf8
+          Compress-Archive -Path $stage -DestinationPath "dist/OpenArchi-$version-Windows-x64.zip" -Force
+          "ARTIFACT_NAME=OpenArchi-$version-Windows-x64" | Out-File -FilePath $env:GITHUB_ENV -Append
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ARTIFACT_NAME }}
+          path: dist/OpenArchi-*-Windows-x64.zip

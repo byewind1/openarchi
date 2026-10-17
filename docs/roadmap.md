@@ -19,7 +19,7 @@ The project is independent software. It uses its own code, domain model, interfa
 
 ### 1. Reliable native prototype
 
-- Keep the macOS Apple Silicon application easy to build and run.
+- Keep the macOS Apple Silicon and Windows x64 applications easy to build and run.
 - Stabilize the core create/select/edit/save/undo workflow for walls and slabs.
 - Improve junction behavior and geometry correctness with focused regression models.
 - Finish bilingual UI coverage and make window close/save behavior dependable.

@@ -50,11 +50,7 @@ impl UiLanguage {
 }
 
 fn preference_path() -> Option<PathBuf> {
-    std::env::var_os("HOME").map(|home| {
-        PathBuf::from(home)
-            .join("Library/Application Support/OpenArchi")
-            .join("language")
-    })
+    crate::platform::config_dir().map(|directory| directory.join("language"))
 }
 
 const EN: &str = include_str!("../locales/en.json");
