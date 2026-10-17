@@ -1,7 +1,10 @@
 fn main() -> eframe::Result {
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../icon.png"))
+        .expect("failed to load OpenArchi application icon");
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
             .with_title("OpenArchi — Architectural Workbench")
+            .with_icon(icon)
             .with_inner_size([1512., 960.])
             .with_min_inner_size([1050., 700.]),
         renderer: eframe::Renderer::Wgpu,

@@ -20,6 +20,17 @@ Requirements: macOS on Apple Silicon and Rust 1.95 or newer.
 ./scripts/run.sh
 ```
 
+For Archicad 29 feature work, the repository skill [openarchi-ac29](skills/openarchi-ac29/SKILL.md) records local target identity, evidence reuse and known native-UI limits. These Python 3.11+ stdlib-only helpers work from the repository root:
+
+```sh
+python3 scripts/ac29-workflow.py context guides
+python3 scripts/ac29-workflow.py verify
+python3 scripts/ac29-workflow.py bundle
+python3 -m unittest discover -s tests/tooling -v
+```
+
+`verify` runs format checks (including included Rust files), compilation, Rust and tooling tests, diff checks, then the existing macOS packaging script and UUID/signature checks. Logs and source/artifact receipts are under ignored `target/ac29-workflow/`. A matching successful receipt can be reused; `verify --force` reruns all steps. `bundle` returns exit 2 for unknown source freshness, even if UUID and signature match. No helper launches GUI apps or installs dependencies. See the skill for feature-contract creation and desktop evidence requirements.
+
 The native app uses egui/eframe and wgpu. Keep geometry and model behavior outside the UI layer where practical. User-visible model changes should be undoable and should update both plan and 3D views from the same project model.
 
 ## Contribution principles

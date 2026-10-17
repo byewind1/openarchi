@@ -1,0 +1,6 @@
+interface:
+  display_name: "OpenArchi · Archicad 29 开发"
+  short_description: "复用本机 AC29 证据与项目上下文，完成原生功能实现、检查与可追溯打包"
+  default_prompt: "使用 $openarchi-ac29 继续这个项目的 Archicad 29 功能复刻，先复用已有证据与验证记录，再补齐当前功能。"
+policy:
+  allow_implicit_invocation: true

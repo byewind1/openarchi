@@ -1,0 +1,27 @@
+{
+  "schema": 1,
+  "observed_at": "2026-10-15",
+  "target": {
+    "app": "/Applications/GRAPHISOFT/Archicad 29/Archicad 29.app",
+    "bundle_id": "com.graphisoft.archicad29",
+    "version": "29.0.0 v1 INT (5101)",
+    "sha256": "d86af90a1fc90f0a9ef2c8565300179acc9735dda8fc3e0fe07611e8aa8b5505"
+  },
+  "entrypoints": ["AGENTS.md", "docs/research.md", "docs/archicad-interface-inventory.md"],
+  "features": [
+    {"tags": ["guides", "guide", "辅助线", "引导线", "捕捉", "snap", "distance", "分点"], "notes": ["docs/features/guides.md", "docs/features/guides-geometry.md", "docs/features/distance-guides.md"], "source": ["src/guides.rs", "src/guides_ui.rs", "src/distance_guides.rs", "tests/guides_workflows.rs"]},
+    {"tags": ["polyline", "多段线", "圆弧", "节点", "偏移"], "notes": ["docs/features/polyline.md", "docs/features/polyline-editing.md"], "source": ["src/app.rs", "src/editor.rs", "src/geometry.rs", "src/model.rs"]},
+    {"tags": ["cursor", "光标"], "notes": ["docs/features/smart-cursor.md"], "source": ["src/cursor.rs", "src/app.rs"]},
+    {"tags": ["escape", "esc", "取消", "快捷键"], "notes": ["docs/features/escape-command-return.md"], "source": ["src/app.rs", "src/editor.rs"]},
+    {"tags": ["stair", "楼梯"], "notes": ["docs/stair-script-analysis.md"], "source": ["src/stairs.rs", "src/app.rs"]},
+    {"tags": ["marquee", "选区", "框选"], "notes": ["docs/research.md", "docs/validation.md"], "source": ["src/editor.rs", "src/geometry.rs", "src/render.rs", "tests/workflows.rs"]}
+  ],
+  "native_ui_history": {
+    "status": "blocked",
+    "observed_at": "2026-10-15",
+    "bundle_uuid": "179E1B19-1215-33AD-8C9A-5E141F72A195",
+    "error": "Computer Use server error -10005: cgWindowNotFound",
+    "evidence": "docs/features/guides.md",
+    "limits": "Historical CUA failure. Process launch was observed; no OpenArchi desktop interaction passed. Do not treat as a permanent blocker or reuse historical PID/AX indices."
+  }
+}
