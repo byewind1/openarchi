@@ -9,7 +9,7 @@ license = "Apache-2.0"
 
 [package.metadata.openarchi]
 product-name = "OpenArchi"
-version-display = "0.1.0"
+version-display = "0.1"
 
 [[bin]]
 name = "openarchi"

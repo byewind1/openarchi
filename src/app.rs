@@ -242,12 +242,7 @@ impl AtelierApp {
         let directory = std::env::current_dir()
             .ok()
             .filter(|p| p.parent().is_some())
-            .unwrap_or_else(|| {
-                std::env::var_os("HOME")
-                    .map(PathBuf::from)
-                    .unwrap_or_else(std::env::temp_dir)
-                    .join("Documents")
-            });
+            .unwrap_or_else(|| crate::platform::documents_dir().unwrap_or_else(std::env::temp_dir));
         Self {
             editor: Editor::new(Project::demo()), renderer, camera: Camera::default(),
             view: View::Plan, tab: Tab::Properties, preview_tool: None,
@@ -2239,10 +2234,11 @@ impl AtelierApp {
                         });
                         ui.separator();
                         ui.label(
-                            RichText::new(
-                                self.language
-                                    .translate("Native Rust · Apple Silicon / Metal"),
-                            )
+                            RichText::new(format!(
+                                "{} · {}",
+                                self.language.translate("Native Rust"),
+                                crate::platform::RENDERER_LABEL
+                            ))
                             .small()
                             .color(MUTED),
                         );
@@ -3266,9 +3262,13 @@ impl AtelierApp {
                             ui.close();
                         }
                         ui.label(
-                            RichText::new(self.language.translate("Native Rust · wgpu / Metal"))
-                                .small()
-                                .color(MUTED),
+                            RichText::new(format!(
+                                "{} · wgpu / {}",
+                                self.language.translate("Native Rust"),
+                                crate::platform::RENDERER_BACKEND
+                            ))
+                            .small()
+                            .color(MUTED),
                         );
                     });
                     ui.separator();
@@ -4194,8 +4194,9 @@ impl AtelierApp {
                 ui.with_layout(Layout::bottom_up(Align::LEFT), |ui| {
                     ui.label(
                         RichText::new(format!(
-                            "OPENARCHI\n{}\nApple Silicon / Metal",
-                            Self::t(self.language, "Metres · Z up")
+                            "OPENARCHI\n{}\n{}",
+                            Self::t(self.language, "Metres · Z up"),
+                            crate::platform::RENDERER_LABEL
                         ))
                             .small()
                             .color(MUTED),
@@ -9235,7 +9236,7 @@ impl AtelierApp {
         Window::new(Self::t(self.language, "About OpenArchi")).open(&mut self.help).default_width(460.).show(&ctx, |ui| {
             if self.language == UiLanguage::SimplifiedChinese {
                 ui.heading(self.language.translate("OpenArchi · 建筑设计工作台"));
-                ui.label(self.language.translate("版本 0.1.0 · 原生 Rust 桌面应用"));
+                ui.label(self.language.translate("版本 0.1 · 原生 Rust 桌面应用"));
                 ui.label(self.language.translate("在平面图中绘制墙体、矩形楼板和二维多段线。可在二维与三维视图中选择并编辑构件，尺寸单位为米。"));
                 ui.separator();
                 for text in ["V 选择 · M 选区框 · W 墙 · L 楼板 · P 多段线 · S 楼梯", "多段线：逐点绘制，按 Enter 完成，Esc 取消并返回上一个工具，再按 Esc 回到选择", "楼梯：设置参数后在平面点击起点和终点", "Esc：取消当前操作并返回上一个工具；再次按 Esc 回到选择", "F2 楼层平面 · F3 三维透视", "选区框支持矩形、旋转矩形和多边形", "F5 在三维中显示选择构件或选区框裁剪体", "⌘A 选择选区框内的构件节点", "⌘Z 撤销 · ⇧⌘Z 重做 · ⌘D 复制", "⌘S 保存 JSON · ⌘O 打开 JSON"] { ui.label(text); }
@@ -9244,7 +9245,7 @@ impl AtelierApp {
                 ui.label(self.language.translate("原型限制：暂不支持 PDF/DWG 导出和原生 BIM 文件解析。当前助手为本地规则演示。"));
             } else {
                 ui.heading(self.language.translate("OpenArchi · Architectural Design Workbench"));
-                ui.label(self.language.translate("Version 0.1.0 · Native Rust desktop application"));
+                ui.label(self.language.translate("Version 0.1 · Native Rust desktop application"));
                 ui.label(self.language.translate("Draw walls, rectangular slabs and 2D polylines in plan. Select and edit elements in plan; walls and slabs are also shown in 3D. All dimensions are metres."));
                 ui.separator();
                 for text in ["V · Select     M · Marquee     W · Wall     L · Slab     P · Polyline     S · Stair", "Polyline: left-click nodes, right-click to finish, click start to close, Esc cancels and returns to previous tool; press Esc again for Select", "Select a Polyline, then click a node or edge for the edit palette; drag to preview, release to commit", "Node palette: move, chamfer, fillet, move, rotate, mirror, multiply; edge palette: scale, move, rotate, mirror, multiply", "Esc · Cancel current command → previous tool → Select", "F2 · Floor plan     F3 · Perspective 3D", "Marquee: rectangle, rotated rectangle or polygon", "F5 · Show selected elements or the clipped Marquee volume in 3D", "⌘A · Select elements with nodes inside Marquee", "Cmd/Ctrl+X/C/V · Cut / Copy / Paste selected elements", "Marquee controls: move area, stretch nodes, mirror, rotate, story", "Click start → click end, or type in Tracker → Create", "Drag selected elements in plan to move them", "Shift / Ortho · constrain walls to X or Y", "Right-drag · pan     Scroll · zoom     F · fit", "3D: Shift+middle-drag orbit, right-drag pan, click select", "⌘Z · Undo     ⇧⌘Z · Redo     ⌘D · Duplicate", "Delete · Remove", "⌘S · Save JSON     ⌘O · Open JSON"] { ui.label(text); }

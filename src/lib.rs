@@ -5,6 +5,7 @@ pub mod geometry;
 pub mod grids;
 pub mod localization;
 pub mod model;
+pub mod platform;
 pub mod render;
 pub mod stairs;
 pub mod storage;
