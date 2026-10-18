@@ -1,4 +1,5 @@
 use crate::{
+    command::{CommandRecord, ElementEdit, ModelCommand, ProjectDelta, ProjectHeader},
     geometry,
     model::*,
     view_settings::{Layer, RenovationStatus},
@@ -12,6 +13,8 @@ pub enum Tool {
     Slab,
     Stair,
     Polyline,
+    Door,
+    Window,
 }
 
 fn polygon_signed_area(points: &[Point]) -> f32 {
@@ -83,15 +86,21 @@ pub struct Editor {
     pub thickness: f32,
     pub height: f32,
     pub stair_spec: crate::stairs::StairSpec,
+    pub door_defaults: OpeningDefaults,
+    pub window_defaults: OpeningDefaults,
     pub wall_settings: WallSettings,
     pub wall_layer: Layer,
     pub wall_renovation: RenovationStatus,
     pub material: Material,
     pub snap: bool,
     pub orthogonal: bool,
-    pub undo: Vec<Project>,
-    pub redo: Vec<Project>,
+    pub undo: Vec<CommandRecord>,
+    pub redo: Vec<CommandRecord>,
     pub saved: Project,
+    /// Monotonic model revision, incremented by commits and undo/redo.
+    pub revision: u64,
+    /// True after restoring a crash-recovery snapshot that was never saved.
+    pub recovered_unsaved: bool,
     pub status: String,
 }
 impl Editor {
@@ -113,6 +122,8 @@ impl Editor {
             thickness: 0.22,
             height: 3.,
             stair_spec: crate::stairs::StairSpec::default(),
+            door_defaults: OpeningKind::Door.defaults(),
+            window_defaults: OpeningKind::Window.defaults(),
             wall_settings: WallSettings::default(),
             wall_layer: Layer::Architectural,
             wall_renovation: RenovationStatus::New,
@@ -121,20 +132,254 @@ impl Editor {
             orthogonal: false,
             undo: vec![],
             redo: vec![],
+            revision: 0,
+            recovered_unsaved: false,
             status: "Select an element or start drawing".into(),
         }
     }
     pub fn dirty(&self) -> bool {
-        self.saved != self.project
+        self.recovered_unsaved || self.saved != self.project
+    }
+
+    /// Mark the current project as the saved baseline.
+    pub fn mark_saved(&mut self) {
+        self.saved = self.project.clone();
+        self.recovered_unsaved = false;
+    }
+
+    /// Replace the editor with a recovered snapshot that remains dirty until saved.
+    pub fn restore_unsaved(&mut self, project: Project) {
+        *self = Self::new(project);
+        self.recovered_unsaved = true;
+        self.status = "Recovered unsaved project".into();
     }
     pub fn commit(&mut self, before: Project) {
         if before != self.project {
-            self.undo.push(before);
+            self.revision = self.revision.wrapping_add(1);
+            let delta = ProjectDelta::between(&before, &self.project);
+            self.undo.push(CommandRecord::from_delta(delta));
             if self.undo.len() > 100 {
                 self.undo.remove(0);
             }
             self.redo.clear();
         }
+    }
+
+    /// Apply one typed model command, validate it and record a reversible
+    /// change. Returns the affected element ids; an empty list means the
+    /// command was a no-op. Invalid commands leave the project untouched.
+    pub fn apply(&mut self, command: ModelCommand) -> Result<Vec<u64>, String> {
+        let record_command = command.clone();
+        let mut delta = ProjectDelta::default();
+        let inverse;
+        match command {
+            ModelCommand::AddElement { element } => {
+                if self
+                    .project
+                    .elements
+                    .iter()
+                    .any(|existing| existing.id == element.id)
+                {
+                    return Err(format!("Element {} already exists", element.id));
+                }
+                let header_before = ProjectHeader::capture(&self.project);
+                let index = self.project.elements.len();
+                self.project.next_id = self.project.next_id.max(element.id + 1);
+                self.project.elements.push(element.clone());
+                delta.elements.push(ElementEdit {
+                    id: element.id,
+                    before_index: None,
+                    before: None,
+                    after_index: Some(index),
+                    after: Some(element.clone()),
+                });
+                if self.project.next_id != header_before.next_id {
+                    delta.before_header = Some(Box::new(header_before));
+                    delta.after_header = Some(Box::new(ProjectHeader::capture(&self.project)));
+                }
+                inverse = ModelCommand::RemoveElements {
+                    ids: vec![element.id],
+                };
+            }
+            ModelCommand::RemoveElements { ids } => {
+                let mut requested: std::collections::HashSet<u64> = ids.into_iter().collect();
+                if requested.is_empty() {
+                    return Ok(Vec::new());
+                }
+                for element in &self.project.elements {
+                    if let Shape::Opening { host_wall, .. } = element.shape
+                        && requested.contains(&host_wall)
+                    {
+                        requested.insert(element.id);
+                    }
+                }
+                let mut removed: Vec<(usize, Element)> = self
+                    .project
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, element)| requested.contains(&element.id))
+                    .map(|(index, element)| (index, element.clone()))
+                    .collect();
+                removed.sort_by_key(|(index, _)| *index);
+                if removed.is_empty() {
+                    return Ok(Vec::new());
+                }
+                self.project
+                    .elements
+                    .retain(|element| !requested.contains(&element.id));
+                delta.elements = removed
+                    .iter()
+                    .map(|(index, element)| ElementEdit {
+                        id: element.id,
+                        before_index: Some(*index),
+                        before: Some(element.clone()),
+                        after_index: None,
+                        after: None,
+                    })
+                    .collect();
+                inverse = ModelCommand::RestoreElements { elements: removed };
+            }
+            ModelCommand::RestoreElements { elements } => {
+                let mut inserts = elements;
+                inserts.sort_by_key(|(index, _)| *index);
+                let restored: Vec<u64> = inserts.iter().map(|(_, element)| element.id).collect();
+                let existing: std::collections::HashSet<u64> = self
+                    .project
+                    .elements
+                    .iter()
+                    .map(|element| element.id)
+                    .collect();
+                for (_, element) in &inserts {
+                    if existing.contains(&element.id) {
+                        return Err(format!("Element {} already exists", element.id));
+                    }
+                }
+                for (index, element) in inserts {
+                    delta.elements.push(ElementEdit {
+                        id: element.id,
+                        before_index: None,
+                        before: None,
+                        after_index: Some(index),
+                        after: Some(element.clone()),
+                    });
+                    let index = index.min(self.project.elements.len());
+                    self.project.elements.insert(index, element);
+                }
+                inverse = ModelCommand::RemoveElements { ids: restored };
+            }
+            ModelCommand::UpdateElement { element } => {
+                let Some(index) = self
+                    .project
+                    .elements
+                    .iter()
+                    .position(|existing| existing.id == element.id)
+                else {
+                    return Err(format!("Element {} no longer exists", element.id));
+                };
+                let previous =
+                    std::mem::replace(&mut self.project.elements[index], element.clone());
+                if previous != element {
+                    delta.elements.push(ElementEdit {
+                        id: element.id,
+                        before_index: Some(index),
+                        before: Some(previous.clone()),
+                        after_index: Some(index),
+                        after: Some(element),
+                    });
+                }
+                inverse = ModelCommand::UpdateElement { element: previous };
+            }
+            ModelCommand::MoveElements { ids, offset } => {
+                if !offset.finite() {
+                    return Err("Move offset must be finite".into());
+                }
+                if ids.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let requested: std::collections::HashSet<u64> = ids.iter().copied().collect();
+                let moved: Vec<(usize, Element)> = self
+                    .project
+                    .elements
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, element)| requested.contains(&element.id))
+                    .map(|(index, element)| (index, element.clone()))
+                    .collect();
+                if moved.is_empty() {
+                    return Ok(Vec::new());
+                }
+                let moved_ids: Vec<u64> = moved.iter().map(|(_, element)| element.id).collect();
+                self.project.translate_many(&moved_ids, offset);
+                for (index, previous) in moved {
+                    let after = self.project.elements[index].clone();
+                    if after != previous {
+                        delta.elements.push(ElementEdit {
+                            id: previous.id,
+                            before_index: Some(index),
+                            before: Some(previous),
+                            after_index: Some(index),
+                            after: Some(after),
+                        });
+                    }
+                }
+                inverse = ModelCommand::MoveElements {
+                    ids: ids.clone(),
+                    offset: Point::new(-offset.x, -offset.y),
+                };
+            }
+            ModelCommand::SetOptions {
+                plan,
+                design,
+                guide,
+                grid,
+            } => {
+                let header_before = ProjectHeader::capture(&self.project);
+                inverse = ModelCommand::SetOptions {
+                    plan: plan.as_ref().map(|_| self.project.plan_options.clone()),
+                    design: design.as_ref().map(|_| self.project.design_options.clone()),
+                    guide: guide.as_ref().map(|_| self.project.guide_settings.clone()),
+                    grid: grid.as_ref().map(|_| self.project.grid_settings.clone()),
+                };
+                if let Some(plan) = plan {
+                    self.project.plan_options = plan;
+                }
+                if let Some(design) = design {
+                    self.project.design_options = design;
+                }
+                if let Some(guide) = guide {
+                    self.project.guide_settings = guide;
+                }
+                if let Some(grid) = grid {
+                    self.project.grid_settings = grid;
+                }
+                let header_after = ProjectHeader::capture(&self.project);
+                if header_before != header_after {
+                    delta.before_header = Some(Box::new(header_before));
+                    delta.after_header = Some(Box::new(header_after));
+                }
+            }
+            ModelCommand::ChangeSet => {
+                return Err("ChangeSet is recorded internally and is not executable".into());
+            }
+        }
+        if delta.is_empty() {
+            return Ok(Vec::new());
+        }
+        if let Err(error) = self.project.validate() {
+            delta.revert(&mut self.project);
+            self.status = error.clone();
+            return Err(error);
+        }
+        self.revision = self.revision.wrapping_add(1);
+        let affected = delta.affected_ids();
+        self.undo
+            .push(CommandRecord::new(record_command, inverse, delta));
+        if self.undo.len() > 100 {
+            self.undo.remove(0);
+        }
+        self.redo.clear();
+        Ok(affected)
     }
     pub fn set_tool(&mut self, t: Tool) {
         if self.tool != t {
@@ -153,6 +398,8 @@ impl Editor {
             Tool::Slab => "Slab · Click two opposite corners · Enter commits Tracker values",
             Tool::Stair => "Stair · Set parameters, then click run start and end",
             Tool::Polyline => "Polyline · Click start, left-click nodes, right-click to finish · click start to close",
+            Tool::Door => "Door · Click a wall to place a rectangular door opening",
+            Tool::Window => "Window · Click a wall to place a rectangular window opening",
         }
         .into();
     }
@@ -205,6 +452,17 @@ impl Editor {
             self.click_wall(p, tolerance);
             return;
         }
+        if matches!(self.tool, Tool::Door | Tool::Window) {
+            let kind = if self.tool == Tool::Door {
+                OpeningKind::Door
+            } else {
+                OpeningKind::Window
+            };
+            if let Err(error) = self.click_opening(kind, p, tolerance) {
+                self.status = error;
+            }
+            return;
+        }
         match self.tool {
             Tool::Select => {
                 self.selected = geometry::hit_plan(&self.project, self.story, p, tolerance);
@@ -248,16 +506,15 @@ impl Editor {
                         shape,
                         self.wall_renovation,
                     );
-                    if is_wall {
-                        if let Some(element) = self
+                    if is_wall
+                        && let Some(element) = self
                             .project
                             .elements
                             .iter_mut()
                             .find(|element| element.id == id)
-                        {
-                            element.wall_settings = Some(self.wall_settings.clone());
-                            element.layer = self.wall_layer;
-                        }
+                    {
+                        element.wall_settings = Some(self.wall_settings.clone());
+                        element.layer = self.wall_layer;
                     }
                     if let Err(error) = self.project.validate() {
                         self.project = before;
@@ -398,18 +655,136 @@ impl Editor {
         }
     }
 
+    pub fn opening_defaults(&self, kind: OpeningKind) -> OpeningDefaults {
+        match kind {
+            OpeningKind::Door => self.door_defaults,
+            OpeningKind::Window => self.window_defaults,
+        }
+    }
+
+    pub fn set_opening_defaults(&mut self, kind: OpeningKind, defaults: OpeningDefaults) {
+        match kind {
+            OpeningKind::Door => self.door_defaults = defaults,
+            OpeningKind::Window => self.window_defaults = defaults,
+        }
+    }
+
+    /// Build a candidate opening for the current pointer position without
+    /// changing the model. Shared by the click commit and the plan preview.
+    pub fn opening_placement(
+        &self,
+        kind: OpeningKind,
+        p: Point,
+        tolerance: f32,
+    ) -> Result<Element, String> {
+        let host = self
+            .project
+            .elements
+            .iter()
+            .rev()
+            .find(|element| {
+                if element.story != self.story {
+                    return false;
+                }
+                let Shape::Wall {
+                    start,
+                    end,
+                    thickness,
+                    ..
+                } = element.shape
+                else {
+                    return false;
+                };
+                geometry::segment_distance(p, start, end) <= thickness * 0.5 + tolerance
+            })
+            .ok_or_else(|| format!("Click on a wall to place a {}", kind.name().to_lowercase()))?;
+        let Shape::Wall {
+            start,
+            end,
+            height: wall_height,
+            ..
+        } = host.shape
+        else {
+            return Err("Opening host must be a wall".into());
+        };
+        let length = start.distance(end);
+        let defaults = self.opening_defaults(kind);
+        defaults.validate()?;
+        if length + 1e-4 < defaults.width {
+            return Err("The host wall is shorter than the opening width".into());
+        }
+        let (bottom_offset, top_offset) = host
+            .wall_settings
+            .as_ref()
+            .map_or((0., 0.), |settings| settings.vertical_offsets());
+        if defaults.sill < bottom_offset - 1e-4 {
+            return Err("The opening is below the host wall".into());
+        }
+        if defaults.sill + defaults.height > wall_height + top_offset + 1e-4 {
+            return Err("The opening is taller than the host wall".into());
+        }
+        let offset = geometry::wall_offset_of(&self.project, host.id, p)
+            .unwrap_or(length * 0.5)
+            .clamp(defaults.width * 0.5, length - defaults.width * 0.5);
+        Ok(Element {
+            id: 0,
+            name: String::new(),
+            story: self.story,
+            material: host.material,
+            layer: Layer::Architectural,
+            renovation: self.wall_renovation,
+            design_option: None,
+            wall_settings: None,
+            shape: Shape::Opening {
+                host_wall: host.id,
+                kind,
+                width: defaults.width,
+                height: defaults.height,
+                sill: defaults.sill,
+                offset,
+            },
+        })
+    }
+
+    fn click_opening(&mut self, kind: OpeningKind, p: Point, tolerance: f32) -> Result<(), String> {
+        let placement = self.opening_placement(kind, p, tolerance)?;
+        let before = self.project.clone();
+        let id = self.project.add_with_status(
+            placement.story,
+            placement.material,
+            placement.shape,
+            placement.renovation,
+        );
+        if let Some(element) = self
+            .project
+            .elements
+            .iter_mut()
+            .find(|element| element.id == id)
+        {
+            element.layer = placement.layer;
+        }
+        if let Err(error) = self.project.validate() {
+            self.project = before;
+            return Err(error);
+        }
+        self.selected = Some(id);
+        self.selected_ids = vec![id];
+        self.commit(before);
+        self.status = format!("Created {} {id:03}", kind.name());
+        Ok(())
+    }
+
     /// Complete the active wall geometry method. `endpoint` is the Tracker or
     /// double-click point; Continuous and Polygonal append it as their final
     /// node, while Single and Rectangular use it as the second defining point.
     /// Every method commits one undo transaction.
     pub fn finish_wall(&mut self, endpoint: Option<Point>) -> Result<Vec<u64>, String> {
-        if let Some(point) = endpoint {
-            if !point.finite() || point.x.abs() >= 100000. || point.y.abs() >= 100000. {
-                let error =
-                    "Coordinates must be finite and within the local modeling range".to_owned();
-                self.status = error.clone();
-                return Err(error);
-            }
+        if let Some(point) = endpoint
+            && (!point.finite() || point.x.abs() >= 100000. || point.y.abs() >= 100000.)
+        {
+            let error = "Coordinates must be finite and within the local modeling range".to_owned();
+            self.status = error.clone();
+            return Err(error);
         }
         let method = self.wall_settings.geometry.geometry_method;
         match method {
@@ -450,19 +825,18 @@ impl Editor {
                 Ok(ids)
             }
             WallGeometryMethod::Continuous => {
-                if self.wall_points.is_empty() {
-                    if let Some(start) = self.anchor {
-                        self.wall_points.push(start);
-                    }
+                if self.wall_points.is_empty()
+                    && let Some(start) = self.anchor
+                {
+                    self.wall_points.push(start);
                 }
-                if let Some(point) = endpoint {
-                    if self
+                if let Some(point) = endpoint
+                    && self
                         .wall_points
                         .last()
                         .is_none_or(|last| last.distance(point) >= 0.01)
-                    {
-                        self.wall_points.push(point);
-                    }
+                {
+                    self.wall_points.push(point);
                 }
                 if self.wall_points.len() < 2 {
                     self.status = "Continuous wall needs at least two nodes".into();
@@ -478,10 +852,10 @@ impl Editor {
                 Ok(ids)
             }
             WallGeometryMethod::Polygonal => {
-                if self.wall_points.is_empty() {
-                    if let Some(start) = self.anchor {
-                        self.wall_points.push(start);
-                    }
+                if self.wall_points.is_empty()
+                    && let Some(start) = self.anchor
+                {
+                    self.wall_points.push(start);
                 }
                 if let Some(point) = endpoint {
                     let closes_on_start = self
@@ -601,8 +975,10 @@ impl Editor {
         Ok(ids)
     }
     pub fn undo(&mut self) {
-        if let Some(p) = self.undo.pop() {
-            self.redo.push(std::mem::replace(&mut self.project, p));
+        if let Some(record) = self.undo.pop() {
+            record.delta.revert(&mut self.project);
+            self.redo.push(record);
+            self.revision = self.revision.wrapping_add(1);
             self.selected = None;
             self.selected_ids.clear();
             self.anchor = None;
@@ -611,8 +987,10 @@ impl Editor {
         }
     }
     pub fn redo(&mut self) {
-        if let Some(p) = self.redo.pop() {
-            self.undo.push(std::mem::replace(&mut self.project, p));
+        if let Some(record) = self.redo.pop() {
+            record.delta.replay(&mut self.project);
+            self.undo.push(record);
+            self.revision = self.revision.wrapping_add(1);
             self.selected = None;
             self.selected_ids.clear();
             self.anchor = None;
@@ -623,12 +1001,15 @@ impl Editor {
     pub fn delete(&mut self) {
         let ids = self.selection_ids();
         if !ids.is_empty() {
-            let before = self.project.clone();
-            self.project.elements.retain(|e| !ids.contains(&e.id));
-            self.selected = None;
-            self.selected_ids.clear();
-            self.commit(before);
-            self.status = format!("Deleted {} element(s)", ids.len());
+            match self.apply(ModelCommand::RemoveElements { ids }) {
+                Ok(removed) if !removed.is_empty() => {
+                    self.selected = None;
+                    self.selected_ids.clear();
+                    self.status = format!("Deleted {} element(s)", removed.len());
+                }
+                Ok(_) => {}
+                Err(error) => self.status = error,
+            }
         }
     }
     pub fn selection_ids(&self) -> Vec<u64> {
@@ -652,7 +1033,7 @@ impl Editor {
             .elements
             .iter()
             .filter(|e| area.includes_story(e.story))
-            .filter(|e| geometry::element_has_node_in_polygon(e, &area.vertices))
+            .filter(|e| geometry::element_has_node_in_polygon(&self.project, e, &area.vertices))
             .filter(|e| {
                 area.z_range
                     .is_none_or(|range| geometry::element_overlaps_z_range(&self.project, e, range))
@@ -667,22 +1048,13 @@ impl Editor {
         if ids.is_empty() || !delta.finite() {
             return;
         }
-        let before = self.project.clone();
-        for e in self
-            .project
-            .elements
-            .iter_mut()
-            .filter(|e| ids.contains(&e.id))
-        {
-            e.translate(delta);
+        match self.apply(ModelCommand::MoveElements { ids, offset: delta }) {
+            Ok(moved) if !moved.is_empty() => {
+                self.status = format!("Moved {} element(s)", moved.len());
+            }
+            Ok(_) => {}
+            Err(error) => self.status = error,
         }
-        if let Err(error) = self.project.validate() {
-            self.project = before;
-            self.status = error;
-            return;
-        }
-        self.commit(before);
-        self.status = format!("Moved {} element(s)", ids.len());
     }
     pub fn remove_marquee(&mut self) {
         self.marquee = None;
@@ -791,6 +1163,7 @@ impl Editor {
                         changed += 1;
                     }
                 }
+                Shape::Opening { .. } => {}
             }
         }
         if changed == 0 {
@@ -831,10 +1204,40 @@ impl Editor {
             return 0;
         }
         let before = self.project.clone();
+        let mut id_map = std::collections::HashMap::new();
         let mut copies = Vec::with_capacity(self.clipboard.len());
+        let mut deferred = Vec::new();
         for mut copy in self.clipboard.clone() {
+            if matches!(copy.shape, Shape::Opening { .. }) {
+                deferred.push(copy);
+                continue;
+            }
             copy.translate(offset);
-            copies.push(self.project.add(copy.story, copy.material, copy.shape));
+            let original_id = copy.id;
+            let new_id = self.project.add_with_status(
+                copy.story,
+                copy.material,
+                copy.shape,
+                copy.renovation,
+            );
+            id_map.insert(original_id, new_id);
+            copies.push(new_id);
+        }
+        for mut opening in deferred {
+            let Shape::Opening { host_wall, .. } = &mut opening.shape else {
+                continue;
+            };
+            let Some(&new_host) = id_map.get(host_wall) else {
+                continue;
+            };
+            *host_wall = new_host;
+            let new_id = self.project.add_with_status(
+                opening.story,
+                opening.material,
+                opening.shape,
+                opening.renovation,
+            );
+            copies.push(new_id);
         }
         if self.project.validate().is_err() {
             self.project = before;
@@ -852,7 +1255,7 @@ impl Editor {
             .elements
             .iter()
             .filter(|e| ids.contains(&e.id))
-            .flat_map(|e| geometry::footprint(e))
+            .flat_map(|e| geometry::element_footprint(&self.project, e))
             .collect();
         if bounds.is_empty() {
             return;
@@ -902,7 +1305,7 @@ impl Editor {
             .elements
             .iter()
             .filter(|e| ids.contains(&e.id))
-            .flat_map(|e| geometry::footprint(e))
+            .flat_map(|e| geometry::element_footprint(&self.project, e))
             .collect();
         if bounds.is_empty() {
             return;
@@ -971,6 +1374,7 @@ impl Editor {
                     *point = transform(*point);
                 }
             }
+            Shape::Opening { .. } => {}
         }
     }
     pub fn move_selection_to_story(&mut self, direction: i32) {
@@ -987,6 +1391,12 @@ impl Editor {
             .iter_mut()
             .filter(|e| ids.contains(&e.id))
         {
+            if let Shape::Opening { host_wall, .. } = e.shape
+                && !ids.contains(&host_wall)
+            {
+                // An opening must stay on its host wall's story.
+                continue;
+            }
             if let Some(index) = stories.iter().position(|s| s.id == e.story) {
                 let next = index as i32 + direction.signum();
                 if let Some(story) = usize::try_from(next).ok().and_then(|i| stories.get(i)) {
@@ -995,6 +1405,11 @@ impl Editor {
             }
         }
         if self.project != before {
+            if let Err(error) = self.project.validate() {
+                self.project = before;
+                self.status = error;
+                return;
+            }
             self.commit(before);
             self.status = "Moved selection to adjacent story".into();
         }
@@ -1012,5 +1427,170 @@ impl Editor {
         }
         self.commit(before);
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod command_tests {
+    use super::*;
+
+    fn wall(id: u64, x: f32) -> Element {
+        Element {
+            id,
+            name: format!("Wall {id}"),
+            story: 0,
+            material: Material::Plaster,
+            layer: Layer::Architectural,
+            renovation: RenovationStatus::New,
+            design_option: None,
+            wall_settings: None,
+            shape: Shape::Wall {
+                start: Point::new(x, 0.),
+                end: Point::new(x + 2., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        }
+    }
+
+    #[test]
+    fn typed_commands_are_one_undo_each_and_redo_exactly() {
+        let mut editor = Editor::new(Project::default());
+        let first = wall(1, 0.);
+        assert_eq!(
+            editor
+                .apply(ModelCommand::AddElement {
+                    element: first.clone()
+                })
+                .unwrap(),
+            vec![1]
+        );
+        editor
+            .apply(ModelCommand::UpdateElement {
+                element: wall(1, 3.),
+            })
+            .unwrap();
+        editor
+            .apply(ModelCommand::MoveElements {
+                ids: vec![1],
+                offset: Point::new(2., 1.),
+            })
+            .unwrap();
+        let mut options = editor.project.plan_options.clone();
+        options.drawing_scale = 50;
+        editor
+            .apply(ModelCommand::SetOptions {
+                plan: Some(options),
+                design: None,
+                guide: None,
+                grid: None,
+            })
+            .unwrap();
+        assert_eq!(editor.undo.len(), 4);
+        let after = editor.project.clone();
+        for _ in 0..4 {
+            editor.undo();
+        }
+        assert!(editor.project.elements.is_empty());
+        assert_eq!(editor.project.plan_options.drawing_scale, 100);
+        assert_eq!(editor.redo.len(), 4);
+        for _ in 0..4 {
+            editor.redo();
+        }
+        assert_eq!(editor.project, after);
+    }
+
+    #[test]
+    fn no_op_and_invalid_commands_leave_history_unchanged() {
+        let mut editor = Editor::new(Project::default());
+        editor
+            .apply(ModelCommand::AddElement {
+                element: wall(1, 0.),
+            })
+            .unwrap();
+        let before = editor.project.clone();
+        assert!(
+            editor
+                .apply(ModelCommand::MoveElements {
+                    ids: vec![99],
+                    offset: Point::new(1., 0.),
+                })
+                .unwrap()
+                .is_empty()
+        );
+        assert!(
+            editor
+                .apply(ModelCommand::UpdateElement {
+                    element: wall(9, 0.)
+                })
+                .is_err()
+        );
+        assert_eq!(editor.project, before);
+        assert_eq!(editor.undo.len(), 1);
+    }
+
+    #[test]
+    fn a_new_typed_command_after_undo_clears_redo() {
+        let mut editor = Editor::new(Project::default());
+        editor
+            .apply(ModelCommand::AddElement {
+                element: wall(1, 0.),
+            })
+            .unwrap();
+        editor
+            .apply(ModelCommand::MoveElements {
+                ids: vec![1],
+                offset: Point::new(1., 0.),
+            })
+            .unwrap();
+        editor.undo();
+        assert_eq!(editor.redo.len(), 1);
+        editor
+            .apply(ModelCommand::UpdateElement {
+                element: wall(1, 8.),
+            })
+            .unwrap();
+        assert!(editor.redo.is_empty());
+        editor.undo();
+        assert_eq!(editor.project.elements[0].shape, wall(1, 0.).shape);
+    }
+
+    #[test]
+    fn delete_uses_the_typed_remove_command_and_undo_restores_order() {
+        let mut editor = Editor::new(Project::default());
+        for index in 0..3 {
+            editor
+                .apply(ModelCommand::AddElement {
+                    element: wall(index + 1, index as f32 * 5.),
+                })
+                .unwrap();
+        }
+        let before = editor.project.clone();
+        editor.set_selection(vec![2]);
+        editor.delete();
+        assert_eq!(editor.undo.len(), 4);
+        assert_eq!(editor.project.elements.len(), 2);
+        assert_eq!(editor.undo.last().unwrap().affected_ids(), vec![2]);
+        editor.undo();
+        assert_eq!(editor.project, before);
+    }
+
+    #[test]
+    fn undo_history_keeps_affected_elements_only_and_caps_at_100() {
+        let mut editor = Editor::new(Project::default());
+        for index in 0..120 {
+            editor
+                .apply(ModelCommand::AddElement {
+                    element: wall(index + 1, index as f32 * 3.),
+                })
+                .unwrap();
+        }
+        assert_eq!(editor.undo.len(), 100);
+        assert!(
+            editor
+                .undo
+                .iter()
+                .all(|record| record.affected_ids().len() == 1)
+        );
     }
 }

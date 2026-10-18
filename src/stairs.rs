@@ -266,8 +266,10 @@ mod tests {
 
     #[test]
     fn stair_follows_rotated_run_and_checks_bad_inputs() {
-        let mut spec = StairSpec::default();
-        spec.end = Point::new(0.0, 4.8);
+        let mut spec = StairSpec {
+            end: Point::new(0.0, 4.8),
+            ..Default::default()
+        };
         let geometry = generate(&spec, 2.5).unwrap();
         assert!((geometry.footprint[1].x).abs() < 1e-5);
         assert!((geometry.footprint[1].y - 4.8).abs() < 1e-5);

@@ -6,6 +6,8 @@ if [ -x "$HOME/.cargo/bin/rustup" ]; then
   OPENARCHI_CARGO=$("$HOME/.cargo/bin/rustup" which --toolchain stable cargo)
   export RUSTC="$OPENARCHI_RUSTC"
   export RUSTDOC="$(dirname "$OPENARCHI_RUSTC")/rustdoc"
+  # cargo resolves cargo-clippy/rustfmt through PATH; keep it on the same stable toolchain.
+  export PATH="$(dirname "$OPENARCHI_RUSTC"):$PATH"
   exec "$OPENARCHI_CARGO" "$@"
 fi
 exec cargo "$@"

@@ -140,6 +140,31 @@ mod tests {
             "Layer Combination"
         );
     }
+
+    #[test]
+    fn file_dialog_labels_are_localized_in_both_language_packs() {
+        let labels = [
+            "Open project",
+            "New project",
+            "Unsaved changes will be replaced. Save first if you need them.",
+            "Open / replace",
+            "Create / replace",
+            "OpenArchi project",
+        ];
+        let english: serde_json::Value = serde_json::from_str(EN).unwrap();
+        let chinese: serde_json::Value = serde_json::from_str(ZH_CN).unwrap();
+        for label in labels {
+            assert!(
+                english.get(label).is_some(),
+                "missing English entry for {label}"
+            );
+            assert!(
+                chinese.get(label).is_some(),
+                "missing Chinese entry for {label}"
+            );
+            assert_ne!(UiLanguage::SimplifiedChinese.translate(label), label);
+        }
+    }
     #[test]
     fn wall_settings_labels_and_choices_are_localized_in_both_language_packs() {
         let labels = [

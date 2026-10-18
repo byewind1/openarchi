@@ -84,6 +84,187 @@ fn append_joined_wall_prism(
     }
 }
 
+/// Emit a straight wall as solid piers plus sill/lintel blocks around its
+/// rectangular openings. Windows receive one thin glazing pane.
+fn append_wall_with_openings(
+    project: &Project,
+    wall: &Element,
+    openings: &[&Element],
+    base: [f32; 3],
+    vertices: &mut Vec<Vertex>,
+    lines: &mut Vec<Vertex>,
+) {
+    let Shape::Wall {
+        start,
+        end,
+        thickness,
+        height,
+    } = wall.shape
+    else {
+        return;
+    };
+    let length = start.distance(end);
+    if length < 1e-6 {
+        return;
+    }
+    let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
+    let normal = Point::new(-direction.y, direction.x);
+    let (bottom_offset, top_offset) = wall
+        .wall_settings
+        .as_ref()
+        .map_or((0., 0.), |settings| settings.vertical_offsets());
+    let body_offset = wall
+        .wall_settings
+        .as_ref()
+        .map_or(0., |settings| settings.body_offset(thickness));
+    let story_base = project.elevation(wall.story);
+    let z_bottom = story_base + bottom_offset;
+    let z_top = story_base + height + top_offset;
+    if z_top <= z_bottom + 1e-5 {
+        return;
+    }
+    let half = thickness * 0.5;
+    let center = |travel: f32| {
+        Point::new(
+            start.x + direction.x * travel + normal.x * body_offset,
+            start.y + direction.y * travel + normal.y * body_offset,
+        )
+    };
+    let prism = |from: f32, to: f32, low: f32, high: f32| -> [glam::Vec3; 8] {
+        let a = center(from);
+        let b = center(to);
+        let a1 = Point::new(a.x + normal.x * half, a.y + normal.y * half);
+        let a2 = Point::new(a.x - normal.x * half, a.y - normal.y * half);
+        let b1 = Point::new(b.x + normal.x * half, b.y + normal.y * half);
+        let b2 = Point::new(b.x - normal.x * half, b.y - normal.y * half);
+        [
+            glam::Vec3::new(a1.x, a1.y, low),
+            glam::Vec3::new(b1.x, b1.y, low),
+            glam::Vec3::new(b2.x, b2.y, low),
+            glam::Vec3::new(a2.x, a2.y, low),
+            glam::Vec3::new(a1.x, a1.y, high),
+            glam::Vec3::new(b1.x, b1.y, high),
+            glam::Vec3::new(b2.x, b2.y, high),
+            glam::Vec3::new(a2.x, a2.y, high),
+        ]
+    };
+    let emit = |vertices: &mut Vec<Vertex>,
+                lines: &mut Vec<Vertex>,
+                corners: [glam::Vec3; 8],
+                color: [f32; 3]| {
+        for (index, face) in FACES.iter().enumerate() {
+            let shade = [0.55, 1., 0.73, 0.87, 0.81, 0.66][index];
+            let c = color.map(|channel| channel * shade);
+            for i in [0, 1, 2, 0, 2, 3] {
+                vertices.push(vertex(corners[face[i]], c));
+            }
+        }
+        let edge = color.map(|channel| channel * 0.42);
+        for [a, b] in [
+            [0, 1],
+            [1, 2],
+            [2, 3],
+            [3, 0],
+            [4, 5],
+            [5, 6],
+            [6, 7],
+            [7, 4],
+            [0, 4],
+            [1, 5],
+            [2, 6],
+            [3, 7],
+        ] {
+            lines.push(vertex(corners[a], edge));
+            lines.push(vertex(corners[b], edge));
+        }
+    };
+
+    let mut holes: Vec<(f32, f32, f32, f32, bool)> = openings
+        .iter()
+        .filter_map(|opening| {
+            let Shape::Opening {
+                kind,
+                width,
+                height,
+                sill,
+                offset,
+                ..
+            } = opening.shape
+            else {
+                return None;
+            };
+            let low = (offset - width * 0.5).clamp(0., length);
+            let high = (offset + width * 0.5).clamp(0., length);
+            let hole_low = (story_base + sill).clamp(z_bottom, z_top);
+            let hole_high = (story_base + sill + height).clamp(z_bottom, z_top);
+            (high > low + 1e-4 && hole_high > hole_low + 1e-4).then_some((
+                low,
+                high,
+                hole_low,
+                hole_high,
+                kind == OpeningKind::Window,
+            ))
+        })
+        .collect();
+    holes.sort_by(|a, b| a.0.total_cmp(&b.0));
+
+    let mut cursor = 0.0;
+    for &(low, high, hole_low, hole_high, window) in &holes {
+        if low > cursor + 1e-4 {
+            emit(vertices, lines, prism(cursor, low, z_bottom, z_top), base);
+        }
+        if hole_low > z_bottom + 1e-4 {
+            emit(vertices, lines, prism(low, high, z_bottom, hole_low), base);
+        }
+        if hole_high < z_top - 1e-4 {
+            emit(vertices, lines, prism(low, high, hole_high, z_top), base);
+        }
+        if window {
+            let pane = 0.02;
+            let pane_center = |travel: f32| {
+                Point::new(
+                    start.x + direction.x * travel + normal.x * body_offset,
+                    start.y + direction.y * travel + normal.y * body_offset,
+                )
+            };
+            let a = pane_center(low);
+            let b = pane_center(high);
+            let a1 = Point::new(a.x + normal.x * pane, a.y + normal.y * pane);
+            let a2 = Point::new(a.x - normal.x * pane, a.y - normal.y * pane);
+            let b1 = Point::new(b.x + normal.x * pane, b.y + normal.y * pane);
+            let b2 = Point::new(b.x - normal.x * pane, b.y - normal.y * pane);
+            let low = hole_low + 0.03;
+            let high = hole_high - 0.03;
+            if high > low {
+                emit(
+                    vertices,
+                    lines,
+                    [
+                        glam::Vec3::new(a1.x, a1.y, low),
+                        glam::Vec3::new(b1.x, b1.y, low),
+                        glam::Vec3::new(b2.x, b2.y, low),
+                        glam::Vec3::new(a2.x, a2.y, low),
+                        glam::Vec3::new(a1.x, a1.y, high),
+                        glam::Vec3::new(b1.x, b1.y, high),
+                        glam::Vec3::new(b2.x, b2.y, high),
+                        glam::Vec3::new(a2.x, a2.y, high),
+                    ],
+                    [0.55, 0.74, 0.82],
+                );
+            }
+        }
+        cursor = high;
+    }
+    if cursor < length - 1e-4 {
+        emit(
+            vertices,
+            lines,
+            prism(cursor, length, z_bottom, z_top),
+            base,
+        );
+    }
+}
+
 fn edge_on_polygon(
     a: crate::model::Point,
     b: crate::model::Point,
@@ -351,6 +532,7 @@ impl SceneRenderer {
             ),
         )
     }
+    #[allow(clippy::too_many_arguments)]
     pub fn render(
         &mut self,
         p: &Project,
@@ -402,7 +584,7 @@ impl SceneRenderer {
                 .iter()
                 .filter(|element| story.is_none_or(|story_id| element.story == story_id))
             {
-                for corner in crate::geometry::footprint(element) {
+                for corner in crate::geometry::element_footprint(p, element) {
                     let local = grid.local_point(corner);
                     min_u = min_u.min(local.x);
                     max_u = max_u.max(local.x);
@@ -454,6 +636,14 @@ impl SceneRenderer {
         let mut wall_display_footprints = Vec::new();
         let mut attached_wall_ends = Vec::new();
         let mut merged_wall_ids = Vec::new();
+        let walls_with_openings: std::collections::HashSet<u64> = p
+            .elements
+            .iter()
+            .filter_map(|element| match element.shape {
+                Shape::Opening { host_wall, .. } => Some(host_wall),
+                _ => None,
+            })
+            .collect();
         let join_3d_display = marquee.is_none() && !outside_marquee && !selection_only;
         let stories: Vec<u32> = story.map_or_else(
             || p.stories.iter().map(|item| item.id).collect(),
@@ -481,7 +671,11 @@ impl SceneRenderer {
                         .zip(footprints.iter().copied())
                         .map(|(wall, footprint)| (wall.id, footprint)),
                 );
-                if join_3d_display && !walls.iter().any(|wall| selected.contains(&wall.id)) {
+                if join_3d_display
+                    && !walls.iter().any(|wall| {
+                        selected.contains(&wall.id) || walls_with_openings.contains(&wall.id)
+                    })
+                {
                     let mut height_groups: Vec<(f32, Vec<usize>)> = Vec::new();
                     for (index, wall) in walls.iter().enumerate() {
                         let Shape::Wall { height, .. } = wall.shape else {
@@ -535,10 +729,11 @@ impl SceneRenderer {
                 if !marquee.includes_story(e.story) {
                     return false;
                 }
-                let intersects = crate::geometry::element_intersects_polygon(e, &marquee.vertices)
-                    && marquee
-                        .z_range
-                        .is_none_or(|range| crate::geometry::element_overlaps_z_range(p, e, range));
+                let intersects =
+                    crate::geometry::element_intersects_polygon(p, e, &marquee.vertices)
+                        && marquee.z_range.is_none_or(|range| {
+                            crate::geometry::element_overlaps_z_range(p, e, range)
+                        });
                 if outside_marquee {
                     !crate::geometry::element_fully_inside_volume(
                         p,
@@ -551,7 +746,7 @@ impl SceneRenderer {
                 }
             })
         {
-            if matches!(e.shape, Shape::Polyline { .. }) {
+            if matches!(e.shape, Shape::Polyline { .. } | Shape::Opening { .. }) {
                 continue;
             }
             if join_3d_display && merged_wall_ids.contains(&e.id) {
@@ -563,13 +758,27 @@ impl SceneRenderer {
             } else {
                 e.material.color()
             };
-            if !outside_marquee && !selection_only {
-                if let Some(area) = marquee {
-                    if !matches!(&e.shape, Shape::Stair { .. }) {
-                        append_clipped_prism(p, e, area, base, &mut vertices, &mut lines);
-                        continue;
-                    }
-                }
+            if join_3d_display
+                && matches!(e.shape, Shape::Wall { .. })
+                && walls_with_openings.contains(&e.id)
+            {
+                let openings: Vec<&Element> = p
+                    .elements
+                    .iter()
+                    .filter(|opening| {
+                        matches!(opening.shape, Shape::Opening { host_wall, .. } if host_wall == e.id)
+                    })
+                    .collect();
+                append_wall_with_openings(p, e, &openings, base, &mut vertices, &mut lines);
+                continue;
+            }
+            if !outside_marquee
+                && !selection_only
+                && let Some(area) = marquee
+                && !matches!(&e.shape, Shape::Stair { .. })
+            {
+                append_clipped_prism(p, e, area, base, &mut vertices, &mut lines);
+                continue;
             }
             if let Shape::Stair { ref spec } = e.shape {
                 if let Ok(stair) = crate::stairs::generate(spec, p.elevation(e.story)) {
@@ -594,16 +803,16 @@ impl SceneRenderer {
                 }
                 continue;
             }
-            if join_3d_display && matches!(e.shape, Shape::Wall { .. }) {
-                if let Some((_, footprint)) =
+            if join_3d_display
+                && matches!(e.shape, Shape::Wall { .. })
+                && let Some((_, footprint)) =
                     wall_display_footprints.iter().find(|(id, _)| *id == e.id)
-                {
-                    for i in 0..4 {
-                        element_corners[i].x = footprint[i].x;
-                        element_corners[i].y = footprint[i].y;
-                        element_corners[i + 4].x = footprint[i].x;
-                        element_corners[i + 4].y = footprint[i].y;
-                    }
+            {
+                for i in 0..4 {
+                    element_corners[i].x = footprint[i].x;
+                    element_corners[i].y = footprint[i].y;
+                    element_corners[i + 4].x = footprint[i].x;
+                    element_corners[i + 4].y = footprint[i].y;
                 }
             }
             let start_joined = join_3d_display && attached_wall_ends.contains(&(e.id, true));

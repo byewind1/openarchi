@@ -285,7 +285,7 @@ impl AtelierApp {
                 Some(values)
             };
         }
-        if let Some((measurement, selected, mut value)) = self.guide_ui.distance_edit.clone() {
+        if let Some((measurement, selected, mut value)) = self.guide_ui.distance_edit {
             let mut close = false;
             let modal = egui::Modal::new(Id::new("distance_guide_edit")).show(ctx, |ui| {
                 ui.heading(self.language.translate("Distance Guides"));
@@ -328,7 +328,7 @@ impl AtelierApp {
                         };
                         match result {
                             Ok(()) => close = true,
-                            Err(error) => self.guide_ui.error = error.into(),
+                            Err(error) => self.guide_ui.error = error,
                         }
                     }
                     if ui.button(self.language.translate("Cancel")).clicked() {
@@ -371,13 +371,13 @@ impl AtelierApp {
                 self.guide_ui.points.clear();
                 return true;
             }
-            if let Some((index, _)) = self.guide_ui.hovered.take() {
-                if index < self.editor.project.guides.len() {
-                    let before = self.editor.project.clone();
-                    self.editor.project.guides.remove(index);
-                    self.editor.commit(before);
-                    return true;
-                }
+            if let Some((index, _)) = self.guide_ui.hovered.take()
+                && index < self.editor.project.guides.len()
+            {
+                let before = self.editor.project.clone();
+                self.editor.project.guides.remove(index);
+                self.editor.commit(before);
+                return true;
             }
         }
         if self.guide_ui.values.is_some()
@@ -396,23 +396,21 @@ impl AtelierApp {
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::D))
             && self.editor.project.guide_settings.distance_guides_enabled
-        {
-            if let Some(measurement) = self
+            && let Some(measurement) = self
                 .guide_ui
                 .distance_candidates
                 .iter()
                 .min_by(|a, b| a.distance.total_cmp(&b.distance))
                 .copied()
-            {
-                let selected = if self.editor.tool == Tool::Select {
-                    self.editor.selected
-                } else {
-                    None
-                };
-                self.guide_ui.distance_edit = Some((measurement, selected, measurement.distance));
-                self.guide_ui.error.clear();
-                return true;
-            }
+        {
+            let selected = if self.editor.tool == Tool::Select {
+                self.editor.selected
+            } else {
+                None
+            };
+            self.guide_ui.distance_edit = Some((measurement, selected, measurement.distance));
+            self.guide_ui.error.clear();
+            return true;
         }
         false
     }
@@ -477,33 +475,33 @@ impl AtelierApp {
             .filter(|e| e.story == self.editor.story)
         {
             for path in guides::element_paths(element, DistanceReference::ReferenceLines) {
-                if let Some(hit) = path.project(point) {
-                    if hit.distance < distance {
-                        let edge = &path.edges[hit.edge_index];
-                        let primitive = if let Some(arc) = edge.arc {
-                            // Arc helper returns original circle, never a copied display asset.
-                            if let Some((center, _)) =
-                                geometry::arc_center_sweep(edge.start, edge.end, arc)
-                            {
-                                GuidePrimitive::Circle {
-                                    center,
-                                    radius: arc.radius,
-                                }
-                            } else {
-                                continue;
+                if let Some(hit) = path.project(point)
+                    && hit.distance < distance
+                {
+                    let edge = &path.edges[hit.edge_index];
+                    let primitive = if let Some(arc) = edge.arc {
+                        // Arc helper returns original circle, never a copied display asset.
+                        if let Some((center, _)) =
+                            geometry::arc_center_sweep(edge.start, edge.end, arc)
+                        {
+                            GuidePrimitive::Circle {
+                                center,
+                                radius: arc.radius,
                             }
                         } else {
-                            GuidePrimitive::Line {
-                                origin: edge.start,
-                                direction: Point::new(
-                                    edge.end.x - edge.start.x,
-                                    edge.end.y - edge.start.y,
-                                ),
-                            }
-                        };
-                        nearest = Some(primitive);
-                        distance = hit.distance;
-                    }
+                            continue;
+                        }
+                    } else {
+                        GuidePrimitive::Line {
+                            origin: edge.start,
+                            direction: Point::new(
+                                edge.end.x - edge.start.x,
+                                edge.end.y - edge.start.y,
+                            ),
+                        }
+                    };
+                    nearest = Some(primitive);
+                    distance = hit.distance;
                 }
             }
         }
@@ -546,7 +544,7 @@ impl AtelierApp {
                 .guides
                 .iter()
                 .filter(|g| g.story == self.editor.story)
-                .map(|g| g.primitive.clone())
+                .map(|g| g.primitive)
                 .collect()
         } else {
             Vec::new()
@@ -589,10 +587,10 @@ impl AtelierApp {
                 }
             }
         }
-        if let Some(point) = crossing {
-            if !matches!(kind, SnapKind::Endpoint | SnapKind::SnapPoint) {
-                return (point, SnapKind::Guide);
-            }
+        if let Some(point) = crossing
+            && !matches!(kind, SnapKind::Endpoint | SnapKind::SnapPoint)
+        {
+            return (point, SnapKind::Guide);
         }
         for primitive in &primitives {
             if let Some(point) = primitive.project(p) {
@@ -608,15 +606,13 @@ impl AtelierApp {
         if shift
             && !primitives.is_empty()
             && !matches!(kind, SnapKind::Endpoint | SnapKind::SnapPoint)
-        {
-            if let Some(point) = primitives
+            && let Some(point) = primitives
                 .iter()
                 .filter_map(|g| g.project(p))
                 .min_by(|a, b| p.distance(*a).total_cmp(&p.distance(*b)))
-            {
-                base = point;
-                kind = SnapKind::Guide;
-            }
+        {
+            base = point;
+            kind = SnapKind::Guide;
         }
         (base, kind)
     }
@@ -632,7 +628,7 @@ impl AtelierApp {
         });
         if let Err(error) = self.editor.project.validate() {
             self.editor.project = before;
-            self.guide_ui.error = error.into();
+            self.guide_ui.error = error;
             return;
         }
         self.editor.commit(before);
@@ -770,12 +766,11 @@ impl AtelierApp {
                         if prior.distance(raw) > tolerance {
                             self.guide_ui.hover_reference = Some((raw, now));
                         } else if now - since > 0.6 && now - since < 1.0 {
-                            if let Some(reference) = self.reference_at(raw, tolerance) {
-                                if !self.guide_ui.references.contains(&reference) {
-                                    if self.guide_ui.references.len() < 64 {
-                                        self.guide_ui.references.push(reference);
-                                    }
-                                }
+                            if let Some(reference) = self.reference_at(raw, tolerance)
+                                && !self.guide_ui.references.contains(&reference)
+                                && self.guide_ui.references.len() < 64
+                            {
+                                self.guide_ui.references.push(reference);
                             }
                             self.guide_ui.hover_reference = Some((raw, now + 60.));
                         }
@@ -819,13 +814,13 @@ impl AtelierApp {
                 .filter(|(_, g)| g.story == self.editor.story)
             {
                 self.paint_guide(&painter, rect, &guide.primitive, GUIDE_COLOR);
-                if let Some(raw) = raw {
-                    if let Some(point) = guide.primitive.project(raw) {
-                        let distance = raw.distance(point);
-                        if distance < nearest {
-                            self.guide_ui.hovered = Some((i, point));
-                            nearest = distance;
-                        }
+                if let Some(raw) = raw
+                    && let Some(point) = guide.primitive.project(raw)
+                {
+                    let distance = raw.distance(point);
+                    if distance < nearest {
+                        self.guide_ui.hovered = Some((i, point));
+                        nearest = distance;
                     }
                 }
             }
@@ -877,31 +872,31 @@ impl AtelierApp {
             return true;
         }
         if let Some((before, index, start)) = self.guide_ui.drag.clone() {
-            if let Some(raw) = raw {
-                if let Some(original) = before.guides.get(index) {
-                    let delta = Point::new(raw.x - start.x, raw.y - start.y);
-                    let translated = match original.primitive {
-                        GuidePrimitive::Segment { start, end } => GuidePrimitive::Segment {
-                            start: Point::new(start.x + delta.x, start.y + delta.y),
-                            end: Point::new(end.x + delta.x, end.y + delta.y),
-                        },
-                        GuidePrimitive::Line { origin, direction } => GuidePrimitive::Line {
-                            origin: Point::new(origin.x + delta.x, origin.y + delta.y),
-                            direction,
-                        },
-                        GuidePrimitive::Circle { center, .. } => GuidePrimitive::Circle {
-                            center,
-                            radius: center.distance(raw),
-                        },
-                        GuidePrimitive::Arc { start, end, arc } => GuidePrimitive::Arc {
-                            start: Point::new(start.x + delta.x, start.y + delta.y),
-                            end: Point::new(end.x + delta.x, end.y + delta.y),
-                            arc,
-                        },
-                    };
-                    if translated.validate().is_ok() {
-                        self.editor.project.guides[index].primitive = translated;
-                    }
+            if let Some(raw) = raw
+                && let Some(original) = before.guides.get(index)
+            {
+                let delta = Point::new(raw.x - start.x, raw.y - start.y);
+                let translated = match original.primitive {
+                    GuidePrimitive::Segment { start, end } => GuidePrimitive::Segment {
+                        start: Point::new(start.x + delta.x, start.y + delta.y),
+                        end: Point::new(end.x + delta.x, end.y + delta.y),
+                    },
+                    GuidePrimitive::Line { origin, direction } => GuidePrimitive::Line {
+                        origin: Point::new(origin.x + delta.x, origin.y + delta.y),
+                        direction,
+                    },
+                    GuidePrimitive::Circle { center, .. } => GuidePrimitive::Circle {
+                        center,
+                        radius: center.distance(raw),
+                    },
+                    GuidePrimitive::Arc { start, end, arc } => GuidePrimitive::Arc {
+                        start: Point::new(start.x + delta.x, start.y + delta.y),
+                        end: Point::new(end.x + delta.x, end.y + delta.y),
+                        arc,
+                    },
+                };
+                if translated.validate().is_ok() {
+                    self.editor.project.guides[index].primitive = translated;
                 }
             }
             if ui.input(|i| i.pointer.any_released()) {
@@ -920,34 +915,34 @@ impl AtelierApp {
         if let Some(action) = self.guide_ui.action {
             if action == GuideAction::Erase {
                 ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
-                if let Some(raw) = raw {
-                    if response.clicked() || response.dragged_by(PointerButton::Primary) {
-                        if self.guide_ui.erase_before.is_none() {
-                            self.guide_ui.erase_before = Some(self.editor.project.clone());
-                        }
-                        let delta = ui.input(|i| i.pointer.delta());
-                        let previous = Point::new(
-                            raw.x - delta.x / self.plan_scale,
-                            raw.y + delta.y / self.plan_scale,
-                        );
-                        let stroke = GuidePrimitive::Segment {
-                            start: previous,
-                            end: raw,
-                        };
-                        self.editor.project.guides.retain(|g| {
-                            g.story != self.editor.story
-                                || (g
-                                    .primitive
-                                    .project(raw)
-                                    .is_none_or(|p| p.distance(raw) > tolerance)
-                                    && g.primitive.intersections(&stroke).is_empty())
-                        });
+                if let Some(raw) = raw
+                    && (response.clicked() || response.dragged_by(PointerButton::Primary))
+                {
+                    if self.guide_ui.erase_before.is_none() {
+                        self.guide_ui.erase_before = Some(self.editor.project.clone());
                     }
+                    let delta = ui.input(|i| i.pointer.delta());
+                    let previous = Point::new(
+                        raw.x - delta.x / self.plan_scale,
+                        raw.y + delta.y / self.plan_scale,
+                    );
+                    let stroke = GuidePrimitive::Segment {
+                        start: previous,
+                        end: raw,
+                    };
+                    self.editor.project.guides.retain(|g| {
+                        g.story != self.editor.story
+                            || (g
+                                .primitive
+                                .project(raw)
+                                .is_none_or(|p| p.distance(raw) > tolerance)
+                                && g.primitive.intersections(&stroke).is_empty())
+                    });
                 }
-                if ui.input(|i| i.pointer.any_released()) {
-                    if let Some(before) = self.guide_ui.erase_before.take() {
-                        self.editor.commit(before);
-                    }
+                if ui.input(|i| i.pointer.any_released())
+                    && let Some(before) = self.guide_ui.erase_before.take()
+                {
+                    self.editor.commit(before);
                 }
                 if response.double_clicked() {
                     self.guide_ui.action = None;
@@ -1010,10 +1005,10 @@ impl AtelierApp {
                             }
                         })
                     });
-                    if let Some(primitive) = &primitive {
-                        if primitive.validate().is_ok() {
-                            self.paint_guide(&painter, rect, primitive, GUIDE_COLOR);
-                        }
+                    if let Some(primitive) = &primitive
+                        && primitive.validate().is_ok()
+                    {
+                        self.paint_guide(&painter, rect, primitive, GUIDE_COLOR);
                     }
                     if response.clicked() && !palette_hovered {
                         if self.guide_ui.start.is_none() {
@@ -1044,75 +1039,73 @@ impl AtelierApp {
             && settings.guide_lines_enabled
             && response.drag_started_by(PointerButton::Primary)
             && !ui.input(|i| i.key_down(Key::Space))
-        {
-            if let Some(start) = ui
+            && let Some(start) = ui
                 .input(|i| i.pointer.press_origin())
                 .filter(|p| rect.contains(*p))
                 .map(|p| self.world(rect, p))
-            {
-                let hit = self
-                    .editor
-                    .project
-                    .guides
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, g)| g.story == self.editor.story)
-                    .filter_map(|(i, g)| g.primitive.project(start).map(|p| (i, p.distance(start))))
-                    .filter(|(_, d)| *d < tolerance)
-                    .min_by(|a, b| a.1.total_cmp(&b.1));
-                if let Some((index, _)) = hit {
-                    self.guide_ui.drag = Some((self.editor.project.clone(), index, start));
-                    self.drag = None;
-                    return true;
-                }
+        {
+            let hit = self
+                .editor
+                .project
+                .guides
+                .iter()
+                .enumerate()
+                .filter(|(_, g)| g.story == self.editor.story)
+                .filter_map(|(i, g)| g.primitive.project(start).map(|p| (i, p.distance(start))))
+                .filter(|(_, d)| *d < tolerance)
+                .min_by(|a, b| a.1.total_cmp(&b.1));
+            if let Some((index, _)) = hit {
+                self.guide_ui.drag = Some((self.editor.project.clone(), index, start));
+                self.drag = None;
+                return true;
             }
         }
-        if let Some((index, point)) = self.guide_ui.hovered {
-            if self.editor.tool == Tool::Select {
-                let pos = self.screen(rect, point);
-                painter.circle_filled(pos, 4.5, GUIDE_COLOR);
-                // Handle is projected under the cursor; picking it must not select a wall.
-                if response.drag_started_by(PointerButton::Primary) {
-                    self.guide_ui.drag = Some((
-                        self.editor.project.clone(),
-                        index,
-                        ui.input(|i| i.pointer.press_origin())
-                            .map(|p| self.world(rect, p))
-                            .unwrap_or(point),
-                    ));
-                    self.drag = None;
-                    return true;
-                }
-                response.context_menu(|ui| {
-                    if ui
-                        .button(self.language.translate("Guide Offset…"))
-                        .clicked()
-                    {
-                        self.guide_ui.offset_edit =
-                            Some((index, self.editor.project.guides[index].primitive, 0.));
-                        self.guide_ui.error.clear();
-                        ui.close();
-                    }
-                    if ui
-                        .button(self.language.translate("Remove Guide Line"))
-                        .clicked()
-                    {
-                        let before = self.editor.project.clone();
-                        self.editor.project.guides.remove(index);
-                        self.editor.commit(before);
-                        ui.close();
-                    }
-                    if ui
-                        .button(self.language.translate("Remove All Guide Lines"))
-                        .clicked()
-                    {
-                        let before = self.editor.project.clone();
-                        self.editor.project.guides.clear();
-                        self.editor.commit(before);
-                        ui.close();
-                    }
-                });
+        if let Some((index, point)) = self.guide_ui.hovered
+            && self.editor.tool == Tool::Select
+        {
+            let pos = self.screen(rect, point);
+            painter.circle_filled(pos, 4.5, GUIDE_COLOR);
+            // Handle is projected under the cursor; picking it must not select a wall.
+            if response.drag_started_by(PointerButton::Primary) {
+                self.guide_ui.drag = Some((
+                    self.editor.project.clone(),
+                    index,
+                    ui.input(|i| i.pointer.press_origin())
+                        .map(|p| self.world(rect, p))
+                        .unwrap_or(point),
+                ));
+                self.drag = None;
+                return true;
             }
+            response.context_menu(|ui| {
+                if ui
+                    .button(self.language.translate("Guide Offset…"))
+                    .clicked()
+                {
+                    self.guide_ui.offset_edit =
+                        Some((index, self.editor.project.guides[index].primitive, 0.));
+                    self.guide_ui.error.clear();
+                    ui.close();
+                }
+                if ui
+                    .button(self.language.translate("Remove Guide Line"))
+                    .clicked()
+                {
+                    let before = self.editor.project.clone();
+                    self.editor.project.guides.remove(index);
+                    self.editor.commit(before);
+                    ui.close();
+                }
+                if ui
+                    .button(self.language.translate("Remove All Guide Lines"))
+                    .clicked()
+                {
+                    let before = self.editor.project.clone();
+                    self.editor.project.guides.clear();
+                    self.editor.commit(before);
+                    ui.close();
+                }
+            });
         }
         self.guide_ui.distance_candidates.clear();
         if settings.distance_guides_enabled {
@@ -1468,10 +1461,10 @@ mod guide_ui_tests {
             .shapes
             .iter()
             .find_map(|shape| {
-                if let egui::Shape::Text(text) = &shape.shape {
-                    if text.galley.text() == label {
-                        return Some(text.pos + vec2(4., 4.));
-                    }
+                if let egui::Shape::Text(text) = &shape.shape
+                    && text.galley.text() == label
+                {
+                    return Some(text.pos + vec2(4., 4.));
                 }
                 None
             })

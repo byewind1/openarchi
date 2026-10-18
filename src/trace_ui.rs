@@ -14,10 +14,9 @@ impl AtelierApp {
                     self.editor.previous_story,
                 )
                 .is_none()
+                && let Some(story) = self.nearest_trace_story()
             {
-                if let Some(story) = self.nearest_trace_story() {
-                    self.trace.reference = TraceReference::Story(story);
-                }
+                self.trace.reference = TraceReference::Story(story);
             }
             self.editor.status = match self.trace.selection(
                 &self.editor.project,
@@ -805,24 +804,21 @@ impl AtelierApp {
                             fill,
                             Stroke::new(1.05, reference_color(element, stroke_alpha)),
                         ));
-                        if let Shape::Stair { ref spec } = element.shape {
-                            if let Ok(stair) = crate::stairs::generate(spec, 0.0) {
-                                for [start, end] in stair.tread_lines {
-                                    painter.line_segment(
-                                        [screen(start), screen(end)],
-                                        Stroke::new(
-                                            0.75,
-                                            reference_color(
-                                                element,
-                                                stroke_alpha.saturating_sub(30),
-                                            ),
-                                        ),
-                                    );
-                                }
+                        if let Shape::Stair { ref spec } = element.shape
+                            && let Ok(stair) = crate::stairs::generate(spec, 0.0)
+                        {
+                            for [start, end] in stair.tread_lines {
+                                painter.line_segment(
+                                    [screen(start), screen(end)],
+                                    Stroke::new(
+                                        0.75,
+                                        reference_color(element, stroke_alpha.saturating_sub(30)),
+                                    ),
+                                );
                             }
                         }
                     }
-                    Shape::Wall { .. } => {}
+                    Shape::Wall { .. } | Shape::Opening { .. } => {}
                 }
             }
             let walls: Vec<_> = story_elements

@@ -418,11 +418,13 @@ mod tests {
 
     #[test]
     fn documented_auxiliary_cycle_starts_at_origin() {
-        let mut settings = GridSettings::default();
-        settings.aux_spacing_x = 1.0;
-        settings.aux_steps_x = 2;
-        settings.aux_spacing_y = 1.0;
-        settings.aux_steps_y = 2;
+        let settings = GridSettings {
+            aux_spacing_x: 1.0,
+            aux_steps_x: 2,
+            aux_spacing_y: 1.0,
+            aux_steps_y: 2,
+            ..Default::default()
+        };
         let pattern = settings.pattern(true).unwrap();
         assert_eq!(pattern.period, 4.0);
         assert_eq!(
@@ -444,10 +446,12 @@ mod tests {
 
     #[test]
     fn zero_steps_hide_that_grid_kind() {
-        let mut settings = GridSettings::default();
-        settings.main_steps_x = 0;
-        settings.aux_spacing_x = 0.5;
-        settings.aux_steps_x = 2;
+        let mut settings = GridSettings {
+            main_steps_x: 0,
+            aux_spacing_x: 0.5,
+            aux_steps_x: 2,
+            ..Default::default()
+        };
         assert_eq!(
             settings.pattern(true).unwrap().between(0.0, 1.6),
             vec![(0.0, false), (0.5, false), (1.0, false), (1.5, false)]
@@ -458,13 +462,15 @@ mod tests {
 
     #[test]
     fn rotated_snap_grid_rounds_in_local_coordinates() {
-        let mut settings = GridSettings::default();
-        settings.grid_snap_enabled = true;
-        settings.snap_spacing_x = 0.5;
-        settings.snap_spacing_y = 0.5;
-        settings.rotate_enabled = true;
-        settings.rotated_display = true;
-        settings.rotation_deg = 90.0;
+        let settings = GridSettings {
+            grid_snap_enabled: true,
+            snap_spacing_x: 0.5,
+            snap_spacing_y: 0.5,
+            rotate_enabled: true,
+            rotated_display: true,
+            rotation_deg: 90.0,
+            ..Default::default()
+        };
         let snapped = settings.snap_point(Point::new(0.26, 0.24)).unwrap();
         assert!((snapped.x - 0.5).abs() < 1e-4);
         assert!((snapped.y - 0.0).abs() < 1e-4);
@@ -472,14 +478,16 @@ mod tests {
 
     #[test]
     fn construction_snap_uses_nearest_main_or_aux_line() {
-        let mut settings = GridSettings::default();
-        settings.main_spacing_x = 2.0;
-        settings.main_spacing_y = 2.0;
-        settings.aux_spacing_x = 1.0;
-        settings.aux_spacing_y = 1.0;
-        settings.aux_steps_x = 2;
-        settings.aux_steps_y = 2;
-        settings.snap_mode = GridSnapMode::ConstructionGrid;
+        let mut settings = GridSettings {
+            main_spacing_x: 2.0,
+            main_spacing_y: 2.0,
+            aux_spacing_x: 1.0,
+            aux_spacing_y: 1.0,
+            aux_steps_x: 2,
+            aux_steps_y: 2,
+            snap_mode: GridSnapMode::ConstructionGrid,
+            ..Default::default()
+        };
         assert_eq!(
             settings.snap_point(Point::new(1.2, 3.9)),
             Some(Point::new(2.0, 4.0))
