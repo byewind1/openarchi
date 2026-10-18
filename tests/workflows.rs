@@ -536,10 +536,12 @@ fn marquee_volume_filters_by_story_xy_and_height() {
     ));
     let narrow = [p(1.5, -1.), p(2.5, -1.), p(2.5, 1.), p(1.5, 1.)];
     assert!(geometry::element_intersects_polygon(
+        &project,
         &project.elements[0],
         &narrow
     ));
     assert!(!geometry::element_has_node_in_polygon(
+        &project,
         &project.elements[0],
         &narrow
     ));

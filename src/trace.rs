@@ -94,6 +94,7 @@ impl TraceVisibility {
             Shape::Slab { .. } => self.slabs,
             Shape::Stair { .. } => self.stairs,
             Shape::Polyline { .. } => self.polylines,
+            Shape::Opening { .. } => false,
         }
     }
 }
@@ -285,9 +286,11 @@ mod tests {
 
     #[test]
     fn transform_rotates_about_pivot_then_offsets() {
-        let mut trace = TraceState::default();
-        trace.rotation_deg = 90.;
-        trace.offset = Point::new(2., -1.);
+        let mut trace = TraceState {
+            rotation_deg: 90.,
+            offset: Point::new(2., -1.),
+            ..Default::default()
+        };
         let transformed = trace.transform(Point::new(2., 0.), Point::new(1., 0.));
         assert!((transformed.x - 3.).abs() < 1e-5);
         assert!((transformed.y + 0.).abs() < 1e-5);
@@ -298,11 +301,13 @@ mod tests {
 
     #[test]
     fn cancelling_pointer_modes_restores_temporary_displacement() {
-        let mut trace = TraceState::default();
-        trace.offset = Point::new(3., 4.);
-        trace.drag_mode = true;
-        trace.displace_mode = true;
-        trace.displace_origin = Some(Point::new(1., 2.));
+        let mut trace = TraceState {
+            offset: Point::new(3., 4.),
+            drag_mode: true,
+            displace_mode: true,
+            displace_origin: Some(Point::new(1., 2.)),
+            ..Default::default()
+        };
         assert!(trace.pointer_mode_active());
         assert!(trace.cancel_pointer_modes());
         assert!(!trace.pointer_mode_active());

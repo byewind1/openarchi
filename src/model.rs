@@ -48,6 +48,62 @@ impl Material {
         }
     }
 }
+
+/// Rectangular hosted opening kinds implemented by the first BIM slice.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub enum OpeningKind {
+    Door,
+    Window,
+}
+
+impl OpeningKind {
+    pub const ALL: [Self; 2] = [Self::Door, Self::Window];
+
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Door => "Door",
+            Self::Window => "Window",
+        }
+    }
+
+    pub fn defaults(self) -> OpeningDefaults {
+        match self {
+            Self::Door => OpeningDefaults {
+                width: 0.9,
+                height: 2.1,
+                sill: 0.,
+            },
+            Self::Window => OpeningDefaults {
+                width: 1.2,
+                height: 1.4,
+                sill: 0.9,
+            },
+        }
+    }
+}
+
+/// Creation defaults loaded by the Info Box while a Door/Window tool is active.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
+pub struct OpeningDefaults {
+    pub width: f32,
+    pub height: f32,
+    pub sill: f32,
+}
+
+impl OpeningDefaults {
+    pub fn validate(self) -> Result<(), String> {
+        if !self.width.is_finite()
+            || !self.height.is_finite()
+            || !self.sill.is_finite()
+            || !(0.05..=100.).contains(&self.width)
+            || !(0.05..=100.).contains(&self.height)
+            || self.sill < 0.
+        {
+            return Err("Opening width, height and sill must be positive values".into());
+        }
+        Ok(())
+    }
+}
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Shape {
@@ -71,6 +127,17 @@ pub enum Shape {
         /// Empty is accepted for projects written before arc metadata existed.
         #[serde(default)]
         arcs: Vec<Option<ArcSegment>>,
+    },
+    /// Rectangular hosted opening. `offset` is the centre distance from the
+    /// host wall reference-line start; `sill` is measured from the story base.
+    Opening {
+        host_wall: u64,
+        #[serde(rename = "opening")]
+        kind: OpeningKind,
+        width: f32,
+        height: f32,
+        sill: f32,
+        offset: f32,
     },
 }
 
@@ -108,13 +175,14 @@ impl Element {
             Shape::Slab { .. } => "Slab",
             Shape::Stair { .. } => "Stair",
             Shape::Polyline { .. } => "Polyline",
+            Shape::Opening { kind, .. } => kind.name(),
         }
     }
     pub fn thickness(&self) -> f32 {
         match self.shape {
             Shape::Wall { thickness, .. } | Shape::Slab { thickness, .. } => thickness,
             Shape::Stair { ref spec } => spec.slab_thickness,
-            Shape::Polyline { .. } => 0.,
+            Shape::Polyline { .. } | Shape::Opening { .. } => 0.,
         }
     }
     pub fn area(&self) -> f32 {
@@ -137,6 +205,7 @@ impl Element {
                     )
                 })
                 .sum(),
+            Shape::Opening { width, height, .. } => width * height,
         }
     }
     pub fn translate(&mut self, d: Point) {
@@ -165,6 +234,9 @@ impl Element {
                     point.y += d.y;
                 }
             }
+            // Openings move along their host wall, which needs project context.
+            // See `Project::translate_many`.
+            Shape::Opening { .. } => {}
         }
     }
 }
@@ -237,6 +309,7 @@ impl Project {
             Shape::Slab { .. } => "Slab",
             Shape::Stair { .. } => "Stair",
             Shape::Polyline { .. } => "Polyline",
+            Shape::Opening { kind, .. } => kind.name(),
         };
         let layer = match kind {
             "Slab" => Layer::Structural,
@@ -262,6 +335,58 @@ impl Project {
             .iter()
             .find(|s| s.id == story)
             .map_or(0., |s| s.elevation)
+    }
+    /// Translate several elements with project context. Openings slide along
+    /// their host wall unless that wall is part of the same move, in which case
+    /// the relative offset already follows the wall.
+    pub fn translate_many(&mut self, ids: &[u64], delta: Point) {
+        if !delta.finite() || ids.is_empty() {
+            return;
+        }
+        let requested: std::collections::HashSet<u64> = ids.iter().copied().collect();
+        let mut opening_offsets: Vec<(usize, f32)> = Vec::new();
+        for (index, element) in self.elements.iter().enumerate() {
+            if !requested.contains(&element.id) {
+                continue;
+            }
+            let Shape::Opening {
+                host_wall,
+                width,
+                offset,
+                ..
+            } = element.shape
+            else {
+                continue;
+            };
+            if requested.contains(&host_wall) {
+                continue;
+            }
+            let Some(host) = self.elements.iter().find(|host| host.id == host_wall) else {
+                continue;
+            };
+            let Shape::Wall { start, end, .. } = host.shape else {
+                continue;
+            };
+            let length = start.distance(end);
+            if length > 1e-6 {
+                let dx = (end.x - start.x) / length;
+                let dy = (end.y - start.y) / length;
+                let half = width * 0.5;
+                let high = (length - half).max(half);
+                let next = (offset + delta.x * dx + delta.y * dy).clamp(half, high);
+                opening_offsets.push((index, next));
+            }
+        }
+        for element in self.elements.iter_mut() {
+            if requested.contains(&element.id) && !matches!(element.shape, Shape::Opening { .. }) {
+                element.translate(delta);
+            }
+        }
+        for (index, next) in opening_offsets {
+            if let Shape::Opening { offset, .. } = &mut self.elements[index].shape {
+                *offset = next;
+            }
+        }
     }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
@@ -354,13 +479,104 @@ impl Project {
                             })
                         })
                 }
+                Shape::Opening {
+                    width,
+                    height,
+                    sill,
+                    offset,
+                    ..
+                } => {
+                    width.is_finite()
+                        && (0.05..=100.).contains(&width)
+                        && height.is_finite()
+                        && (0.05..=100.).contains(&height)
+                        && sill.is_finite()
+                        && (0. ..=100.).contains(&sill)
+                        && offset.is_finite()
+                        && offset.abs() < 100_000.
+                }
             };
             if !valid {
                 return Err(format!("Invalid geometry: {}", e.name));
             }
-            if matches!(e.shape, Shape::Wall { .. }) {
-                if let Some(settings) = &e.wall_settings {
-                    settings.validate()?;
+            if matches!(e.shape, Shape::Wall { .. })
+                && let Some(settings) = &e.wall_settings
+            {
+                settings.validate()?;
+            }
+        }
+        let mut walls = std::collections::HashMap::new();
+        for element in &self.elements {
+            if let Shape::Wall {
+                start, end, height, ..
+            } = element.shape
+            {
+                let (bottom_offset, top_offset) = element
+                    .wall_settings
+                    .as_ref()
+                    .map_or((0., 0.), |settings| settings.vertical_offsets());
+                walls.insert(
+                    element.id,
+                    (element.story, start, end, height, bottom_offset, top_offset),
+                );
+            }
+        }
+        let mut spans: std::collections::HashMap<u64, Vec<(&str, f32, f32)>> =
+            std::collections::HashMap::new();
+        for element in &self.elements {
+            let Shape::Opening {
+                host_wall,
+                width,
+                height,
+                sill,
+                offset,
+                ..
+            } = element.shape
+            else {
+                continue;
+            };
+            let Some(&(host_story, start, end, wall_height, bottom_offset, top_offset)) =
+                walls.get(&host_wall)
+            else {
+                return Err(format!(
+                    "Opening {} references a missing host wall",
+                    element.name
+                ));
+            };
+            if host_story != element.story {
+                return Err(format!(
+                    "Opening {} must be on the same story as its host wall",
+                    element.name
+                ));
+            }
+            let length = start.distance(end);
+            let low = offset - width * 0.5;
+            let high = offset + width * 0.5;
+            if length < 1e-6 || low < -1e-4 || high > length + 1e-4 {
+                return Err(format!("Opening {} is outside its host wall", element.name));
+            }
+            if sill < bottom_offset - 1e-4 {
+                return Err(format!("Opening {} is below its host wall", element.name));
+            }
+            if sill + height > wall_height + top_offset + 1e-4 {
+                return Err(format!(
+                    "Opening {} is taller than its host wall",
+                    element.name
+                ));
+            }
+            spans
+                .entry(host_wall)
+                .or_default()
+                .push((element.name.as_str(), low, high));
+        }
+        for (host_wall, mut list) in spans {
+            list.sort_by(|a, b| a.1.total_cmp(&b.1));
+            for pair in list.windows(2) {
+                if pair[1].1 < pair[0].2 - 1e-4 {
+                    return Err(format!(
+                        "Overlapping openings on wall {host_wall}: {} and {}",
+                        pair[0].0, pair[1].0
+                    ));
                 }
             }
         }

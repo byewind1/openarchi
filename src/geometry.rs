@@ -6,7 +6,10 @@ use glam::{Mat4, Vec3};
 pub fn wall_reference_line(e: &Element) -> Option<(Point, Point)> {
     match e.shape {
         Shape::Wall { start, end, .. } => Some((start, end)),
-        Shape::Slab { .. } | Shape::Stair { .. } | Shape::Polyline { .. } => None,
+        Shape::Slab { .. }
+        | Shape::Stair { .. }
+        | Shape::Polyline { .. }
+        | Shape::Opening { .. } => None,
     }
 }
 
@@ -42,7 +45,109 @@ pub fn footprint(e: &Element) -> [Point; 4] {
                 });
             [min, Point::new(max.x, min.y), max, Point::new(min.x, max.y)]
         }
+        // An opening has no footprint without its host wall. Use
+        // `element_footprint` wherever a project is available.
+        Shape::Opening { .. } => [Point::default(); 4],
     }
+}
+
+/// Hosted-opening reference segment: the two jamb points on the host wall
+/// reference line, ordered from the wall start towards its end.
+pub fn opening_span(project: &Project, opening: &Element) -> Option<(Point, Point)> {
+    let Shape::Opening {
+        host_wall,
+        width,
+        offset,
+        ..
+    } = opening.shape
+    else {
+        return None;
+    };
+    let host = project
+        .elements
+        .iter()
+        .find(|element| element.id == host_wall)?;
+    let Shape::Wall { start, end, .. } = host.shape else {
+        return None;
+    };
+    let length = start.distance(end);
+    if length < 1e-6 {
+        return None;
+    }
+    let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
+    let half = width * 0.5;
+    Some((
+        Point::new(
+            start.x + direction.x * (offset - half),
+            start.y + direction.y * (offset - half),
+        ),
+        Point::new(
+            start.x + direction.x * (offset + half),
+            start.y + direction.y * (offset + half),
+        ),
+    ))
+}
+
+/// Plan rectangle of an opening across its host wall thickness.
+pub fn opening_footprint(project: &Project, opening: &Element) -> Option<[Point; 4]> {
+    let Shape::Opening { host_wall, .. } = opening.shape else {
+        return None;
+    };
+    let host = project
+        .elements
+        .iter()
+        .find(|element| element.id == host_wall)?;
+    let Shape::Wall {
+        start,
+        end,
+        thickness,
+        ..
+    } = host.shape
+    else {
+        return None;
+    };
+    let (a, b) = opening_span(project, opening)?;
+    let length = start.distance(end).max(1e-6);
+    let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
+    let normal = Point::new(-direction.y, direction.x);
+    let body = host
+        .wall_settings
+        .as_ref()
+        .map_or(0., |settings| settings.body_offset(thickness));
+    let shift = Point::new(normal.x * body, normal.y * body);
+    let half = Point::new(normal.x * thickness * 0.5, normal.y * thickness * 0.5);
+    let a = Point::new(a.x + shift.x, a.y + shift.y);
+    let b = Point::new(b.x + shift.x, b.y + shift.y);
+    Some([
+        Point::new(a.x + half.x, a.y + half.y),
+        Point::new(b.x + half.x, b.y + half.y),
+        Point::new(b.x - half.x, b.y - half.y),
+        Point::new(a.x - half.x, a.y - half.y),
+    ])
+}
+
+/// Project a point onto the host wall reference line and return the distance
+/// from its start, clamped to the wall length.
+pub fn wall_offset_of(project: &Project, host_wall: u64, point: Point) -> Option<f32> {
+    let host = project
+        .elements
+        .iter()
+        .find(|element| element.id == host_wall)?;
+    let Shape::Wall { start, end, .. } = host.shape else {
+        return None;
+    };
+    let length = start.distance(end);
+    if length < 1e-6 {
+        return None;
+    }
+    let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
+    Some(((point.x - start.x) * direction.x + (point.y - start.y) * direction.y).clamp(0., length))
+}
+
+/// Footprint used by selection, bounds and visibility. Openings resolve through
+/// their host wall; every other shape uses its own geometry.
+pub fn element_footprint(project: &Project, element: &Element) -> [Point; 4] {
+    opening_footprint(project, element).unwrap_or_else(|| footprint(element))
 }
 
 fn wall_footprint(a: Point, b: Point, thickness: f32, reference_offset: f32) -> [Point; 4] {
@@ -572,19 +677,20 @@ fn segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool {
 /// Archicad-style editing selection: an element is included when at least one
 /// of its editable plan nodes lies in the marquee. The whole element is then
 /// operated on by group commands.
-pub fn element_has_node_in_polygon(e: &Element, polygon: &[Point]) -> bool {
+pub fn element_has_node_in_polygon(project: &Project, e: &Element, polygon: &[Point]) -> bool {
     let nodes: Vec<Point> = match e.shape {
         Shape::Wall { start, end, .. } => vec![start, end],
         Shape::Slab { .. } => footprint(e).into_iter().collect(),
         Shape::Stair { .. } => footprint(e).into_iter().collect(),
         Shape::Polyline { ref points, .. } => points.clone(),
+        Shape::Opening { .. } => element_footprint(project, e).into_iter().collect(),
     };
     nodes.into_iter().any(|p| contains(p, polygon))
 }
 
 /// Visibility selection for 3D uses geometric overlap, so a wall segment
 /// crossing the marquee is included even when neither endpoint is inside.
-pub fn element_intersects_polygon(e: &Element, polygon: &[Point]) -> bool {
+pub fn element_intersects_polygon(project: &Project, e: &Element, polygon: &[Point]) -> bool {
     if polygon.len() < 3 {
         return false;
     }
@@ -605,7 +711,7 @@ pub fn element_intersects_polygon(e: &Element, polygon: &[Point]) -> bool {
                 })
             });
     }
-    let shape = footprint(e);
+    let shape = element_footprint(project, e);
     if shape.iter().any(|p| contains(*p, polygon)) || polygon.iter().any(|p| contains(*p, &shape)) {
         return true;
     }
@@ -617,11 +723,13 @@ pub fn element_intersects_polygon(e: &Element, polygon: &[Point]) -> bool {
     })
 }
 
-pub fn element_fully_inside_polygon(e: &Element, polygon: &[Point]) -> bool {
+pub fn element_fully_inside_polygon(project: &Project, e: &Element, polygon: &[Point]) -> bool {
     if let Shape::Polyline { ref points, .. } = e.shape {
         return points.iter().all(|point| contains(*point, polygon));
     }
-    footprint(e).iter().all(|p| contains(*p, polygon))
+    element_footprint(project, e)
+        .iter()
+        .all(|p| contains(*p, polygon))
 }
 
 pub fn element_overlaps_z_range(project: &Project, e: &Element, range: (f32, f32)) -> bool {
@@ -640,7 +748,7 @@ pub fn element_fully_inside_volume(
     polygon: &[Point],
     range: Option<(f32, f32)>,
 ) -> bool {
-    if !element_fully_inside_polygon(e, polygon) {
+    if !element_fully_inside_polygon(project, e, polygon) {
         return false;
     }
     let Some((bottom, top)) = range else {
@@ -774,7 +882,10 @@ pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
         .iter()
         .map(|wall| match wall.shape {
             Shape::Wall { start, end, .. } => (start, end),
-            Shape::Slab { .. } | Shape::Stair { .. } | Shape::Polyline { .. } => {
+            Shape::Slab { .. }
+            | Shape::Stair { .. }
+            | Shape::Polyline { .. }
+            | Shape::Opening { .. } => {
                 unreachable!("plan wall join groups contain walls only")
             }
         })
@@ -783,12 +894,10 @@ pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
 
     for (index, wall) in walls.iter().enumerate() {
         let own_thickness = wall.thickness();
-        for endpoint_index in 0..2 {
-            let endpoint = if endpoint_index == 0 {
-                centerlines[index].0
-            } else {
-                centerlines[index].1
-            };
+        for (endpoint_index, endpoint) in [
+            (0usize, centerlines[index].0),
+            (1usize, centerlines[index].1),
+        ] {
             let mut nearest: Option<(f32, Point, f32)> = None;
             for (other_index, other) in walls.iter().enumerate() {
                 if index == other_index {
@@ -801,7 +910,10 @@ pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
                         thickness,
                         ..
                     } => (start, end, thickness),
-                    Shape::Slab { .. } | Shape::Stair { .. } | Shape::Polyline { .. } => continue,
+                    Shape::Slab { .. }
+                    | Shape::Stair { .. }
+                    | Shape::Polyline { .. }
+                    | Shape::Opening { .. } => continue,
                 };
                 let own_start = match wall.shape {
                     Shape::Wall { start, .. } => start,
@@ -1088,46 +1200,68 @@ pub fn hit_plan(project: &Project, story: u32, p: Point, tolerance: f32) -> Opti
         .elements
         .iter()
         .rev()
-        .filter(|e| e.story == story && matches!(e.shape, Shape::Wall { .. }))
         .find(|e| {
-            if let Shape::Wall {
-                start,
-                end,
-                thickness,
-                ..
-            } = e.shape
-            {
-                segment_distance(p, start, end) <= thickness / 2. + tolerance
-            } else {
-                false
-            }
-        })
-        .or_else(|| {
-            project.elements.iter().rev().find(|e| {
-                if e.story != story {
-                    return false;
-                }
-                if let Shape::Polyline {
-                    ref points,
-                    ref arcs,
-                } = e.shape
-                {
-                    polyline_path(points, arcs)
-                        .windows(2)
-                        .any(|pair| segment_distance(p, pair[0], pair[1]) <= tolerance)
-                } else {
-                    false
-                }
-            })
-        })
-        .or_else(|| {
-            project.elements.iter().rev().find(|e| {
-                e.story == story
-                    && !matches!(e.shape, Shape::Polyline { .. })
-                    && contains(p, &footprint(e))
-            })
+            e.story == story
+                && opening_footprint(project, e).is_some_and(|outline| contains(p, &outline))
         })
         .map(|e| e.id)
+        .or_else(|| {
+            project
+                .elements
+                .iter()
+                .rev()
+                .filter(|e| e.story == story && matches!(e.shape, Shape::Wall { .. }))
+                .find(|e| {
+                    if let Shape::Wall {
+                        start,
+                        end,
+                        thickness,
+                        ..
+                    } = e.shape
+                    {
+                        segment_distance(p, start, end) <= thickness / 2. + tolerance
+                    } else {
+                        false
+                    }
+                })
+                .map(|e| e.id)
+        })
+        .or_else(|| {
+            project
+                .elements
+                .iter()
+                .rev()
+                .find(|e| {
+                    if e.story != story {
+                        return false;
+                    }
+                    if let Shape::Polyline {
+                        ref points,
+                        ref arcs,
+                    } = e.shape
+                    {
+                        polyline_path(points, arcs)
+                            .windows(2)
+                            .any(|pair| segment_distance(p, pair[0], pair[1]) <= tolerance)
+                    } else {
+                        false
+                    }
+                })
+                .map(|e| e.id)
+        })
+        .or_else(|| {
+            project
+                .elements
+                .iter()
+                .rev()
+                .find(|e| {
+                    e.story == story
+                        && !matches!(e.shape, Shape::Polyline { .. })
+                        && !matches!(e.shape, Shape::Opening { .. })
+                        && contains(p, &footprint(e))
+                })
+                .map(|e| e.id)
+        })
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1159,6 +1293,7 @@ pub fn plan_hover_kind(
             Shape::Slab { .. } => footprint(element).into_iter().collect(),
             Shape::Stair { .. } => Vec::new(),
             Shape::Polyline { ref points, .. } => points.clone(),
+            Shape::Opening { .. } => element_footprint(project, element).into_iter().collect(),
         };
         for node in nodes {
             nearest_node = nearest_node.min(p.distance(node));
@@ -1200,6 +1335,16 @@ pub fn plan_hover_kind(
                     nearest_edge = nearest_edge.min(segment_distance(p, pair[0], pair[1]));
                 }
             }
+            Shape::Opening { .. } => {
+                let corners = element_footprint(project, element);
+                for index in 0..corners.len() {
+                    nearest_edge = nearest_edge.min(segment_distance(
+                        p,
+                        corners[index],
+                        corners[(index + 1) % corners.len()],
+                    ));
+                }
+            }
         }
     }
     if nearest_edge <= edge_tolerance {
@@ -1233,6 +1378,9 @@ pub fn snap(
     }
     let mut best = (p, SnapKind::Free, tolerance);
     for e in project.elements.iter().filter(|e| e.story == story) {
+        if matches!(e.shape, Shape::Opening { .. }) {
+            continue;
+        }
         let mut pts: Vec<(Point, SnapKind)> = match &e.shape {
             Shape::Polyline { points, .. } => points
                 .iter()
@@ -1304,12 +1452,11 @@ pub fn polyline_snap_target(
         .map(|point| (p.distance(point), point))
         .filter(|(distance, _)| *distance <= tolerance)
         .min_by(|left, right| left.0.total_cmp(&right.0));
-    if let Some((distance, point)) = chain_snap {
-        if !matches!(base_kind, SnapKind::Endpoint | SnapKind::Midpoint)
-            || p.distance(base) > distance
-        {
-            return (point, SnapKind::Endpoint);
-        }
+    if let Some((distance, point)) = chain_snap
+        && (!matches!(base_kind, SnapKind::Endpoint | SnapKind::Midpoint)
+            || p.distance(base) > distance)
+    {
+        return (point, SnapKind::Endpoint);
     }
     if matches!(base_kind, SnapKind::Endpoint | SnapKind::Midpoint) {
         return (base, base_kind);
@@ -1370,6 +1517,7 @@ pub fn polyline_snap_target(
                         .collect(),
                 )
             }
+            Shape::Opening { .. } => (Vec::new(), Vec::new()),
         };
         nearby_nodes.extend(nodes);
         directions.extend(segments);
@@ -1433,8 +1581,9 @@ pub fn corners(project: &Project, e: &Element) -> [Vec3; 8] {
         Shape::Slab { thickness, .. } => (base - thickness, base),
         Shape::Stair { ref spec } => (base, base + spec.total_rise),
         Shape::Polyline { .. } => (base, base),
+        Shape::Opening { sill, height, .. } => (base + sill, base + sill + height),
     };
-    let p = footprint(e);
+    let p = element_footprint(project, e);
     std::array::from_fn(|i| Vec3::new(p[i % 4].x, p[i % 4].y, if i < 4 { bottom } else { top }))
 }
 pub const FACES: [[usize; 4]; 6] = [
@@ -1503,11 +1652,11 @@ impl Camera {
             let c = corners(project, e);
             for f in FACES {
                 for tri in [[f[0], f[1], f[2]], [f[0], f[2], f[3]]] {
-                    if let Some(t) = ray_triangle(origin, dir, c[tri[0]], c[tri[1]], c[tri[2]]) {
-                        if t < nearest {
-                            nearest = t;
-                            hit = Some(e.id)
-                        }
+                    if let Some(t) = ray_triangle(origin, dir, c[tri[0]], c[tri[1]], c[tri[2]])
+                        && t < nearest
+                    {
+                        nearest = t;
+                        hit = Some(e.id)
                     }
                 }
             }
@@ -1841,8 +1990,8 @@ mod marquee_tests {
             Point::new(4., 1.),
         ];
         let e = project.elements.iter().find(|e| e.id == wall).unwrap();
-        assert!(!element_has_node_in_polygon(e, &area));
-        assert!(element_intersects_polygon(e, &area));
+        assert!(!element_has_node_in_polygon(&project, e, &area));
+        assert!(element_intersects_polygon(&project, e, &area));
     }
 
     #[test]

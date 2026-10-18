@@ -1,11 +1,14 @@
 pub mod app;
+pub mod command;
 pub mod cursor;
 pub mod editor;
+pub mod fonts;
 pub mod geometry;
 pub mod grids;
 pub mod localization;
 pub mod model;
 pub mod platform;
+pub mod recovery;
 pub mod render;
 pub mod stairs;
 pub mod storage;

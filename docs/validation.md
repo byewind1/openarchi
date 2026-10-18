@@ -1,5 +1,94 @@
 # 验证记录
 
+## 2026-10-18 当前状态摘要（0.2 阶段 0–5）
+
+本节覆盖 OpenArchi 0.2 计划的阶段 0–5，取代下方较早轮次的测试数字作为当前结论；旧记录保留为历史证据。源码基线为 `6c3110e`，工作树尚未提交。
+
+### 自动检查
+
+`python3 scripts/ac29-workflow.py verify --force` 通过，报告为 `target/ac29-workflow/runs/20261018T051430Z-f89453d6/report.json`。该轮执行了 format、check、localization、tests、tool-tests、diff 和 package：
+
+- Rust 测试 **223 项通过**（177 项库测试、7 项 Guides、10 项门窗洞口、29 项工作流），另有 1 项性能基线测试标记为 ignored。新增洞口回归覆盖放置默认值、墙端钳制、宿主/楼层/尺寸/重叠/竖向偏移校验、拖动钳制、级联删除与撤销、复制宿主墙、单独粘贴拒绝、平面命中和 JSON 往返。
+- 工具测试 **15 项通过**，包括本地化字典检查和打包脚本测试。
+- 本地化检查 **456 个 key**，无缺失、重复 key 或未翻译项。
+- `python3 scripts/check-localization.py` 已接入 `scripts/ac29-workflow.py verify` 和 GitHub Actions；`.github/workflows/ci.yml` 另外运行 `cargo clippy --locked --all-targets -- -D warnings`。本地 clippy 在清零初始告警后通过；GitHub Actions 远程任务本轮未实际运行，因此远程 CI 不能记为已验证。
+- 最终包 `dist/OpenArchi.app` 的 Release 与包内 arm64 UUID 均为 `A5BCB793-F9D4-3652-A4C4-076E3CFBDFC5`；`codesign --verify --deep --strict dist/OpenArchi.app` 通过。
+- Release 可执行文件 SHA-256：`f2ea27c6cf78d9e2e9c0bb357a0ac2f8d966e83257fbbff30f14f43cbec69280`；包目录树 SHA-256：`634722a7c689faea5d82831c14b74048e0af0d30c994e16cee57761ff17f70b2`。
+- verify 报告的 `desktop_ui` 为 `unverified`：自动流程不执行桌面交互，桌面结论只采用下文的实际冒烟记录。
+
+### 阶段 3 架构拆分
+
+- `src/app.rs` 已拆为 `src/app/mod.rs`、`shell.rs`、`plan.rs`、`model_view.rs`、`inspector.rs`、`info_box.rs`、`quick_options.rs`、`dialogs.rs`、`file_io.rs` 和 `ui_tests.rs`；`src/app/mod.rs` 为 **2,058 行**，达到 2,000–3,000 行的阶段目标。
+- 拆分只搬移方法并统一为 `pub(super)`，未改写方法体；对比拆分前后，133 个方法名和 83 个测试函数全部保留，无缺失或重复。
+- 新增 `split_modules_render_through_workspace_shell`，同时渲染标题栏/菜单、Info Box 和 Quick Options，验证拆分后的模块入口仍然接线。
+- 该阶段当时 `./scripts/cargo.sh fmt --all -- --check`、`check --locked --all-targets`、`clippy --locked --all-targets -- -D warnings` 和 `test --locked --all-targets` 均通过；Rust 测试 **203 项通过**（167 项库测试、7 项 Guides、29 项工作流）。
+
+性能基线见 [performance-baseline.md](performance-baseline.md)。1k / 10k / 50k 墙的墙轮廓准备约为 61 ms / 5.4 s / 133 s，明显超线性；阶段 4 没有加入缓存或空间索引，不能据此宣称大型项目可用。
+
+### 阶段 4 撤销与性能
+
+- 新增 `src/command.rs`：`ModelCommand`（`AddElement`、`RemoveElements`、`RestoreElements`、`UpdateElement`、`MoveElements`、`SetOptions` 和过渡用 `ChangeSet`）、`CommandRecord { command, inverse }` 与 `ProjectDelta`。
+- `Editor.undo/redo` 从 `Vec<Project>` 改为 `Vec<CommandRecord>`；每个记录只保存受影响元素的前后状态和变化过的项目头字段，100 步上限保留。
+- `Editor::apply` 返回受影响 ID；`delete` 与 `move_selection` 已迁移到 typed command。其余复杂操作继续通过 `commit(before)` 计算 diff，代码路径逐步迁移。
+- 回归覆盖一次命令一次 undo、undo/redo 精确恢复、无操作不写历史、undo 后新命令清空 redo、删除后按原顺序恢复，以及 100 步上限。
+- 1k / 10k / 50k 墙、固定 1,000 个移动构件：移动约 `1.04 / 3.09 / 12.88 ms`，撤销约 `0.41 / 0.67 / 2.80 ms`，重做约 `0.41 / 0.62 / 1.56 ms`。每步历史只保留 `2,000` 个元素副本（1,000 个构件的前后状态）；50k 时旧快照每步需保留 `50,000` 个。
+- 墙轮廓准备仍是 50k 的主要瓶颈，约为 `132.5 s`，本轮未改变。
+
+### 阶段 5 门窗洞口
+
+- 新增 `Shape::Opening { host_wall, kind, width, height, sill, offset }`；`offset` 为洞口中心距宿主墙参考线起点的距离，`sill` 从宿主墙所在楼层标高起算。
+- Door 默认 `0.90 × 2.10 m`、窗台 `0`；Window 默认 `1.20 × 1.40 m`、窗台 `0.90 m`。
+- 校验覆盖宿主存在且为墙、同楼层、墙内、正尺寸、洞口顶不超墙顶、窗台不低于墙底偏移，以及同墙洞口区间重叠。
+- 平面先绘制墙体，再以平面背景色擦出洞口带并绘制门扇/开启弧或窗玻璃线；3D 对直墙生成墙垛、窗台和过梁，窗附加薄玻璃板，带洞口墙跳过联合墙轮廓优化。
+- 移动墙时洞口保持相对偏移；单独拖动洞口只沿宿主墙滑动，并在宿主墙长度内钳制。删除墙级联删除洞口并记为一次撤销；复制宿主墙时重映射洞口宿主，单独粘贴洞口会被跳过。
+- 自动测试 10 项通过；JSON 往返、级联删除/撤销、复制重映射与拖动钳制均有回归。平面背景色擦除不会透出底层楼板，Marquee 裁切带洞口的墙仍显示为实墙，这两点保留为第一版限制。
+
+### 桌面实测（阶段 2 包）
+
+以下操作先在 UUID `8E2CB02A-D36F-3161-9AC5-51DA6D212957` 的 `dist/OpenArchi.app` 上完成，使用简体中文或英文界面，并记录构件数与恢复文件状态。当前 UUID `7266453C-B925-3BDB-86E4-C6AD60BC9A61` 的包包含恢复节流修正与 `app` 模块拆分，之后已在同一台机器上单独完成桌面冒烟，结果见下一节。
+
+- 原生 Browse 保存到 `/private/tmp/openarchi-0.2-smoke.openarchi.json`：保存后 13 个构件，恢复文件被清理；重新打开文件后仍为 13 个构件。原生保存面板返回路径后，仍需在 egui 模态中确认保存。
+- 干净项目关闭窗口直接退出，没有提示；有未保存修改时显示 `保存并关闭 / 放弃并关闭 / 取消`（英文为 `Save and close / Discard and close / Cancel`）。
+- 取消关闭后，构件数、选区和撤销/重做可用性保持不变；英文关闭提示取消后仍为 12 个构件。
+- 保存并关闭写入 14 个构件、`next_id=15` 的项目文件，清除恢复文件并退出进程。
+- 放弃并关闭清除恢复文件、不写项目并退出；重启后不再出现恢复提示。
+- 崩溃恢复：制造未保存修改后 `killall -9 openarchi` 强杀；重启显示 `恢复未保存的项目`。选择恢复后得到 13 个构件且保持 dirty；选择放弃后恢复文件被清理，再次重启无提示。
+- macOS 上 `Cmd+Q` 不会进入窗口关闭保护对话框，而是直接退出应用；退出前仍写入了恢复文件，下次启动可选择恢复（本轮以恢复后 13 个构件验证）。这是当前已知行为，不是“窗口关闭提示”的替代证据。
+- 语言切换两个入口均实测：标题栏选择器和 `视图 > 语言` 都能立即切换；主窗口、菜单、工具栏、Info Box、工具箱、视图标签、构件数、状态栏和 Quick Options 同步变化。
+- 选择 `简体中文` 后退出并重启最终包，首帧即为中文；构件数保持 12，撤销/重做仍不可用，未出现恢复提示。偏好文件 `~/Library/Application Support/OpenArchi/language` 为 `zh-CN`。
+
+### 桌面实测（阶段 2/3 包，2026-10-18）
+
+在 UUID `7266453C-B925-3BDB-86E4-C6AD60BC9A61` 的 `dist/OpenArchi.app` 上执行，简体中文，`Courtyard House` 示例（12 个构件）：
+
+- 首帧为简体中文；选中 `墙 004`，在 Info Box 将高度由 `3.000 m` 改为 `3.005 m` 并应用，标题栏出现未保存标记，`撤销` 启用，状态栏显示 `信息框墙体设置已应用 · 平面图与三维视图已同步`。
+- 点击窗口关闭按钮，出现中文 `未保存的更改` 对话框（`保存并关闭 / 放弃并关闭 / 取消`），此状态下 `recovery.openarchi.json` 已存在且包含 `3.005 m`。
+- 选择 `取消`：对话框关闭，窗口保持打开，仍为 12 个构件、未保存标记与 `撤销` 可用，墙高仍为 `3.005 m`。
+- 再次关闭并选择 `放弃并关闭`：进程退出，`recovery.openarchi.json` 被删除，未出现保存面板或项目写入。
+- 重新启动同一包：首帧为简体中文，未出现恢复提示，12 个构件，`撤销`/`重做` 均禁用；随后正常关闭窗口，进程退出。语言偏好仍为 `zh-CN`。
+- 该包 `codesign --verify --deep --strict dist/OpenArchi.app` 通过，包内可执行文件 UUID 与 `target/release/openarchi` 均为 `7266453C-B925-3BDB-86E4-C6AD60BC9A61`。
+
+### 桌面实测（阶段 4 包，2026-10-18）
+
+在 UUID `6C3627BB-371A-340E-9799-8964FB1A6471` 的 `dist/OpenArchi.app` 上启动一次：首帧为简体中文，`Courtyard House` 显示 12 个构件，`撤销`/`重做` 均禁用；窗口正常关闭，进程退出。该轮没有在桌面重复执行移动/撤销手势，typed command 的 undo/redo 语义由单元测试和 release 基线覆盖。
+
+### 桌面实测（阶段 5 包，2026-10-18）
+
+在 UUID `A5BCB793-F9D4-3652-A4C4-076E3CFBDFC5` 的 `dist/OpenArchi.app` 上启动一次，简体中文：
+
+- 首帧为简体中文，`Courtyard House` 显示 12 个构件，`撤销`/`重做` 均禁用。
+- 工具箱显示 `门` / `窗`；点击 `门` 后 Info Box 显示 `门 · 洞口`、`宽度 0.900 m`、`高度 2.100 m`、`窗台高度 0.000 m`，状态提示为 `Click on a wall to place a door`。
+- 标题栏语言选择器可打开，菜单同时列出 `English` 与 `简体中文`。
+- 该轮未能在桌面完成墙体点击放置：自动化指针坐标受窗口缩放映射影响，点选未命中墙体；因此 2D 洞口外观、3D 洞口外观、英文新标签和原生保存/重开仍为 `unknown`。这些路径仅由自动测试和代码检查覆盖，不记为桌面验收。
+
+### 仍未验证
+
+- Windows 实机启动、中文首帧、保存/重开、F2/F3 仍未在当前机器验证；Windows 包只能记录为构建产物。
+- GitHub Actions 的 macOS/Windows 远程任务本轮未运行。
+- `Cmd+Q` 的 AppKit 退出路径没有弹出应用内关闭对话框；是否需要拦截属于后续决策。
+- 各对话框尚未逐一在最终包上用两种语言重读；已检查的主窗口、墙设置、保存/打开、关闭与恢复提示之外仍标记为 `unknown`。
+- 阶段 5 最终包上的指针放置、2D/3D 洞口视觉、英文新标签、原生保存/重开仍为 `unknown`；自动测试只证明模型、几何查询、持久化和回归语义。
+
 日期：2026-10-12。设备：Apple Silicon，macOS 15.7.5。工具链：Rust 1.98.1，aarch64-apple-darwin。同材质墙体平面交接清理更新后，所有自动测试通过：42 项（21 项工作流、21 项单元/egui 测试）。`cargo check --locked --offline --all-targets` 和 Release 构建通过。
 
 ## 自动检查

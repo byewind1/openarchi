@@ -50,15 +50,15 @@ impl AtelierApp {
                         segments.push((outline[index], outline[(index + 1) % outline.len()]));
                     }
                 }
+                Shape::Opening { .. } => {}
             }
             for (start, end) in segments {
                 let distance = geometry::segment_distance(point, start, end);
                 if distance <= tolerance
                     && best.is_none_or(|(best_distance, _)| distance < best_distance)
+                    && let Some(angle) = GridSettings::angle_from_vector(start, end)
                 {
-                    if let Some(angle) = GridSettings::angle_from_vector(start, end) {
-                        best = Some((distance, angle));
-                    }
+                    best = Some((distance, angle));
                 }
             }
         }

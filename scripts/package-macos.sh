@@ -10,6 +10,7 @@ mkdir -p "$OPENARCHI_CONTENTS/MacOS" "$OPENARCHI_CONTENTS/Resources" "$OPENARCHI
 rm -f "$OPENARCHI_BUNDLE/Contents/MacOS/atelier-bim"
 cp target/release/openarchi "$OPENARCHI_BUNDLE/Contents/MacOS/openarchi"
 cp packaging/Info.plist "$OPENARCHI_CONTENTS/Info.plist"
+cp assets/fonts/OFL.txt "$OPENARCHI_CONTENTS/Resources/FONT-NOTO-SANS-SC-OFL.txt"
 
 for size in 16 32 128 256 512; do
     sips -s format png -z "$size" "$size" icon.png --out "$OPENARCHI_ICONSET/icon_${size}x${size}.png" >/dev/null

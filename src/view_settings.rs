@@ -197,6 +197,7 @@ impl PenPalette {
             PlanPart::Slab => mix(self.line, [255, 255, 255], 0.18),
             PlanPart::Stair => mix(self.line, [235, 205, 150], 0.12),
             PlanPart::Polyline => mix(self.line, [0, 0, 0], 0.1),
+            PlanPart::Opening => self.line,
         }
     }
 
@@ -206,6 +207,7 @@ impl PenPalette {
             PlanPart::Slab => 0.18,
             PlanPart::Stair => 0.25,
             PlanPart::Polyline => 0.13,
+            PlanPart::Opening => 0.25,
         };
         (base * self.line_scale).clamp(0.08, 1.2)
     }
@@ -282,7 +284,12 @@ impl ModelViewOptions {
     pub fn shows(self, part: PlanPart) -> bool {
         match self {
             Self::CeilingPlans => part != PlanPart::Slab,
-            Self::SectionsElevations => matches!(part, PlanPart::Wall | PlanPart::Polyline),
+            Self::SectionsElevations => {
+                matches!(
+                    part,
+                    PlanPart::Wall | PlanPart::Polyline | PlanPart::Opening
+                )
+            }
             _ => true,
         }
     }
@@ -499,6 +506,7 @@ pub enum PlanPart {
     Slab,
     Stair,
     Polyline,
+    Opening,
 }
 
 impl Element {
@@ -508,6 +516,7 @@ impl Element {
             crate::model::Shape::Slab { .. } => PlanPart::Slab,
             crate::model::Shape::Stair { .. } => PlanPart::Stair,
             crate::model::Shape::Polyline { .. } => PlanPart::Polyline,
+            crate::model::Shape::Opening { .. } => PlanPart::Opening,
         }
     }
 }
@@ -617,6 +626,7 @@ impl PlanOptions {
             }),
             PlanPart::Stair => Some([218, 211, 194]),
             PlanPart::Polyline => None,
+            PlanPart::Opening => None,
         };
         let mut fill = if self.model_view.fills(part) {
             base_fill.map(|color| pen.tint_fill(color))
@@ -728,8 +738,10 @@ mod tests {
 
     #[test]
     fn options_gate_layers_partial_structure_and_renovation() {
-        let mut options = PlanOptions::default();
-        options.layer_combination = LayerCombination::Layouting;
+        let mut options = PlanOptions {
+            layer_combination: LayerCombination::Layouting,
+            ..Default::default()
+        };
         let element = wall(Layer::Structural, RenovationStatus::Demolition);
         assert!(!options.element_visible(&element));
 

@@ -380,7 +380,7 @@ impl Default for WallClassificationSettings {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct WallSettings {
     pub geometry: WallGeometrySettings,
@@ -389,19 +389,6 @@ pub struct WallSettings {
     pub model: WallModelSettings,
     pub structural: WallStructuralSettings,
     pub classification: WallClassificationSettings,
-}
-
-impl Default for WallSettings {
-    fn default() -> Self {
-        Self {
-            geometry: WallGeometrySettings::default(),
-            profile: WallProfileSettings::default(),
-            floor_plan: WallFloorPlanSettings::default(),
-            model: WallModelSettings::default(),
-            structural: WallStructuralSettings::default(),
-            classification: WallClassificationSettings::default(),
-        }
-    }
 }
 
 impl WallSettings {

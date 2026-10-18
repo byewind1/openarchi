@@ -87,7 +87,7 @@ def input_snapshot(chain):
     for name in ("Cargo.toml", "Cargo.lock", "build.rs", "rust-toolchain", "rust-toolchain.toml", "rustfmt.toml", ".rustfmt.toml"):
         if (ROOT / name).is_file():
             paths.add(ROOT / name)
-    for name in ("src", "tests", "locales", "packaging", "scripts", ".cargo"):
+    for name in ("src", "tests", "locales", "packaging", "assets", "scripts", ".cargo"):
         folder = ROOT / name
         if folder.exists():
             paths.update(p for p in folder.rglob("*") if p.is_file() and "__pycache__" not in p.parts and p.suffix not in (".pyc", ".log") and p.name != ".DS_Store")
@@ -288,7 +288,8 @@ def verify_locked(args):
             commands.append((f"format-include-{index}", [chain["rustfmt_path"], "--edition", "2024", "--check", str(source)]))
         commands.extend([
             ("check", [str(ROOT / "scripts/cargo.sh"), "check", "--locked", "--all-targets"]),
-            ("tests", [str(ROOT / "scripts/cargo.sh"), "test", "--locked"]),
+            ("localization", [sys.executable, "scripts/check-localization.py"]),
+            ("tests", [str(ROOT / "scripts/cargo.sh"), "test", "--locked", "--all-targets"]),
             ("tool-tests", [sys.executable, "-m", "unittest", "discover", "-s", "tests/tooling", "-v"]),
             ("diff", ["git", "diff", "--check"]),
             ("package", [str(ROOT / "scripts/package-macos.sh")]),

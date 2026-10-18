@@ -47,16 +47,16 @@ pub fn measurements(
     }
     let selected = exclude_id.and_then(|id| {
         project.elements.iter().find_map(|element| {
-            if element.id == id && element.story == story {
-                if let Shape::Wall {
+            if element.id == id
+                && element.story == story
+                && let Shape::Wall {
                     start,
                     end,
                     thickness,
                     ..
                 } = element.shape
-                {
-                    return Some((start, end, thickness));
-                }
+            {
+                return Some((start, end, thickness));
             }
             None
         })
