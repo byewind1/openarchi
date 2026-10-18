@@ -96,6 +96,28 @@ English and Simplified Chinese have been exercised on the final packaged app.
 - Review `git diff` and `git status`; preserve unrelated work. Do not commit, tag, publish, push or release unless explicitly asked.
 - For comparisons, define a finite checklist with matching start model, units, settings, actions and tolerances. Record each claim as `pass`, `fail` or `unknown` with both sides' evidence. REA verification passes only the declared claims and supported evidence dimensions; it is not global equivalence.
 
+## Reusable findings: wall joins, grid defaults, desktop checks
+
+### Wall join geometry
+
+- Derive plan and 3D from the same reference-line/footprint join pipeline. Do not store trim polygons or per-view join results.
+- Resolve the exposed plan outline once for the whole visible story footprint set, then bucket fragments by pen color and width. Do not resolve outlines per material or renovation fill batch: that reintroduces a buried end stroke when same-material walls differ only by renovation status.
+- Same-material union acceptance: the through wall's fill is continuous across the junction; its top edge is interrupted only across the branch body; the branch side outlines stop at the through wall face. Keep regressions `same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups` and the geometry join tests together.
+- Fills remain presentation batches. The slight same-color bleed used to seal sub-pixel seams is not an outline and must not be replaced with a contrasting pen.
+
+### Grid defaults
+
+- `GridSettings::default()` keeps the construction grid hidden, grid snapping disabled and `GridSnapMode::None`. Any test or demo that needs snapping must enable it explicitly.
+- When changing a default, search tests and docs for implicit dependence (`src/grids_ui.rs`, `src/app/ui_tests.rs`, display-density checks) before rerunning the full suite.
+
+### Desktop verification on macOS
+
+- Use an isolated HOME and launch the packaged app with `open -n --env HOME=<dir> -a dist/OpenArchi.app`; confirm the running process actually received it with `ps eww -p <pid>`.
+- Recovery is offered only when the recovery file parses as a complete project. An invalid file can be cleared without a visible error because the dialog returns early when `recovery_prompt` is `None`; base test projects on a known-good save and confirm the file still exists after launch.
+- CUA coordinate clicks can move the cursor but fail to activate custom egui modals or menus. For reliable native clicks, read the real window bounds with `CGWindowListCopyWindowInfo` and post CoreGraphics mouse down/up at screen points. Screenshot pixels are device pixels (often 2x), while CGEvent coordinates are points.
+- For a T-junction plan check, measure pixels: the through-wall fill row stays one color across the junction, the top-edge dark run stops at the branch body, and both branch side outlines stop at the through-wall face. Record the screenshot path and the sampled rows/columns.
+- `python3 scripts/ac29-workflow.py verify` reuses a successful run when only docs changed. `--force` rebuilds, and ad-hoc signing changes the UUID and hashes, so update `docs/validation.md` with the new values after any forced run.
+
 ## REA investigation notes
 
 - Reuse an existing target/session and matching Evidence; bind or switch targets explicitly only when needed. Record target identity/hash, provider, Evidence IDs, coverage and limitations. Close only sessions opened for this investigation; do not close unrelated user sessions.

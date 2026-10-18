@@ -412,6 +412,9 @@ pub fn localized_error(language: UiLanguage, error: &str) -> String {
             return "墙设置文本过长".into();
         }
     }
+    if error.ends_with(" would be outside its host wall") {
+        return "洞口将超出其宿主墙范围".into();
+    }
     let known = match error {
         "Wall thickness must be between 1 mm and 5 m" => "墙厚必须在 1 毫米到 5 米之间",
         "Wall height must be between 10 mm and 100 m" => "墙高必须在 10 毫米到 100 米之间",
@@ -421,6 +424,8 @@ pub fn localized_error(language: UiLanguage, error: &str) -> String {
         "Wall coordinates are outside the local modeling range" => "墙坐标超出本地建模范围",
         "The selected element is not a wall" => "所选构件不是墙",
         "Wall top link is out of range" => "墙顶部链接超出范围",
+        "Wall must stay at least 0.01 m long" => "墙参考线长度至少为 0.01 米",
+        "Wall reference line must use finite points" => "墙参考线坐标必须是有限数值",
         _ => return error.to_owned(),
     };
     known.to_owned()

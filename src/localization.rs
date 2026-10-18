@@ -16,6 +16,13 @@ impl UiLanguage {
         }
     }
 
+    pub fn window_title(self) -> &'static str {
+        match self {
+            Self::English => "OpenArchi — Architectural Workbench",
+            Self::SimplifiedChinese => "OpenArchi — 建筑设计工作台",
+        }
+    }
+
     pub fn translate(self, key: &str) -> &str {
         if self == Self::English {
             let dictionary =
@@ -70,6 +77,53 @@ mod tests {
             UiLanguage::SimplifiedChinese.translate("Untranslated key"),
             "Untranslated key"
         );
+    }
+
+    #[test]
+    fn window_title_follows_the_selected_language() {
+        assert_eq!(
+            UiLanguage::English.window_title(),
+            "OpenArchi — Architectural Workbench"
+        );
+        assert_eq!(
+            UiLanguage::SimplifiedChinese.window_title(),
+            "OpenArchi — 建筑设计工作台"
+        );
+    }
+
+    #[test]
+    fn wall_drawing_hints_name_right_click_finishing() {
+        use crate::wall::WallGeometryMethod;
+        for method in [
+            WallGeometryMethod::Continuous,
+            WallGeometryMethod::Polygonal,
+        ] {
+            let key = method.status_key();
+            assert!(key.contains("right-click"), "{key}");
+            let chinese = UiLanguage::SimplifiedChinese.translate(key);
+            assert!(chinese.contains("右键"), "{chinese}");
+            assert_ne!(chinese, key);
+        }
+    }
+
+    #[test]
+    fn wall_reference_line_editing_labels_are_localized() {
+        for key in [
+            "Wall reference line",
+            "Start endpoint",
+            "End endpoint",
+            "Reference line",
+            "Drag the handle to reshape the wall",
+            "Drag the line to move the wall",
+            "Done",
+            "Wall reference-line endpoint edit · drag the handle to reshape the wall",
+            "Wall reference-line edit · drag the line to move the wall",
+            "Wall reference-line endpoint moved",
+            "Wall moved",
+        ] {
+            let chinese = UiLanguage::SimplifiedChinese.translate(key);
+            assert_ne!(chinese, key, "missing Simplified Chinese label for {key}");
+        }
     }
 
     #[test]

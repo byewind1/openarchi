@@ -31,9 +31,9 @@ undo transaction.
 | Method | Input sequence | Result |
 |---|---|---|
 | Single | Click the start point, then click the end point. Tracker Enter uses the locked length/angle or current cursor. | One `Shape::Wall` segment. |
-| Continuous | Click each node in turn. Double-click or press Enter without a locked Tracker to finish. With a locked Tracker, Enter adds the computed node; a separate **Finish** button completes. Backspace removes the last input node. Delete or Escape cancels the whole draft. | Adjacent wall segments sharing each input node. The last created segment remains selected so the single-wall Info Box stays usable. |
+| Continuous | Click each node in turn. Right-click with at least two nodes, double-click or press Enter without a locked Tracker to finish. Clicking the first node again finishes a two-node wall, or closes the chain with a closing segment when three or more nodes exist. With a locked Tracker, Enter adds the computed node; a separate **Finish** button completes. Backspace removes the last input node. Delete or Escape cancels the whole draft. | Adjacent wall segments sharing each input node; a start-point click also adds the closing segment. The last created segment remains selected so the single-wall Info Box stays usable. |
 | Rectangular | Click one corner, then the diagonally opposite corner. | Four wall segments whose sides follow the world X/Y axes. Ortho and Shift do not collapse the rectangle to a line, and the Tracker uses ΔX / ΔY. |
-| Polygonal | Click each contour node. Click the first node, press Enter, or double-click to close. | A closed ring of wall segments. The ring is normalized counter-clockwise so `Inside` consistently means the enclosed side; all segments commit together. |
+| Polygonal | Click each contour node. Right-click with at least three nodes, click the first node, press Enter, or double-click to close and commit. | A closed ring of wall segments. The ring is normalized counter-clockwise so `Inside` consistently means the enclosed side; all segments commit together. |
 
 Shared behavior:
 
@@ -47,6 +47,9 @@ Shared behavior:
   non-collinear nodes with non-zero area.
 - Escape, Delete and the Tracker **Cancel** action discard the draft without an
   undo entry. Finishing creates exactly one undo entry for the whole result.
+- Right-click is a finish gesture only when the draft has enough input
+  (Continuous: two nodes, Polygonal: three). Otherwise it cancels without a
+  model change. Right-drag continues to pan and does not finish the draft.
 
 ### Reversible product choices
 
@@ -81,6 +84,7 @@ Explicit exclusions:
 
 - `tests/workflows.rs`
   - `continuous_wall_method_builds_a_connected_chain_in_one_undo`
+  - `continuous_wall_clicking_the_start_closes_and_commits_the_chain`
   - `continuous_wall_backspace_removes_only_the_last_input_node`
   - `rectangular_wall_method_builds_four_world_aligned_segments`
   - `polygonal_wall_method_closes_a_counter_clockwise_ring`
@@ -88,6 +92,10 @@ Explicit exclusions:
 - `src/app.rs` `ui_tests`
   - `wall_tool_info_box_geometry_method_drives_real_drawing_behavior`
   - `continuous_wall_double_click_finishes_the_chain`
+  - `continuous_wall_clicking_the_start_point_closes_the_chain`
+  - `right_click_finishes_a_continuous_wall_draft`
+  - `right_click_cancels_single_and_rectangular_drafts_without_an_undo_entry`
+  - `right_drag_still_pans_without_finishing_the_wall_draft`
   - `polygonal_wall_double_click_on_start_closes_once`
 
 ## Acceptance checklist
@@ -106,8 +114,8 @@ Explicit exclusions:
 
 ## Desktop validation
 
-Final package `dist/OpenArchi.app`, Simplified Chinese, project `Courtyard House`,
-12 existing elements. The checks below were performed on the packaged app; no
+The four method state machines were exercised on packaged builds in
+Simplified Chinese with project `Courtyard House` and 12 existing elements; no
 project was saved.
 
 | Method | Interaction performed | Observed result | Undo |
@@ -117,35 +125,44 @@ project was saved.
 | Rectangular | Clicked one corner, then the diagonally opposite corner | Status `已创建 4 段矩形墙`; elements 19 → 23 | Undo removed the four sides |
 | Polygonal | Added Tracker nodes and closed the contour | Status `已创建 7 段多边形墙`; elements 12 → 19 | One Undo restored 12 |
 
-The plan preview followed the active method during each draft, and the
-completed result appeared in both plan and 3D. After the checks the app was
-returned to the Wall tool, Continuous method, 12 elements, no unsaved marker,
-Undo disabled.
+On the `49906133` bundle the two-node Continuous gesture was rechecked:
+right-click finished 12 → 13 with `Created 1 connected wall segments`; the
+Chinese hint read `墙 · 连续 · 逐点点击 · 右键、双击或回车完成` and the English
+hint `Wall · Continuous · Click nodes · right-click, double-click or Enter to
+finish`. Clicking the start point and pressing Enter had been verified on the
+immediately preceding `D030826E` bundle with identical geometry source. The
+current `638273BF` package adds wall reference-line editing, endpoint snapping
+and its palette handling but keeps the wall-creation state machines unchanged
+from `49906133`; the Enter and click-start results are therefore not claimed as
+re-run on it, while the final package's two-node right-click finish was
+rechecked.
 
 ## Packaging identity
 
 - App: `dist/OpenArchi.app`
-- Release and bundle arm64 UUID: `F923A6C0-852A-36C9-9E87-8F9524477B2C`
-- Release SHA-256: `09bd7c41c5c6f0a148efe8557756c048df70fa48a4caca58ab7054579d47a315`
-- Bundle tree SHA-256: `44c1da88d8effd71223222267f0ee5bfae3b1b575b245eaf5b78aa53887e486f`
+- Release and bundle arm64 UUID: `638273BF-9D59-390D-B31F-AC6D7083F491`
+- Release SHA-256: `add89061e3854341c147f352810b4ce87f659d1634b406a4ff23a2d7a5f230c7`
+- Bundle tree SHA-256: `a3fd870f43c308fbeb66228eea86b4c7d3266283d563383e133b97a677f8e584`
+- macOS zip SHA-256: `8700685dae580a540b0a0268ed2726a8442507091a1632d288165b98167c0b53`
 - `codesign --verify --deep --strict dist/OpenArchi.app`: passed
 
 Automated checks: `./scripts/cargo.sh fmt --all -- --check` passed;
-`./scripts/cargo.sh test --all-targets` passed **189 tests** (153 library, 7
-Guides, 29 workflows); `python3 scripts/ac29-workflow.py verify --force`
-passed format, `cargo check --locked --all-targets`, the same 189 Rust tests,
-11 tooling tests, `git diff --check` and macOS packaging. Report:
-`target/ac29-workflow/runs/20261017T191638Z-fec311ce/report.json`.
+`./scripts/cargo.sh check --locked --all-targets` passed;
+`./scripts/cargo.sh test --locked --all-targets` passed **253 tests** (205
+library, 7 Guides, 10 openings, 31 workflows; one manual performance test
+ignored); `python3 scripts/check-localization.py` passed with 462 literal keys.
+`python3 scripts/ac29-workflow.py verify --force` is recorded in
+`docs/validation.md`.
 
 Language checks on the final package: the title-bar selector switched
-简体中文 → English, and `视图 > 语言` switched English → 简体中文. English
-surfaces included `Wall`, `Geometry Method`, `Single / Continuous / Polygonal /
-Rectangular`, `Reference Line: Center / Inside / Outside`, `Reference Offset`
-and `Thickness`; Chinese restored `墙`, `几何方法`, `单线 / 连续 / 多边形 /
-矩形`, `参考线：居中 / 内部 / 外部`, `参考线偏移` and `厚度`. Element count
-stayed 12, selection stayed empty, the project stayed clean, and Undo/Redo
-availability did not change during either switch. After choosing 简体中文 and
-restarting the final bundle, the first frame was Chinese.
+简体中文 → English → 简体中文. English surfaces included `Wall`, `Geometry
+Method`, `Single / Continuous / Polygonal / Rectangular`, `Reference Line:
+Center / Inside / Outside`, `Reference Offset` and `Thickness`; Chinese
+restored `墙`, `几何方法`, `单线 / 连续 / 多边形 / 矩形`, `参考线：居中 /
+内部 / 外部`, `参考线偏移` and `厚度`. The window title followed the
+language. The model stayed at 13 elements after the finish check, `Undo`
+stayed enabled and `Redo` stayed disabled across both switches. After choosing
+简体中文 and restarting, the first frame was Chinese.
 
 ## Remaining gaps
 

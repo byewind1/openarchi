@@ -650,27 +650,42 @@ impl SceneRenderer {
             |id| vec![id],
         );
         for story_id in stories {
-            for material in Material::ALL {
-                let walls: Vec<_> = p
-                    .elements
-                    .iter()
-                    .filter(|element| {
-                        element.story == story_id
-                            && element.material == material
-                            && matches!(element.shape, Shape::Wall { .. })
-                    })
+            // Wall joins are physical geometry and must not depend on the
+            // material batches used for colors and surfaces. Compute one
+            // footprint set for every wall on the story first.
+            let story_walls: Vec<_> = p
+                .elements
+                .iter()
+                .filter(|element| {
+                    element.story == story_id && matches!(element.shape, Shape::Wall { .. })
+                })
+                .collect();
+            let story_footprints_by_id: std::collections::HashMap<u64, [Point; 4]> =
+                crate::geometry::plan_wall_footprints_by_id(&story_walls)
+                    .into_iter()
                     .collect();
-                let footprints = crate::geometry::plan_wall_footprints(&walls);
-                attached_wall_ends.extend(crate::geometry::plan_wall_attached_ends(
-                    &walls,
-                    &footprints,
-                ));
-                wall_display_footprints.extend(
-                    walls
-                        .iter()
-                        .zip(footprints.iter().copied())
-                        .map(|(wall, footprint)| (wall.id, footprint)),
-                );
+            let story_footprints: Vec<[Point; 4]> = story_walls
+                .iter()
+                .map(|wall| story_footprints_by_id[&wall.id])
+                .collect();
+            attached_wall_ends.extend(crate::geometry::plan_wall_attached_ends(
+                &story_walls,
+                &story_footprints,
+            ));
+            wall_display_footprints.extend(
+                story_walls
+                    .iter()
+                    .map(|wall| (wall.id, story_footprints_by_id[&wall.id])),
+            );
+            for material in Material::ALL {
+                let walls: Vec<_> = story_walls
+                    .iter()
+                    .copied()
+                    .filter(|element| element.material == material)
+                    .collect();
+                if walls.is_empty() {
+                    continue;
+                }
                 if join_3d_display
                     && !walls.iter().any(|wall| {
                         selected.contains(&wall.id) || walls_with_openings.contains(&wall.id)
@@ -694,8 +709,10 @@ impl SceneRenderer {
                         if indices.len() < 2 {
                             continue;
                         }
-                        let group_footprints: Vec<_> =
-                            indices.iter().map(|index| footprints[*index]).collect();
+                        let group_footprints: Vec<_> = indices
+                            .iter()
+                            .map(|index| story_footprints_by_id[&walls[*index].id])
+                            .collect();
                         let outlines = crate::geometry::wall_outline_paths(&group_footprints);
                         // A single closed loop is the common connected L/T
                         // junction case. Groups with separate loops or holes

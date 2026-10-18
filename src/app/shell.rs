@@ -44,6 +44,9 @@ impl AtelierApp {
                             });
                         if self.language != previous_language {
                             self.language.save_preference();
+                            ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(
+                                self.language.window_title().to_owned(),
+                            ));
                             self.editor.status = format!(
                                 "{} · {}",
                                 self.language.translate("Language"),
@@ -607,6 +610,9 @@ impl AtelierApp {
                             );
                             if self.language != previous {
                                 self.language.save_preference();
+                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Title(
+                                    self.language.window_title().to_owned(),
+                                ));
                                 self.editor.status = format!(
                                     "{} · {}",
                                     self.language.translate("Language"),

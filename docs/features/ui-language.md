@@ -16,10 +16,12 @@ Evidence types:
 | The choice is stored as `zh-CN` or `en` under `~/Library/Application Support/OpenArchi/language` | readable source | `src/localization.rs::load_preference`, `save_preference` | File location is a local implementation choice |
 | Title bar, top menus, toolbar, Info Box, toolbox, view tabs, counts, status bar and Quick Options bar change together | runtime observation | Final packaged app, 2026-10-18, AX tree and full-window screenshots | Covers the main floor-plan window; every dialog was not visually re-read in both languages |
 | The selected language survives an application restart | runtime observation | Final packaged app, 2026-10-18, quit/relaunch after choosing `简体中文` | macOS local preference only |
+| The window title follows the language while the macOS application-menu label stays `OpenArchi` | runtime observation | `49906133` bundle, 2026-10-18; AX window title and System Events menu-bar read in both languages | The application-menu label is intentionally language-neutral; it is the bundle/process identity, not a document title |
 | Wall Settings dialog labels, choices, group headers and buttons follow the language | runtime observation | Final packaged app, 2026-10-18, `⌘T` on a selected wall; first group read field-by-field, all six group headers read after scrolling | Remaining groups' fields were not edited one-by-one on the final bundle; unit and dictionary tests cover them |
 | Info Box wall fields follow the language and stay editable | runtime observation | Final packaged app, 2026-10-18, one wall selected with the Info Box open; Chinese fields read item by item, English render covered by regression | The final bundle's desktop pass read the Chinese Info Box fields individually; the English field list was checked through the render regression |
 | Info Box wall-tool defaults follow the language | runtime observation | Final packaged app, 2026-10-18, Wall tool active with nothing selected; Chinese fields read item by item, then English fields read item by item after relaunching with the `en` preference | The English pass used a same-content test copy (`CFBundleIdentifier` changed only) and wrote the preference file directly; it did not exercise the selector gesture |
-| Door/Window Info Box labels follow the language | readable source, unit regression and dictionary check | `info_box.rs`, `locales/en.json`, `locales/zh-CN.json`; `door_info_box_shows_and_edits_hosted_opening_fields`, `opening_tool_defaults_are_editable_and_localized`; 456-key localization check | Chinese labels were read on the `A5BCB793` package; English Door/Window Info Box rendering was not re-read on that package |
+| Door/Window Info Box labels follow the language | readable source, unit regression and dictionary check | `info_box.rs`, `locales/en.json`, `locales/zh-CN.json`; `door_info_box_shows_and_edits_hosted_opening_fields`, `opening_tool_defaults_are_editable_and_localized`; 462-key localization check | Chinese labels were read on the `A5BCB793` package; English Door/Window Info Box rendering was not re-read on that package |
+| Wall reference-line editing and snap text follows the language | unit regression, dictionary check and desktop smoke | `wall_reference_line_palette_renders_in_both_languages`, `wall_endpoint_snap_preview_matches_the_active_language`; `snap` label and join status read on the `638273BF` bundle | Both languages rendered headlessly; on the current desktop bundle the Chinese drag showed `捕捉：墙参考线` and the release status `墙端点已连接到参考线`, but the palette body was not re-read field by field in Chinese |
 
 ## Behavior contract
 
@@ -33,6 +35,11 @@ Evidence types:
 - Switching language does not mutate `Project`, clear or add selection, or add
   an undo/redo entry.
 - On the next launch, the saved language is loaded before the first frame.
+- The window title is `OpenArchi — Architectural Workbench` or
+  `OpenArchi — 建筑设计工作台` and changes in the same frame as the rest of the
+  UI. The macOS application-menu label is always `OpenArchi`; eframe derives it
+  from the launch-time viewport title, so the launch title stays
+  language-neutral and the localized title is applied from the first frame.
 - Missing or unreadable preference data falls back to English.
 
 ## Main-window coverage
@@ -53,6 +60,8 @@ messages, view-settings and navigator groups, and representative dialogs.
 | `View > Language` exposes and activates both choices | pass — desktop | On the final bundle the `视图 > 语言` submenu listed `English` and `简体中文`; choosing `English` changed the main window and status to `Language · English`; the title-bar selector then restored `简体中文` |
 | Preference is written | pass — desktop | Preference file changed `en` → `zh-CN` → `en` |
 | Language survives restart | pass — desktop | After choosing `简体中文` and relaunching the final bundle, the first AX tree was already Chinese |
+| Window title follows the language | pass — desktop | Title-bar selector: English `OpenArchi — Architectural Workbench` → 简体中文 `OpenArchi — 建筑设计工作台`; both updated immediately and survived restart |
+| Application menu stays language-neutral | pass — desktop | `osascript … get name of every menu bar item of menu bar 1` returned `Apple, OpenArchi` in both languages; it never showed a stale translated title |
 | Switching does not edit the project or undo history | pass — desktop and unit regression | `Undo`/`Redo` stayed disabled and the model remained at 12 elements; `simplified_chinese_workspace_renders_without_changing_model_state` compares the project before/after rendering |
 | Main labels and counts follow the language | pass — unit regression | `main_window_status_tabs_and_counts_follow_the_selected_language`, `status_text_localizes_dynamic_messages_without_rewriting_editor_state`, `main_window_and_status_labels_are_localized_in_chinese` |
 | Quick Options labels follow the language | pass — unit regression | `quick_options_bar_and_palette_render_in_the_selected_language` |

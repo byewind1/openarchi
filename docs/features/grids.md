@@ -61,8 +61,9 @@ Documented semantics used here:
   backward-compatible defaults. Units are metres in OpenArchi (Archicad's
   dialog uses working units, observed here as millimetres). Defaults mirror the
   observed dialog: Main 2.000 m, Steps 1; Aux. 0, Steps 0; rotation 45°; Snap
-  Grid/Nudge 0.050 m; construction grid visible by default in OpenArchi to
-  preserve the existing canvas appearance.
+  Grid/Nudge 0.050 m. Construction Grid Display, Grid Snap and the active snap
+  mode are all off by default (`No snap`), so a new or legacy project without
+  saved grid settings opens on a clean drawing canvas.
 - The grid is a repeating cycle of `(spacing, kind)` advances. The origin is a
   line. Forward: `main_steps` main intervals, then `aux_steps` auxiliary
   intervals. Backward: the same cycle reversed. This reproduces the documented
@@ -113,6 +114,16 @@ Documented semantics used here:
    JSON save/load preserves the settings.
 7. The packaged app is rebuilt and a native smoke test is attempted.
 
+## Default-state update (2026-10-18)
+
+- New and legacy projects that omit `grid_settings` start with the construction
+  grid hidden, grid snapping disabled and `GridSnapMode::None`.
+- Turning Grid Snap on from the toolbar or `Alt+S` still restores the normal
+  Snap Grid mode; the default being off does not remove the remembered-mode
+  behavior.
+- `grids::tests::construction_grid_and_snap_are_off_by_default` covers the
+  new default. Existing snapping tests now enable the mode explicitly.
+
 ## Verification (2026-10-17)
 
 - `python3 scripts/ac29-workflow.py verify` passed formatting (including
@@ -148,3 +159,16 @@ Documented semantics used here:
   unavailable.
 - Numeric entry and the shortcuts listed above still need a manual desktop
   pass; 3D auxiliary-line alpha is approximated by blending.
+
+Desktop check on bundle `D0FD5583-C853-3379-9E3F-50329DF4C803`
+(isolated HOME `/tmp/oa-join-final.AFg79r/home`, recovered project
+`Same Material Join`): the 2D plan opened with no construction-grid lines
+visible; two empty canvas regions (x=1760–2320 and x=650–2320 at
+y=1400–1700 in `/tmp/join-recovered.png`) contain 0 non-background pixels.
+The recovered project document reports
+`show_construction_grid=false`, `grid_snap_enabled=false` and
+`snap_mode=None`, matching `construction_grid_and_snap_are_off_by_default`.
+The Snap Options checkbox itself was not read from the View menu in this
+pass because the custom menu could not be opened reliably through the
+automation; the off state is evidenced by the serialized project state,
+the visible canvas and the regression test.

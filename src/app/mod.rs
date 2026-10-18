@@ -137,6 +137,28 @@ struct PolylineEdit {
     multiply_count: usize,
     error: String,
 }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum WallEditCommand {
+    MoveNode,
+    Move,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct WallSnap {
+    element_id: u64,
+    point: Point,
+}
+#[derive(Clone, Debug)]
+struct WallEdit {
+    element_id: u64,
+    /// `0` is the reference-line start, `1` is its end. `None` means the whole
+    /// line was grabbed rather than one of its handles.
+    node: Option<usize>,
+    command: WallEditCommand,
+    palette_at: Pos2,
+    drag: Option<(Project, Point)>,
+    snap: Option<WallSnap>,
+    error: String,
+}
 #[derive(Clone, Debug)]
 struct InfoBoxWallState {
     element_id: u64,
@@ -246,6 +268,8 @@ pub struct AtelierApp {
     command_dialog_classification: String,
     drag: Option<(Project, Point, Vec<u64>)>,
     polyline_edit: Option<PolylineEdit>,
+    wall_edit: Option<WallEdit>,
+    wall_edit_palette_rect: Option<Rect>,
     file_action: Option<FileAction>,
     path: String,
     file_error: String,
@@ -278,6 +302,9 @@ impl AtelierApp {
         let renderer = cc.wgpu_render_state.clone().map(SceneRenderer::new);
         let mut app = Self::from_renderer(renderer, gpu_name);
         app.language = UiLanguage::load_preference();
+        cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Title(
+            app.language.window_title().to_owned(),
+        ));
         if let Some(path) = app.recovery_path.clone() {
             match crate::recovery::read(&path) {
                 Ok(project) => app.recovery_prompt = project,
@@ -330,7 +357,7 @@ impl AtelierApp {
             command_dialog_number: 1., command_dialog_enabled: true,
             command_dialog_method: "Default".into(), command_dialog_reference: "Center".into(),
             command_dialog_representation: "By Element".into(), command_dialog_classification: "Not assigned".into(),
-            drag: None, polyline_edit: None, file_action: None,
+            drag: None, polyline_edit: None, wall_edit: None, wall_edit_palette_rect: None, file_action: None,
             path: directory.join("courtyard.openarchi.json").display().to_string(),
             file_error: String::new(), library_search: String::new(), assistant_input: String::new(),
             messages: vec![(false, "Your design companion\n\nAsk for a project summary, quantities, or a model check. This demo runs local rules; no AI service is connected.".into())],
@@ -1529,6 +1556,7 @@ impl AtelierApp {
                 || !self.marquee_3d_points.is_empty()
                 || self.drag.is_some()
                 || self.polyline_edit.is_some()
+                || self.wall_edit.is_some()
                 || self.stair_settings_open
                 || self.element_settings.is_some()
                 || self.wall_settings_dialog.is_some()
@@ -1541,6 +1569,11 @@ impl AtelierApp {
                     self.editor.project = before;
                 }
                 if let Some(edit) = self.polyline_edit.take()
+                    && let Some((before, _)) = edit.drag
+                {
+                    self.editor.project = before;
+                }
+                if let Some(edit) = self.wall_edit.take()
                     && let Some((before, _)) = edit.drag
                 {
                     self.editor.project = before;

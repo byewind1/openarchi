@@ -70,6 +70,77 @@ fn continuous_wall_method_builds_a_connected_chain_in_one_undo() {
 }
 
 #[test]
+fn continuous_wall_clicking_the_start_closes_and_commits_the_chain() {
+    let mut editor = empty();
+    editor.set_tool(Tool::Wall);
+    editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    for point in [p(0., 0.), p(4., 0.), p(4., 3.)] {
+        editor.click(point, 0.);
+    }
+    assert!(editor.project.elements.is_empty());
+    editor.click(p(0., 0.), 0.1);
+    assert_eq!(editor.project.elements.len(), 3);
+    let segments: Vec<_> = editor.project.elements.iter().map(wall_segment).collect();
+    assert_eq!(segments[2], (p(4., 3.), p(0., 0.)));
+    assert!(editor.anchor.is_none());
+    assert!(editor.wall_points.is_empty());
+    assert_eq!(editor.undo.len(), 1);
+    editor.undo();
+    assert!(editor.project.elements.is_empty());
+}
+
+#[test]
+fn wall_reference_line_edit_drives_geometry_and_roundtrips() {
+    let mut editor = empty();
+    editor.set_tool(Tool::Wall);
+    editor.click(p(0., 0.), 0.);
+    editor.click(p(4., 0.), 0.);
+    let id = editor.project.elements[0].id;
+    let undo_before_edit = editor.undo.len();
+    let before = editor.project.clone();
+
+    editor
+        .set_wall_reference_line(id, p(1., 1.), p(5., 1.))
+        .unwrap();
+    let wall = editor
+        .project
+        .elements
+        .iter()
+        .find(|element| element.id == id)
+        .unwrap();
+    assert_eq!(wall_segment(wall), (p(1., 1.), p(5., 1.)));
+    let footprint = geometry::footprint(wall);
+    let center_y = footprint.iter().map(|point| point.y).sum::<f32>() / 4.;
+    assert!((center_y - 1.).abs() < 1e-5);
+
+    editor.commit(before);
+    assert_eq!(editor.undo.len(), undo_before_edit + 1);
+    editor.undo();
+    assert_eq!(
+        wall_segment(&editor.project.elements[0]),
+        (p(0., 0.), p(4., 0.))
+    );
+    editor.redo();
+    assert_eq!(
+        wall_segment(&editor.project.elements[0]),
+        (p(1., 1.), p(5., 1.))
+    );
+
+    let bytes = JsonAdapter.export(&editor.project).unwrap();
+    let imported = JsonAdapter.import(&bytes).unwrap();
+    assert_eq!(imported, editor.project);
+    assert_eq!(wall_segment(&imported.elements[0]), (p(1., 1.), p(5., 1.)));
+
+    let unchanged = editor.project.clone();
+    assert!(
+        editor
+            .set_wall_reference_line(id, p(1., 1.), p(1.005, 1.))
+            .is_err()
+    );
+    assert_eq!(editor.project, unchanged);
+}
+
+#[test]
 fn continuous_wall_backspace_removes_only_the_last_input_node() {
     let mut editor = empty();
     editor.set_tool(Tool::Wall);

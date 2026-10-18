@@ -1,5 +1,61 @@
 # 验证记录
 
+## 2026-10-18 墙体参考线编辑、接头几何、连续墙结束与窗口标题（当前）
+
+本节记录当前工作树（未提交）在 AC29 墙体参考线编辑、接头几何、连续墙结束手势和窗口标题本地化方面的结论，取代上方各节的测试数字作为当前结论；历史记录保留。
+
+### AC29 静态依据
+
+- 目标 `29.0.0 v1 INT (5101)`，arm64；主程序 SHA-256 `d86af90a1fc90f0a9ef2c8565300179acc9735dda8fc3e0fe07611e8aa8b5505`（`python3 scripts/ac29-workflow.py context walls`）。
+- `VBElem::Wall::RectPoly` `0x84e1b4`、`GetCorePolygon` `0x84db0c`、`GetWOffsetBeg` `0x848b9c`；`VBD::WallVRDData::CalculateWPolygon` `0x34f06c`；`VBCalculations::MakeWall2PatStruct` `0x625bc`、`SetWall2PointAndInd` `0x369538`、`GetTind` `0x369a90`、`GetCrossInd` `0x369ef0`。
+- Framework SHA-256：`VBElemOperations` `32c9d2c0014aca680d425aa31e17cdba84983fbaf287a9b15f7966f989ec304f`，`VBElements` `f86d144f5f04ce1c7a88a2df831c4b54459f3ad703be53768999a24aab70aae3`。
+- 限制：均为静态反汇编阅读，无 REA Evidence ID；`GetTind`/`GetCrossInd` 的索引选择分支未逐行还原；本轮未捕获 AC29 运行时交互。
+
+### 实现结论
+
+- `src/geometry.rs` 的 `WallBody` 从参考线、厚度、参考线位置和数值偏移得到 `[lo, hi]` 本体区间；`plan_wall_footprints` 在显示时按相邻墙计算 L 角同侧斜接、偏移角远端面裁剪、T 接头近端面裁剪和四墙交汇，平面、3D、Trace 共用同一轮廓。模型中的 `start`/`end` 不被改写。
+- `src/editor.rs` 的 `wall_close_target`/`click_wall`：Continuous 两节点点击起点只生成一段墙，三节点以上生成闭合段；Polygonal 至少三节点闭合。
+- `src/app/plan.rs`：起点 12 px 磁性闭合（屏幕空间兜底）；右键 `Response::clicked_by(Secondary)` 完成 Continuous（≥2 节点）/Polygonal（≥3 节点），不足则取消；右拖仍平移。
+- `src/model.rs` 的 `validate_wall_reference_line` 与 `src/editor.rs` 的 `set_wall_reference_line`：墙体编辑只替换参考线 `start`/`end`，墙身、接头、洞口和 3D 全部由模型派生；拖动预览从手势开始快照重算，松开只提交一个撤销事务。端点手柄优先于基线命中，拖基线平移整面墙。
+- `src/app/plan.rs` 的 `wall_endpoint_drag_target`：端点捕获先读取原始指针世界坐标，再计算目标墙基线；网格或对象吸附只能约束沿被编辑墙方向的位置，不能把端点先拉离目标基线。候选墙以墙身包含/邻近优先，其次才按基线距离判定。
+- `src/app/plan.rs` 的墙体编辑面板记录自身矩形，画布在其下方不再触发选择或拖动；`Done` 关闭未改动的面板并恢复 Select 提示，`Escape` 取消实时拖动且不写撤销记录。
+- `src/localization.rs`、`src/main.rs`、`src/app/mod.rs`、`src/app/shell.rs`：窗口标题随语言即时更新；macOS 应用菜单标签固定为 `OpenArchi`（eframe 从启动时的 viewport title 派生，因此启动标题保持中性，首帧设置本地化窗口标题）。
+- `src/view_settings.rs`：未选中墙的平面切面填充改为固定浅灰 `RGB 211, 211, 211`（`WALL_CUT_FILL`），不再按材质压暗；默认 `03 建筑 100` 笔集不叠加色调，选择高亮、覆盖样式和改建状态色仍按原规则覆盖。
+
+### 自动检查
+
+- `./scripts/cargo.sh fmt --all -- --check`：通过。
+- `./scripts/cargo.sh check --locked --all-targets`：通过。
+- `./scripts/cargo.sh test --locked --all-targets`：**258 项通过**（210 库、7 Guides、10 门窗洞口、31 工作流），1 项手动性能基线 ignored。
+- `python3 scripts/check-localization.py`：**462 个 literal key**，en/zh 缺失 0、重复 0、zh 未翻译 0。
+- `python3 scripts/ac29-workflow.py verify --force`：通过 format、check、localization、tests、tool-tests（15 项）、diff 和 package；报告 `target/ac29-workflow/runs/20261018T100735Z-066ccded/report.json`；`desktop_ui` 为 `unverified`（该脚本不执行桌面交互，手动结果见下节）。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `E6E06421-C90A-3A80-B072-DFBD824F28CF`；release SHA-256 `f57bf785c6b3cdc0399dd408b4b302223d8f5c0347ba7cedefffd3942817246d`；bundle tree SHA-256 `963e11229f4b8a5e5f004c157e22f79220b2a51715057b1487107e1305b078fe`；`codesign --verify --deep --strict` 通过；macOS zip SHA-256 `f00994404159b3c30c2addd8cb8f4bbb1393f962eb27d9820064f797e187a1cd`。
+
+### 桌面实测
+
+隔离 HOME（`/tmp/openarchi-ac29-final/home`）启动最终包；真实 HOME 与真实恢复项目未触碰。
+
+- 右键：Wall / Continuous，两点后右键，构件 12 → 13，状态 `Created 1 connected wall segments`，Undo 可用，tracker 与起点标记清除。此前同一手势在旧包的 Single 草稿上取消成功（`墙绘制已取消`）；CUA 对两点链的右键投递曾多次失败，最终包重试成功，因此不把旧失败记作功能缺陷。
+- 回车结束：两点后回车，12 → 13，状态 `已创建 1 段连续墙`（`D030826E` 包，几何源码与最终包一致）。
+- 点击起点：两点链点击起点，12 → 14，状态 `已创建 1 段连续墙`，未追加零长度段（同一 `D030826E` 包）。
+- 语言：最终包标题栏选择器 English → 简体中文；窗口标题即时切换；英文提示 `right-click, double-click or Enter to finish`，中文提示 `右键、双击或回车完成`；macOS 菜单栏应用项两种语言均为 `OpenArchi`。
+- 重启：选择简体中文后退出并重新启动，首帧为中文（窗口标题 `OpenArchi — 建筑设计工作台`，菜单 `文件 / 编辑 / 视图`，`13 个构件`）。
+- 切换语言前后模型保持 13 构件，`Undo` 可用、`Redo` 禁用，无模型或撤销历史变化。
+- 墙填充：唯一 Bundle ID 的测试副本（内容同最终包，隔离 HOME，默认 `Courtyard House`）启动后截图采样，外墙切面内部像素为精确 `RGB 211, 211, 211`，与页面底色 `250, 250, 248` 和深色轮廓 `57, 58, 62` 区分清楚；未选中墙全部使用该浅灰，楼板与房间底色不变。该检查未改动真实 HOME 或用户工程。
+- 墙体编辑面板：在最终包上选中 `Wall 004` 后单击参考线端点，面板显示 `Wall reference line`、`End endpoint`、`Length: 12.000 m` 与 `Done`；点击 `Done` 后面板关闭，墙体仍保持选中，构件数 12 不变，`Undo`/`Redo` 保持禁用。
+- 桌面端点拖动：**pass**。使用最终包与隔离 HOME `/tmp/oa-drag-test/home`，恢复项目 `Wall Join Final` 的交叉状态：`Wall 001=(0,0)→(4,0)`、厚 `0.3 m`，`Wall 002=(2,2)→(2,-2)`、厚 `1.0 m`。选中 `Wall 001`，将起点手柄从 `(0,0)` 拖到 `Wall 002` 基线 `x=2`。CUA 的 `drag()` 仍只产生悬停，因此本轮改用 CGEvent 真实鼠标事件序列：按下、50 帧 `leftMouseDragged`（约 20 ms 间隔）、松开。拖动中显示蓝色目标基线、圆形吸附点和中文 `捕捉：墙参考线`（`/tmp/oa-drag-test/screen13-drag.png`）；松开后状态为 `墙端点已连接到参考线`，存储起点为 `(2,0)`，平面在厚墙近侧面 `x=2.5` 截断（`/tmp/oa-drag-test/screen14-zh-result.png`）。英文重复显示 `Wall endpoint joined at reference line`（`/tmp/oa-drag-test/screen6.png`）。一次 `Undo` 恢复 `(0,0)→(4,0)` 的交叉墙且 `Redo` 变为可用（`/tmp/oa-drag-test/screen7.png`）；重做后 `3D Perspective` 无埋入端盖（`/tmp/oa-drag-test/screen8.png`）。该实例随后退出，真实 HOME 实例未触碰。
+- 端点交接自动化：多帧 RawInput 回归 `wall_endpoint_drag_snaps_to_another_reference_line_and_joins`、`wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins`、`wall_endpoint_release_inside_snap_radius_joins_without_pointer_move`、`wall_endpoint_reference_snap_wins_over_a_coarse_grid_snap` 均通过。最后一例使用 1 m 粗网格和目标基线 `x=2.4`，断言普通网格会把点拉到 `x=2.0` 时仍由原始指针捕获 `x=2.4` 基线并完成接头。上述测试同时断言目标墙存储基线不被改写、3D 隐藏被埋端盖。
+- 派生接头可视（重新载入模型，不是桌面拖动）：持久化项目 `Wall Join Final`，2 个构件；水平墙 `(0,0)→(4,0)`、厚 `0.3 m`，竖向墙 `(2,2)→(2,-2)`、厚 `1.0 m`，水平墙起点已存为 `(2,0)`。重新打开后 Plan 正确裁接到厚墙表面（`/tmp/openarchi-final-plan-t.jpg`），3D 无埋入端盖（`/tmp/openarchi-final-3d-t.jpg`）；平面与 3D 共用 `plan_wall_footprints`。该检查只证明派生轮廓，不证明桌面拖动手势。
+
+### 未完成与未知
+
+- 曲面墙、复合墙板、柱交接优先级、PolyWall 单一元素与 pet palette 未实现；当前为直线墙的多段 `Shape::Wall`。
+- 接头算法是几何近似（同侧斜接/面裁剪），不是 `SetWall2PointAndInd` 的逐行复刻。
+- 浅灰填充使用默认笔集实测；其他笔集仍会按其 `fill_tint` 对墙填充做色调混合，未逐笔集截图。
+- macOS 应用菜单标签按设计保持 `OpenArchi`，不随窗口标题翻译。
+- 没有 AC29 运行时 REA Evidence ID；静态符号与哈希只支持 `docs/features/wall-joins.md` 中声明的有限结论。
+- 未提交、未打标签、未推送、未发布。
+
 ## 2026-10-18 当前状态摘要（0.2 阶段 0–5）
 
 本节覆盖 OpenArchi 0.2 计划的阶段 0–5，取代下方较早轮次的测试数字作为当前结论；旧记录保留为历史证据。源码基线为 `6c3110e`，工作树尚未提交。
@@ -445,3 +501,16 @@ Archicad 29 观察：本机 `29.0.0 v1 INT (5101)`，SHA-256 `d86af90a1fc90f0a9e
 - macOS 包内 `CFBundleShortVersionString` 为 `0.1`；release 与包内 arm64 UUID 均为 `58A6E014-97DB-3A15-8403-E8D3EF950327`，release SHA-256 为 `8d45c32aa0ce5603979548b681dfc5d601b42b32dcf3002b66b3a2e8c84cc2f9`，bundle tree SHA-256 为 `da361d5e3045482842fb77b77c98eb6a8995b5d813b58d3f802cda2d11b7f2f5`，`codesign --verify --deep --strict` 通过。
 
 验证：`cargo test --all-targets` **189 项通过**（153 库、7 Guides、29 工作流）；`python3 scripts/ac29-workflow.py verify --force` 通过格式、全目标检查、189 项 Rust 测试、11 项工具测试、`git diff --check` 与 macOS 打包，报告为 `target/ac29-workflow/runs/20261017T195808Z-285cf98e/report.json`。macOS 最终包已启动，简体中文首帧正常，显示 12 个构件和 `Apple Silicon / Metal`。Windows 产物只做了 PE 类型、压缩包内容与哈希检查，**未在真实 Windows 或 Wine 中启动验证**；Windows 包未签名，也没有安装器。
+
+## 2026-10-18 同材质墙交会轮廓与构造网格默认关闭
+
+本轮修复两项：同材质墙体相交时平面填充连续、交会处不再出现内部墙端线；新项目默认隐藏构造网格并关闭网格捕捉（`GridSnapMode::None`）。
+
+自动验证：`python3 scripts/ac29-workflow.py verify --force` 通过格式、`cargo check --locked --all-targets`、**260 项 Rust 测试**（含 1 项性能基线忽略）、15 项工具测试、`git diff --check` 和 macOS 打包，报告为 `target/ac29-workflow/runs/20261018T102915Z-cfd2a361/report.json`。新增回归 `same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups` 和 `construction_grid_and_snap_are_off_by_default`；原先依赖旧默认值的捕捉测试改为显式开启网格捕捉。`dist/OpenArchi.app` 的 release 与包内 arm64 UUID 均为 `D0FD5583-C853-3379-9E3F-50329DF4C803`，release SHA-256 为 `6f9150fc286acc675171c5637590c61730b2eaf91c756fe209bfb49b15b359fa`，bundle tree SHA-256 为 `56860af12c613d6605fa14db5453bd2b3cf66eb701f0d2ff6697dca085adb5b5`，`codesign --verify --deep --strict dist/OpenArchi.app` 通过；`dwarfdump --uuid` 的 release 与包内可执行文件 UUID 一致。该报告早于本轮纯文档收尾，源码与包未再变化。
+
+桌面实测（最终包 `dist/OpenArchi.app`，隔离 HOME `/tmp/oa-join-final.AFg79r/home`，英文界面，恢复项目 `Same Material Join`）：
+
+- 模型为两面 `Plaster` 墙：`Wall 001=(0,0)→(4,0)`、`Existing`、厚 `0.2 m`；`Wall 002=(2,0)→(2,2)`、`New`、厚 `0.2 m`。恢复后平面立即显示 T 形交会，`2 elements`，未保存标记存在。
+- 平面截图 `/tmp/join-recovered.png`（3024×1976）：横向墙填充在交会处连续；在填充行 y=1330 上，x=1330–1439 全部为 `(211,211,211)`，没有内部深色竖线。横向墙顶边在 y=1318–1322 处按竖向墙身范围 x=1368–1395 断开，竖向墙两侧轮廓在 y=1322 终止，不再穿入横向墙内部。
+- 同一截图中平面画布为空白纸面，没有构造网格线；两个空白采样区（x=1760–2320，y=850–1700；x=650–2320，y=1400–1700）非背景像素均为 0。恢复项目的 `grid_settings` 序列化为 `show_construction_grid=false`、`grid_snap_enabled=false`、`snap_mode=None`。
+- 限制：自定义 `View` 菜单未能通过本轮自动化稳定展开，因此没有直接读取 `Snap Options > Grid Snap` 复选框；网格捕捉关闭由项目状态、画布空白和自动回归共同支持。未重复检查不同材质、不同墙高、旋转墙或 AC29 像素级画笔画定义；3D 只沿用既有端帽隐藏回归，本轮未对这两个测试墙截图三维交会。未提交、推送、打标签或发布。
