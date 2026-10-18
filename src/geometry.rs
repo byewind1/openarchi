@@ -13,6 +13,99 @@ pub fn wall_reference_line(e: &Element) -> Option<(Point, Point)> {
     }
 }
 
+/// Project a point onto a wall's reference segment, clamped to its ends.
+pub fn wall_reference_projection(e: &Element, point: Point) -> Option<Point> {
+    let (start, end) = wall_reference_line(e)?;
+    let dx = end.x - start.x;
+    let dy = end.y - start.y;
+    let length_squared = dx * dx + dy * dy;
+    if !length_squared.is_finite() || length_squared < 1e-8 {
+        return None;
+    }
+    let t = (((point.x - start.x) * dx + (point.y - start.y) * dy) / length_squared).clamp(0., 1.);
+    Some(Point::new(start.x + dx * t, start.y + dy * t))
+}
+
+/// A nearby wall reference line that an edited endpoint can snap onto.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct WallReferenceSnap {
+    pub wall_id: u64,
+    pub point: Point,
+    pub distance: f32,
+}
+
+/// Find the nearest visible wall reference segment to `point`, excluding the
+/// wall being edited. The snap point is the perpendicular projection clamped
+/// to the target segment, so releasing there stores an exact intersection on
+/// the other wall's reference line. Joins and wall-end trims remain derived
+/// by `plan_wall_footprints`.
+pub fn wall_reference_snap(
+    project: &Project,
+    story: u32,
+    exclude_id: u64,
+    point: Point,
+    tolerance: f32,
+) -> Option<WallReferenceSnap> {
+    if !point.finite() || !tolerance.is_finite() || tolerance <= 0. {
+        return None;
+    }
+    let mut best: Option<WallReferenceSnap> = None;
+    let mut best_on_body = false;
+    // Prefer the topmost wall on an exact distance tie, matching plan hit
+    // testing for overlapping reference lines.
+    for wall in project.elements.iter().rev().filter(|element| {
+        element.id != exclude_id
+            && element.story == story
+            && matches!(element.shape, Shape::Wall { .. })
+            && project.plan_options.element_visible(element)
+    }) {
+        let Some((start, end)) = wall_reference_line(wall) else {
+            continue;
+        };
+        let dx = end.x - start.x;
+        let dy = end.y - start.y;
+        let length_squared = dx * dx + dy * dy;
+        if !length_squared.is_finite() || length_squared < 1e-8 {
+            continue;
+        }
+        let Some(body) = wall_body(wall) else {
+            continue;
+        };
+        let body_polygon = body_polygon(&body);
+        let on_body = contains(point, &body_polygon);
+        let body_distance = (0..body_polygon.len() as u32)
+            .map(|edge| {
+                let a = body_polygon[edge as usize];
+                let b = body_polygon[(edge as usize + 1) % body_polygon.len()];
+                segment_distance(point, a, b)
+            })
+            .fold(f32::INFINITY, f32::min);
+        // The editable target is the reference line itself. A wall body can be
+        // shifted far from that line by its reference offset, so accepting only
+        // body proximity would silently disable the primary baseline snap.
+        let baseline_distance = segment_distance(point, start, end);
+        if !on_body && body_distance > tolerance && baseline_distance > tolerance {
+            continue;
+        }
+        let Some(candidate) = wall_reference_projection(wall, point) else {
+            continue;
+        };
+        let distance = candidate.distance(point);
+        let better = best.is_none_or(|snap| {
+            (on_body && !best_on_body) || (on_body == best_on_body && distance < snap.distance)
+        });
+        if better {
+            best = Some(WallReferenceSnap {
+                wall_id: wall.id,
+                point: candidate,
+                distance,
+            });
+            best_on_body = on_body;
+        }
+    }
+    best
+}
+
 pub fn footprint(e: &Element) -> [Point; 4] {
     match e.shape {
         Shape::Wall {
@@ -873,121 +966,331 @@ fn polygon_area(poly: &[Point]) -> f32 {
         * 0.5
 }
 
-/// Returns joined display footprints with near endpoints snapped to their
-/// same-group centerline intersection and extended through the adjoining wall.
-/// The same footprints drive the 2D outline and the ordinary 3D view; project
-/// elements themselves remain unchanged.
-pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
-    let mut centerlines: Vec<_> = walls
-        .iter()
-        .map(|wall| match wall.shape {
-            Shape::Wall { start, end, .. } => (start, end),
-            Shape::Slab { .. }
-            | Shape::Stair { .. }
-            | Shape::Polyline { .. }
-            | Shape::Opening { .. } => {
-                unreachable!("plan wall join groups contain walls only")
-            }
-        })
-        .collect();
-    let mut endpoint_extensions = vec![[0.0_f32; 2]; walls.len()];
+/// Reference-line frame plus the lateral interval occupied by the wall body.
+/// `lo`/`hi` are measured left of the start-to-end direction, matching
+/// `WallSettings::body_offset`, and the body spans `[lo, hi]`.
+#[derive(Clone, Copy)]
+struct WallBody {
+    start: Point,
+    end: Point,
+    dir: Point,
+    left: Point,
+    length: f32,
+    lo: f32,
+    hi: f32,
+}
 
-    for (index, wall) in walls.iter().enumerate() {
-        let own_thickness = wall.thickness();
-        for (endpoint_index, endpoint) in [
-            (0usize, centerlines[index].0),
-            (1usize, centerlines[index].1),
-        ] {
-            let mut nearest: Option<(f32, Point, f32)> = None;
-            for (other_index, other) in walls.iter().enumerate() {
-                if index == other_index {
-                    continue;
-                }
-                let (other_start, other_end, other_thickness) = match other.shape {
-                    Shape::Wall {
-                        start,
-                        end,
-                        thickness,
-                        ..
-                    } => (start, end, thickness),
-                    Shape::Slab { .. }
-                    | Shape::Stair { .. }
-                    | Shape::Polyline { .. }
-                    | Shape::Opening { .. } => continue,
-                };
-                let own_start = match wall.shape {
-                    Shape::Wall { start, .. } => start,
-                    _ => unreachable!(),
-                };
-                let own_end = match wall.shape {
-                    Shape::Wall { end, .. } => end,
-                    _ => unreachable!(),
-                };
-                let own_direction = Point::new(own_end.x - own_start.x, own_end.y - own_start.y);
-                let other_direction =
-                    Point::new(other_end.x - other_start.x, other_end.y - other_start.y);
-                let denominator =
-                    own_direction.x * other_direction.y - own_direction.y * other_direction.x;
-                if denominator.abs() < 1e-5 {
-                    continue;
-                }
-                let delta = Point::new(other_start.x - own_start.x, other_start.y - own_start.y);
-                let own_t =
-                    (delta.x * other_direction.y - delta.y * other_direction.x) / denominator;
-                let other_t = (delta.x * own_direction.y - delta.y * own_direction.x) / denominator;
-                let candidate = Point::new(
-                    own_start.x + own_direction.x * own_t,
-                    own_start.y + own_direction.y * own_t,
-                );
-                // A wall drawn to the face of another wall can leave the
-                // centerline endpoint up to one wall thickness from the
-                // reference-line intersection. Cover that ordinary drafting
-                // offset so the display join is not reduced to a barely
-                // touching sliver (while leaving stored geometry editable).
-                let tolerance = own_thickness.max(other_thickness)
-                    + own_thickness.min(other_thickness) * 0.5
-                    + 0.02;
-                let other_length = other_start.distance(other_end).max(0.001);
-                let endpoint_extension = tolerance / other_length;
-                if other_t < -endpoint_extension || other_t > 1.0 + endpoint_extension {
-                    continue;
-                }
-                let distance = endpoint.distance(candidate);
-                if distance <= tolerance && nearest.is_none_or(|(best, _, _)| distance < best) {
-                    nearest = Some((distance, candidate, other_thickness));
-                }
+impl WallBody {
+    fn thickness(&self) -> f32 {
+        (self.hi - self.lo).max(1e-4)
+    }
+}
+
+fn dot(a: Point, b: Point) -> f32 {
+    a.x * b.x + a.y * b.y
+}
+
+fn wall_body(wall: &Element) -> Option<WallBody> {
+    let Shape::Wall {
+        start,
+        end,
+        thickness,
+        ..
+    } = wall.shape
+    else {
+        return None;
+    };
+    let length = start.distance(end);
+    if !length.is_finite() || length < 1e-4 {
+        return None;
+    }
+    let dir = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
+    let left = Point::new(-dir.y, dir.x);
+    let offset = wall
+        .wall_settings
+        .as_ref()
+        .map_or(0., |settings| settings.body_offset(thickness));
+    // Archicad stores the offset of one body face and spans [offset, offset +
+    // cross-section width]; OpenArchi keeps the same span centred on
+    // `body_offset`.
+    Some(WallBody {
+        start,
+        end,
+        dir,
+        left,
+        length,
+        lo: offset - thickness * 0.5,
+        hi: offset + thickness * 0.5,
+    })
+}
+
+fn body_polygon(body: &WallBody) -> [Point; 4] {
+    let at = |origin: Point, offset: f32| {
+        Point::new(
+            origin.x + body.left.x * offset,
+            origin.y + body.left.y * offset,
+        )
+    };
+    [
+        at(body.start, body.hi),
+        at(body.end, body.hi),
+        at(body.end, body.lo),
+        at(body.start, body.lo),
+    ]
+}
+
+fn intersect_lines(a: Point, a_dir: Point, b: Point, b_dir: Point) -> Option<Point> {
+    let denominator = a_dir.x * b_dir.y - a_dir.y * b_dir.x;
+    if denominator.abs() < 1e-6 {
+        return None;
+    }
+    let delta = Point::new(b.x - a.x, b.y - a.y);
+    let t = (delta.x * b_dir.y - delta.y * b_dir.x) / denominator;
+    let point = Point::new(a.x + a_dir.x * t, a.y + a_dir.y * t);
+    point.finite().then_some(point)
+}
+
+/// Lateral offset of the left-hand body side in the frame of a travel
+/// direction that points *into* the joint, or *away* from it. A corner join
+/// continues the offset curve, so the incoming wall's left side pairs with the
+/// outgoing wall's left side.
+fn incoming_left_offset(body: &WallBody, at_start: bool) -> f32 {
+    if at_start { body.lo } else { body.hi }
+}
+
+fn outgoing_left_offset(body: &WallBody, at_start: bool) -> f32 {
+    if at_start { body.hi } else { body.lo }
+}
+
+fn is_convex_quad(poly: &[Point; 4]) -> bool {
+    let mut sign = 0.0_f32;
+    for index in 0..4 {
+        let a = poly[index];
+        let b = poly[(index + 1) % 4];
+        let c = poly[(index + 2) % 4];
+        let cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x);
+        if cross.abs() < 1e-9 {
+            continue;
+        }
+        if sign == 0.0 {
+            sign = cross.signum();
+        } else if cross.signum() != sign {
+            return false;
+        }
+    }
+    true
+}
+
+/// Corner points imposed by adjoining walls on one end of `bodies[index]`.
+/// Returns `(left_of_travel, right_of_travel)` in whole-body coordinates, or
+/// `None` when the end is free or no usable intersection exists.
+fn joined_end_corners(
+    bodies: &[Option<WallBody>],
+    index: usize,
+    at_start: bool,
+) -> Option<(Point, Point)> {
+    let body = bodies[index].as_ref()?;
+    let point = if at_start { body.start } else { body.end };
+    let outward = if at_start {
+        Point::new(-body.dir.x, -body.dir.y)
+    } else {
+        body.dir
+    };
+    let mut best_left: Option<(f32, Point)> = None;
+    let mut best_right: Option<(f32, Point)> = None;
+    for (other_index, other) in bodies.iter().enumerate() {
+        if other_index == index {
+            continue;
+        }
+        let Some(other) = other else {
+            continue;
+        };
+        let tolerance = (body.thickness() + other.thickness()) * 0.5 + 0.02;
+        let along = dot(
+            Point::new(point.x - other.start.x, point.y - other.start.y),
+            other.dir,
+        );
+        if along < -tolerance || along > other.length + tolerance {
+            continue;
+        }
+        let nearest = Point::new(
+            other.start.x + other.dir.x * along.clamp(0., other.length),
+            other.start.y + other.dir.y * along.clamp(0., other.length),
+        );
+        if point.distance(nearest) > tolerance {
+            continue;
+        }
+        let limit = 8.0 * (body.thickness() + other.thickness()).max(0.05);
+
+        let consider = |slot: &mut Option<(f32, Point)>, candidate: Point| {
+            let reach = dot(
+                Point::new(candidate.x - point.x, candidate.y - point.y),
+                outward,
+            );
+            if reach.is_finite()
+                && reach.abs() <= limit
+                && slot.is_none_or(|(best, _)| reach > best)
+            {
+                *slot = Some((reach, candidate));
             }
-            if let Some((_, joined, other_thickness)) = nearest {
-                if endpoint_index == 0 {
-                    centerlines[index].0 = joined;
+        };
+
+        let own_left = incoming_left_offset(body, at_start);
+        let own_right = if at_start { body.hi } else { body.lo };
+        let own_left_anchor = Point::new(
+            point.x + body.left.x * own_left,
+            point.y + body.left.y * own_left,
+        );
+        let own_right_anchor = Point::new(
+            point.x + body.left.x * own_right,
+            point.y + body.left.y * own_right,
+        );
+
+        let start_distance = point.distance(other.start);
+        let end_distance = point.distance(other.end);
+        let corner_connection = start_distance.min(end_distance) <= tolerance.max(0.02);
+        if corner_connection {
+            let other_at_start = start_distance <= end_distance;
+            let other_endpoint = if other_at_start {
+                other.start
+            } else {
+                other.end
+            };
+            let connection_offset = point.distance(other_endpoint);
+            let other_left = outgoing_left_offset(other, other_at_start);
+            let other_right = if other_at_start { other.lo } else { other.hi };
+            let other_left_anchor = Point::new(
+                other.start.x + other.left.x * other_left,
+                other.start.y + other.left.y * other_left,
+            );
+            let other_right_anchor = Point::new(
+                other.start.x + other.left.x * other_right,
+                other.start.y + other.left.y * other_right,
+            );
+            let same_side = (
+                intersect_lines(own_left_anchor, body.dir, other_left_anchor, other.dir),
+                intersect_lines(own_right_anchor, body.dir, other_right_anchor, other.dir),
+            );
+            // A coincident joint uses the ordinary same-side mitre. When the
+            // reference endpoints are offset - for example a return wall
+            // snapped to the face of the host - the end is trimmed by the far
+            // face of the other wall. Both corner points then lie on the same
+            // plane, which fills the outside corner without cutting a diagonal
+            // bevel across the end.
+            let face_offset = if dot(other.left, outward) >= 0.0 {
+                other.hi
+            } else {
+                other.lo
+            };
+            let face_anchor = Point::new(
+                other.start.x + other.left.x * face_offset,
+                other.start.y + other.left.y * face_offset,
+            );
+            let face_pair = (
+                intersect_lines(own_left_anchor, body.dir, face_anchor, other.dir),
+                intersect_lines(own_right_anchor, body.dir, face_anchor, other.dir),
+            );
+            let chosen =
+                if connection_offset <= 1e-3 && same_side.0.is_some() && same_side.1.is_some() {
+                    same_side
                 } else {
-                    centerlines[index].1 = joined;
+                    face_pair
+                };
+            if let Some(candidate) = chosen.0 {
+                consider(&mut best_left, candidate);
+            }
+            if let Some(candidate) = chosen.1 {
+                consider(&mut best_right, candidate);
+            }
+        } else {
+            // The other wall passes through: stop at the face on the side
+            // from which this wall approaches. Using the nearer face to the
+            // body centre picks the far face for a branch that meets a wide
+            // wall from the opposite side, leaving hidden geometry inside the
+            // host and a cap coincident with its outer face.
+            let into_body = if at_start {
+                body.dir
+            } else {
+                Point::new(-body.dir.x, -body.dir.y)
+            };
+            let lateral = dot(into_body, other.left);
+            let face = if lateral > 1e-6 {
+                other.hi
+            } else if lateral < -1e-6 {
+                other.lo
+            } else {
+                let centre = Point::new(
+                    point.x + body.left.x * ((body.lo + body.hi) * 0.5),
+                    point.y + body.left.y * ((body.lo + body.hi) * 0.5),
+                );
+                let centre_lateral = dot(
+                    Point::new(centre.x - other.start.x, centre.y - other.start.y),
+                    other.left,
+                );
+                if (centre_lateral - other.hi).abs() <= (centre_lateral - other.lo).abs() {
+                    other.hi
+                } else {
+                    other.lo
                 }
-                endpoint_extensions[index][endpoint_index] = other_thickness * 0.5;
+            };
+            let face_anchor = Point::new(
+                other.start.x + other.left.x * face,
+                other.start.y + other.left.y * face,
+            );
+            if let Some(candidate) =
+                intersect_lines(own_left_anchor, body.dir, face_anchor, other.dir)
+            {
+                consider(&mut best_left, candidate);
+            }
+            if let Some(candidate) =
+                intersect_lines(own_right_anchor, body.dir, face_anchor, other.dir)
+            {
+                consider(&mut best_right, candidate);
             }
         }
     }
+    Some((best_left?.1, best_right?.1))
+}
 
+/// Returns the display footprints of a wall group with the joins derived from
+/// the reference lines and body sides of every connected wall. The same
+/// footprints drive the 2D outline and the ordinary 3D view; project elements
+/// themselves remain unchanged.
+pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
+    let bodies: Vec<Option<WallBody>> = walls.iter().map(|wall| wall_body(wall)).collect();
     walls
         .iter()
         .enumerate()
         .map(|(index, wall)| {
-            let (mut start, mut end) = centerlines[index];
-            let length = start.distance(end).max(0.001);
-            let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
-            start.x -= direction.x * endpoint_extensions[index][0];
-            start.y -= direction.y * endpoint_extensions[index][0];
-            end.x += direction.x * endpoint_extensions[index][1];
-            end.y += direction.y * endpoint_extensions[index][1];
-            wall_footprint(
-                start,
-                end,
-                wall.thickness(),
-                wall.wall_settings
-                    .as_ref()
-                    .map_or(0., |settings| settings.body_offset(wall.thickness())),
-            )
+            let Some(body) = bodies[index].as_ref() else {
+                return footprint(wall);
+            };
+            let mut polygon = body_polygon(body);
+            if let Some((left, right)) = joined_end_corners(&bodies, index, true) {
+                polygon[0] = right;
+                polygon[3] = left;
+            }
+            if let Some((left, right)) = joined_end_corners(&bodies, index, false) {
+                polygon[1] = left;
+                polygon[2] = right;
+            }
+            if polygon_area(&polygon).abs() <= 1e-6 || !is_convex_quad(&polygon) {
+                body_polygon(body)
+            } else {
+                polygon
+            }
         })
+        .collect()
+}
+
+/// Footprints keyed by element id. All render paths use this one story-wide
+/// join pass so wall junctions do not depend on material or renovation
+/// grouping used for fills, pens or 3D surfaces.
+pub fn plan_wall_footprints_by_id(walls: &[&Element]) -> Vec<(u64, [Point; 4])> {
+    plan_wall_footprints(walls)
+        .into_iter()
+        .zip(walls.iter().copied())
+        .map(|(footprint, wall)| (wall.id, footprint))
         .collect()
 }
 
@@ -1013,10 +1316,7 @@ pub fn plan_wall_attached_ends(walls: &[&Element], footprints: &[[Point; 4]]) ->
             ),
         ] {
             let joined = walls.iter().enumerate().any(|(other_index, other)| {
-                if other.id == wall.id
-                    || other.material != wall.material
-                    || other.story != wall.story
-                {
+                if other.id == wall.id || other.story != wall.story {
                     return false;
                 }
                 let Shape::Wall { height, .. } = wall.shape else {
@@ -1043,14 +1343,26 @@ pub fn plan_wall_attached_ends(walls: &[&Element], footprints: &[[Point; 4]]) ->
 /// Returns only the exposed perimeter fragments of already-joined wall
 /// footprints. This removes internal cap and side strokes in plan.
 pub fn wall_outline_segments(wall_footprints: &[[Point; 4]]) -> Vec<(Point, Point)> {
+    wall_outline_segments_by_wall(wall_footprints)
+        .into_iter()
+        .map(|(_, start, end)| (start, end))
+        .collect()
+}
+
+/// Returns every exposed perimeter fragment together with the wall footprint
+/// that supplied it. Callers can preserve per-wall pen styles without letting
+/// fill or renovation grouping reintroduce an internal join line.
+pub fn wall_outline_segments_by_wall(wall_footprints: &[[Point; 4]]) -> Vec<(usize, Point, Point)> {
     let polygons: Vec<Vec<Point>> = wall_footprints
         .iter()
         .map(|polygon| polygon.to_vec())
         .collect();
-    wall_outline_segments_for_polygons(&polygons)
+    wall_outline_segments_by_wall_for_polygons(&polygons)
 }
 
-fn wall_outline_segments_for_polygons(wall_footprints: &[Vec<Point>]) -> Vec<(Point, Point)> {
+fn wall_outline_segments_by_wall_for_polygons(
+    wall_footprints: &[Vec<Point>],
+) -> Vec<(usize, Point, Point)> {
     let mut outline = Vec::new();
     for (wall_index, polygon) in wall_footprints.iter().enumerate() {
         for edge_index in 0..polygon.len() {
@@ -1092,7 +1404,11 @@ fn wall_outline_segments_for_polygons(wall_footprints: &[Vec<Point>]) -> Vec<(Po
                 let start = start.clamp(0.0, 1.0);
                 let end = end.clamp(0.0, 1.0);
                 if start > cursor + 1e-5 {
-                    outline.push((interpolate(a, b, cursor), interpolate(a, b, start)));
+                    outline.push((
+                        wall_index,
+                        interpolate(a, b, cursor),
+                        interpolate(a, b, start),
+                    ));
                 }
                 cursor = cursor.max(end);
                 if cursor >= 1.0 {
@@ -1100,7 +1416,7 @@ fn wall_outline_segments_for_polygons(wall_footprints: &[Vec<Point>]) -> Vec<(Po
                 }
             }
             if cursor < 1.0 - 1e-5 {
-                outline.push((interpolate(a, b, cursor), b));
+                outline.push((wall_index, interpolate(a, b, cursor), b));
             }
         }
     }
@@ -1114,7 +1430,9 @@ pub fn wall_outline_paths(wall_footprints: &[[Point; 4]]) -> Vec<Vec<Point>> {
     wall_outline_paths_from_segments(wall_outline_segments(wall_footprints))
 }
 
-fn wall_outline_paths_from_segments(mut remaining: Vec<(Point, Point)>) -> Vec<Vec<Point>> {
+/// Joins exposed outline fragments into continuous paths. Plan uses this after
+/// bucketing fragments by pen so equal-styled walls still stroke one path.
+pub fn wall_outline_paths_from_segments(mut remaining: Vec<(Point, Point)>) -> Vec<Vec<Point>> {
     let mut paths = Vec::new();
     while let Some((start, end)) = remaining.pop() {
         let mut path = vec![start, end];
@@ -1750,6 +2068,122 @@ mod marquee_tests {
     }
 
     #[test]
+    fn wall_reference_snap_projects_onto_another_baseline_and_skips_the_edited_wall() {
+        let mut project = Project::default();
+        let edited = project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        let target = project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(2., 2.),
+                end: Point::new(2., -1.),
+                thickness: 0.3,
+                height: 3.,
+            },
+        );
+        let snap = wall_reference_snap(&project, 0, edited, Point::new(2.04, 0.12), 0.1)
+            .expect("nearby target baseline");
+        assert_eq!(snap.wall_id, target);
+        assert!(snap.point.distance(Point::new(2., 0.12)) < 1e-6);
+        assert!((snap.distance - 0.04).abs() < 1e-6);
+        assert!(
+            wall_reference_snap(&project, 0, edited, Point::new(5., 3.), 0.1).is_none(),
+            "a point outside the snap radius must stay free"
+        );
+        assert!(
+            wall_reference_snap(&project, 1, edited, Point::new(2.04, 0.12), 0.1).is_none(),
+            "walls on another story are not snap targets"
+        );
+        assert!(
+            wall_reference_snap(&project, 0, target, Point::new(2.04, 2.5), 0.1).is_none(),
+            "the edited wall is excluded from its own snap targets"
+        );
+    }
+
+    #[test]
+    fn wall_reference_snap_accepts_a_pointer_inside_a_thick_foreign_material_wall() {
+        let mut project = Project::default();
+        let edited = project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        let target = project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(2., 2.),
+                end: Point::new(2., -2.),
+                thickness: 1.,
+                height: 3.,
+            },
+        );
+        // 0.35 m is 17.5 px at 50 px/m, well outside a 12 px snap radius, but
+        // the pointer is still inside the target wall body. Dragging onto the
+        // visible wall, not only onto its reference line, must connect.
+        let snap = wall_reference_snap(&project, 0, edited, Point::new(2.35, 0.12), 0.24)
+            .expect("pointer inside the target wall body");
+        assert_eq!(snap.wall_id, target);
+        assert!(snap.point.distance(Point::new(2., 0.12)) < 1e-6);
+        assert!(
+            snap.distance > 0.24,
+            "the accepted candidate came from body containment, not reference-line proximity"
+        );
+    }
+
+    #[test]
+    fn wall_reference_snap_accepts_the_baseline_when_the_body_is_offset_away() {
+        let mut project = Project::default();
+        let edited = project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        let target = project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(2., 2.),
+                end: Point::new(2., -2.),
+                thickness: 1.,
+                height: 3.,
+            },
+        );
+        project
+            .elements
+            .iter_mut()
+            .find(|element| element.id == target)
+            .and_then(|element| element.wall_settings.as_mut())
+            .expect("target wall settings")
+            .geometry
+            .reference_offset = 1.;
+
+        let snap = wall_reference_snap(&project, 0, edited, Point::new(2.04, 0.12), 0.1)
+            .expect("reference-line proximity must not depend on the shifted body");
+        assert_eq!(snap.wall_id, target);
+        assert!(snap.point.distance(Point::new(2., 0.12)) < 1e-6);
+    }
+
+    #[test]
     fn wall_inside_and_outside_locations_move_the_body_not_the_line() {
         let mut project = Project::default();
         let id = project.add(
@@ -2079,6 +2513,60 @@ mod marquee_tests {
     }
 
     #[test]
+    fn cross_material_and_renovation_t_junction_trims_caps_and_outline() {
+        let mut project = Project::default();
+        let main = project.add_with_status(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+            crate::view_settings::RenovationStatus::Existing,
+        );
+        let branch = project.add_with_status(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(2., 0.),
+                end: Point::new(2., 2.),
+                thickness: 0.2,
+                height: 3.,
+            },
+            crate::view_settings::RenovationStatus::New,
+        );
+        let walls: Vec<_> = project.elements.iter().collect();
+        let footprints = plan_wall_footprints(&walls);
+        let outline = wall_outline_segments(&footprints);
+        assert_eq!(walls[0].id, main);
+        assert_eq!(walls[1].id, branch);
+        assert!(
+            (footprints[1][0].y - 0.1).abs() < 1e-4 && (footprints[1][3].y - 0.1).abs() < 1e-4,
+            "the branch must stop at the host's near face across materials: {:?}",
+            footprints[1]
+        );
+        assert!(
+            plan_wall_attached_ends(&walls, &footprints).contains(&(branch, true)),
+            "3D must hide a buried end cap even when materials and renovation differ"
+        );
+        assert!(
+            !outline
+                .iter()
+                .any(|(a, b)| a.y.abs() < 1e-4 && b.y.abs() < 1e-4 && (a.x - b.x).abs() > 0.1),
+            "the branch end cap should be hidden inside the main wall"
+        );
+        assert!(
+            !outline.iter().any(|(a, b)| (a.y - 0.1).abs() < 1e-4
+                && (b.y - 0.1).abs() < 1e-4
+                && a.x.min(b.x) < 2.0
+                && a.x.max(b.x) > 2.0),
+            "the main wall's exposed side should break around the branch"
+        );
+    }
+
+    #[test]
     fn same_material_l_corner_auto_trims_to_one_continuous_outline() {
         let mut project = Project::default();
         project.add(
@@ -2212,6 +2700,279 @@ mod marquee_tests {
             "the connected L perimeter should be one path: {paths:?}"
         );
         assert!(paths[0][0].distance(*paths[0].last().unwrap()) <= 1e-3);
+    }
+
+    #[test]
+    fn angled_l_corner_uses_the_true_mitre_instead_of_a_half_thickness_spike() {
+        let mut project = Project::default();
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(4., 0.),
+                end: Point::new(6., 2.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        let walls: Vec<_> = project.elements.iter().collect();
+        let footprints = plan_wall_footprints(&walls);
+        let left = footprints[0][1];
+        let right = footprints[0][2];
+        assert!(
+            left.distance(Point::new(3.958_579, 0.1)) <= 1e-4,
+            "{left:?}"
+        );
+        assert!(
+            right.distance(Point::new(4.041_421, -0.1)) <= 1e-4,
+            "{right:?}"
+        );
+        assert!(
+            footprints[0]
+                .iter()
+                .all(|point| (point.x - 4.1).abs() > 1e-4),
+            "a 45-degree mitre must not extend by one full half-thickness: {:?}",
+            footprints[0]
+        );
+        let outline = wall_outline_segments(&footprints);
+        assert!(
+            !outline
+                .iter()
+                .any(|(a, b)| a.distance(left) <= 1e-4 && b.distance(right) <= 1e-4),
+            "the end cap must be replaced by the mitre: {outline:?}"
+        );
+    }
+
+    #[test]
+    fn l_corner_with_different_thickness_meets_on_matching_faces() {
+        let mut project = Project::default();
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.3,
+                height: 3.,
+            },
+        );
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(4., 0.),
+                end: Point::new(4., 3.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        let walls: Vec<_> = project.elements.iter().collect();
+        let footprints = plan_wall_footprints(&walls);
+        let expected = [Point::new(3.9, 0.15), Point::new(4.1, -0.15)];
+        for point in expected {
+            assert!(footprints[0].iter().any(|p| p.distance(point) <= 1e-4));
+            assert!(footprints[1].iter().any(|p| p.distance(point) <= 1e-4));
+        }
+        assert!(
+            footprints[0]
+                .iter()
+                .all(|point| (point.y - 0.15).abs() <= 1e-4 || (point.y + 0.15).abs() <= 1e-4),
+            "the thick wall keeps its own faces: {:?}",
+            footprints[0]
+        );
+    }
+
+    #[test]
+    fn t_junction_branch_stops_on_the_face_it_approaches() {
+        let mut project = Project::default();
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.4,
+                height: 3.,
+            },
+        );
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(2., -2.),
+                end: Point::new(2., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        project.add(
+            0,
+            Material::Plaster,
+            Shape::Wall {
+                start: Point::new(2., 2.),
+                end: Point::new(2., 0.),
+                thickness: 0.2,
+                height: 3.,
+            },
+        );
+        let walls: Vec<_> = project.elements.iter().collect();
+        let footprints = plan_wall_footprints(&walls);
+        assert!(
+            (footprints[1][1].y + 0.2).abs() <= 1e-4,
+            "{:?}",
+            footprints[1]
+        );
+        assert!(
+            (footprints[1][2].y + 0.2).abs() <= 1e-4,
+            "{:?}",
+            footprints[1]
+        );
+        assert!(
+            (footprints[2][1].y - 0.2).abs() <= 1e-4,
+            "{:?}",
+            footprints[2]
+        );
+        assert!(
+            (footprints[2][2].y - 0.2).abs() <= 1e-4,
+            "{:?}",
+            footprints[2]
+        );
+    }
+
+    #[test]
+    fn four_way_crossing_closes_the_centre_without_cutting_arm_ends_at_bevels() {
+        let mut project = Project::default();
+        for (start, end) in [
+            (Point::new(-2., 0.), Point::new(0., 0.)),
+            (Point::new(2., 0.), Point::new(0., 0.)),
+            (Point::new(0., 2.), Point::new(0., 0.)),
+            (Point::new(0., -2.), Point::new(0., 0.)),
+        ] {
+            project.add(
+                0,
+                Material::Concrete,
+                Shape::Wall {
+                    start,
+                    end,
+                    thickness: 0.2,
+                    height: 3.,
+                },
+            );
+        }
+        let walls: Vec<_> = project.elements.iter().collect();
+        let footprints = plan_wall_footprints(&walls);
+        for x in [-0.05, 0., 0.05] {
+            for y in [-0.05, 0., 0.05] {
+                assert!(
+                    footprints
+                        .iter()
+                        .any(|polygon| contains(Point::new(x, y), polygon)),
+                    "the centre square must be filled at ({x}, {y})"
+                );
+            }
+        }
+        let outline = wall_outline_segments(&footprints);
+        assert!(
+            outline
+                .iter()
+                .all(|(a, b)| (a.x - b.x).abs() <= 1e-4 || (a.y - b.y).abs() <= 1e-4),
+            "the cross perimeter must not contain bevel edges: {outline:?}"
+        );
+        let paths = wall_outline_paths(&footprints);
+        assert_eq!(paths.len(), 1, "a symmetric cross has one outer perimeter");
+        assert!(paths[0][0].distance(*paths[0].last().unwrap()) <= 1e-3);
+    }
+
+    #[test]
+    fn reference_line_modes_and_numeric_offset_join_on_the_shifted_faces() {
+        use crate::wall::WallReferenceLine;
+
+        for (line, offset, expected) in [
+            (
+                WallReferenceLine::Center,
+                0.,
+                [Point::new(-0.12, -0.12), Point::new(0.12, 0.12)],
+            ),
+            (
+                WallReferenceLine::Inside,
+                0.,
+                [Point::new(0., 0.), Point::new(0.24, 0.24)],
+            ),
+            (
+                WallReferenceLine::Outside,
+                0.,
+                [Point::new(-0.24, -0.24), Point::new(0., 0.)],
+            ),
+            (
+                WallReferenceLine::Center,
+                0.2,
+                [Point::new(-0.32, -0.32), Point::new(-0.08, -0.08)],
+            ),
+        ] {
+            let mut project = Project::default();
+            let a = project.add(
+                0,
+                Material::Concrete,
+                Shape::Wall {
+                    start: Point::new(4., 0.),
+                    end: Point::new(0., 0.),
+                    thickness: 0.24,
+                    height: 3.,
+                },
+            );
+            let b = project.add(
+                0,
+                Material::Concrete,
+                Shape::Wall {
+                    start: Point::new(0., 0.),
+                    end: Point::new(0., 4.),
+                    thickness: 0.24,
+                    height: 3.,
+                },
+            );
+            for id in [a, b] {
+                let settings = project
+                    .elements
+                    .iter_mut()
+                    .find(|element| element.id == id)
+                    .and_then(|element| element.wall_settings.as_mut())
+                    .unwrap();
+                settings.geometry.reference_line = line;
+                settings.geometry.reference_offset = offset;
+            }
+            let walls: Vec<_> = project.elements.iter().collect();
+            let footprints = plan_wall_footprints(&walls);
+            for point in expected {
+                assert!(
+                    footprints[0].iter().any(|p| p.distance(point) <= 1e-4),
+                    "{line:?} {offset}: {point:?} missing from {:?}",
+                    footprints[0]
+                );
+                assert!(
+                    footprints[1].iter().any(|p| p.distance(point) <= 1e-4),
+                    "{line:?} {offset}: {point:?} missing from {:?}",
+                    footprints[1]
+                );
+            }
+            assert_eq!(
+                wall_reference_line(walls[0]),
+                Some((Point::new(4., 0.), Point::new(0., 0.)))
+            );
+            assert_eq!(
+                wall_reference_line(walls[1]),
+                Some((Point::new(0., 0.), Point::new(0., 4.)))
+            );
+        }
     }
 
     #[test]

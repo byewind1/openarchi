@@ -521,6 +521,8 @@ mod grid_ui_tests {
     #[test]
     fn grid_snap_uses_project_spacing_and_can_be_disabled() {
         let mut app = setup();
+        app.editor.project.grid_settings.grid_snap_enabled = true;
+        app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
         app.editor.project.grid_settings.snap_spacing_x = 0.05;
         app.editor.project.grid_settings.snap_spacing_y = 0.05;
         let point = Point::new(1.03, 1.02);

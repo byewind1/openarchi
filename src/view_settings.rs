@@ -1,6 +1,9 @@
 use crate::model::{Element, Material};
 use serde::{Deserialize, Serialize};
 
+/// Archicad's default wall cut fill is a light neutral grey in floor plan.
+const WALL_CUT_FILL: [u8; 3] = [211, 211, 211];
+
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Layer {
     Site,
@@ -619,7 +622,7 @@ impl PlanOptions {
         }
         let part = element.plan_part();
         let base_fill = match part {
-            PlanPart::Wall => Some(material_shade(element.material, 0.34)),
+            PlanPart::Wall => Some(WALL_CUT_FILL),
             PlanPart::Slab => Some(match element.material {
                 Material::Timber => [233, 219, 193],
                 _ => [237, 238, 230],
@@ -692,15 +695,6 @@ impl PlanOptions {
             draw_treads,
         })
     }
-}
-
-fn material_shade(material: Material, factor: f32) -> [u8; 3] {
-    let [r, g, b] = material.color();
-    [
-        (r * 255. * factor) as u8,
-        (g * 255. * factor) as u8,
-        (b * 255. * factor) as u8,
-    ]
 }
 
 fn mix(a: [u8; 3], b: [u8; 3], amount: f32) -> [u8; 3] {
@@ -782,5 +776,17 @@ mod tests {
         assert!(!RenovationFilter::ExistingPlan.shows(RenovationStatus::New));
         assert!(RenovationFilter::ChangePlan.highlights_demolition());
         assert!(RenovationFilter::ChangePlan.highlights_new());
+    }
+
+    #[test]
+    fn default_wall_cut_fill_is_light_gray_for_every_material() {
+        let options = PlanOptions::default();
+        let pen = PenSet::default().palette();
+        for material in Material::ALL {
+            let mut element = wall(Layer::Architectural, RenovationStatus::Existing);
+            element.material = material;
+            let style = options.style_for(&element, pen).expect("wall is visible");
+            assert_eq!(style.fill, Some([211, 211, 211]), "{material:?}");
+        }
     }
 }

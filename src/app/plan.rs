@@ -98,6 +98,48 @@ impl AtelierApp {
         }
         None
     }
+    /// Hit-test the reference line of an already selected wall. Endpoints win
+    /// over the segment so a handle just inside a thick wall still stretches
+    /// the wall instead of moving it.
+    pub(super) fn selected_wall_baseline_hit(
+        &self,
+        point: Point,
+        tolerance: f32,
+    ) -> Option<(u64, Option<usize>)> {
+        let selected = self.editor.selection_ids();
+        let walls = self.editor.project.elements.iter().rev().filter(|element| {
+            selected.contains(&element.id)
+                && element.story == self.editor.story
+                && matches!(element.shape, Shape::Wall { .. })
+                && self.editor.project.plan_options.element_visible(element)
+        });
+        let mut endpoint: Option<(u64, usize, f32)> = None;
+        for wall in walls.clone() {
+            let Some((start, end)) = geometry::wall_reference_line(wall) else {
+                continue;
+            };
+            for (node, candidate) in [start, end].into_iter().enumerate() {
+                let distance = candidate.distance(point);
+                if distance <= tolerance && endpoint.is_none_or(|(_, _, best)| distance < best) {
+                    endpoint = Some((wall.id, node, distance));
+                }
+            }
+        }
+        if let Some((id, node, _)) = endpoint {
+            return Some((id, Some(node)));
+        }
+        let mut segment: Option<(u64, f32)> = None;
+        for wall in walls {
+            let Some((start, end)) = geometry::wall_reference_line(wall) else {
+                continue;
+            };
+            let distance = geometry::segment_distance(point, start, end);
+            if distance <= tolerance && segment.is_none_or(|(_, best)| distance < best) {
+                segment = Some((wall.id, distance));
+            }
+        }
+        segment.map(|(id, _)| (id, None))
+    }
     pub(super) fn select_cursor_feedback(&self, point: Point) -> CursorFeedback {
         match geometry::plan_hover_kind(
             &self.editor.project,
@@ -141,6 +183,138 @@ impl AtelierApp {
         } else {
             "Polyline edge edit · choose a palette command".into()
         };
+    }
+    pub(super) fn open_wall_edit(&mut self, id: u64, node: Option<usize>, at: Pos2) {
+        self.wall_edit = Some(WallEdit {
+            element_id: id,
+            node,
+            command: if node.is_some() {
+                WallEditCommand::MoveNode
+            } else {
+                WallEditCommand::Move
+            },
+            palette_at: at + vec2(14., 12.),
+            drag: None,
+            snap: None,
+            error: String::new(),
+        });
+        self.editor.status = if node.is_some() {
+            "Wall reference-line endpoint edit · drag the handle to reshape the wall".into()
+        } else {
+            "Wall reference-line edit · drag the line to move the wall".into()
+        };
+    }
+    /// Resolve a nearby wall reference line for the endpoint currently being
+    /// dragged. Only endpoint edits reshape the wall; whole-line moves keep
+    /// their length and relative geometry. The target is taken from the
+    /// gesture-start project so other walls cannot move under the gesture.
+    pub(super) fn wall_endpoint_snap(
+        &self,
+        before: &Project,
+        edit: &WallEdit,
+        pointer: Point,
+        along: Point,
+    ) -> Option<WallSnap> {
+        if edit.command != WallEditCommand::MoveNode {
+            return None;
+        }
+        let snap = geometry::wall_reference_snap(
+            before,
+            self.editor.story,
+            edit.element_id,
+            pointer,
+            12. / self.plan_scale,
+        )?;
+        // Capture the target line from the raw pointer, but take the
+        // along-line coordinate from the ordinary snap target. This keeps grid
+        // or endpoint snapping along the wall while still landing exactly on
+        // the neighbour's reference line.
+        let point = before
+            .elements
+            .iter()
+            .find(|element| element.id == snap.wall_id)
+            .and_then(|wall| geometry::wall_reference_projection(wall, along))
+            .unwrap_or(snap.point);
+        Some(WallSnap {
+            element_id: snap.wall_id,
+            point,
+        })
+    }
+    /// Resolve a live endpoint drag. Reference-line capture is evaluated from
+    /// the raw pointer first: grid or object snapping must not pull the point
+    /// away from a nearby wall baseline before the wall snap can see it.
+    fn wall_endpoint_drag_target(
+        &self,
+        before: &Project,
+        edit: &WallEdit,
+        pointer: Point,
+        shift: bool,
+    ) -> (Point, Option<WallSnap>) {
+        let (target, _) = self.target(pointer, shift);
+        let snap = self.wall_endpoint_snap(before, edit, pointer, target);
+        let target = snap.map_or(target, |snap| snap.point);
+        (target, snap)
+    }
+    /// Preview a reference-line edit from the gesture-start snapshot. The
+    /// stored endpoints are the only edited state: body faces, joins, openings
+    /// and 3D all derive from them. Invalid candidates leave the last valid
+    /// preview visible and report why they were rejected.
+    pub(super) fn apply_wall_drag_preview(
+        &mut self,
+        before: &Project,
+        edit: &WallEdit,
+        start: Point,
+        current: Point,
+    ) -> bool {
+        let Some(original) = before
+            .elements
+            .iter()
+            .find(|element| element.id == edit.element_id)
+        else {
+            return false;
+        };
+        let Shape::Wall {
+            start: source_start,
+            end: source_end,
+            ..
+        } = original.shape
+        else {
+            return false;
+        };
+        let delta = Point::new(current.x - start.x, current.y - start.y);
+        let (candidate_start, candidate_end) = match edit.command {
+            WallEditCommand::MoveNode => match edit.node {
+                Some(0) => (current, source_end),
+                Some(1) => (source_start, current),
+                _ => return false,
+            },
+            WallEditCommand::Move => (
+                Point::new(source_start.x + delta.x, source_start.y + delta.y),
+                Point::new(source_end.x + delta.x, source_end.y + delta.y),
+            ),
+        };
+        if let Err(message) =
+            before.validate_wall_reference_line(edit.element_id, candidate_start, candidate_end)
+        {
+            if let Some(active) = self.wall_edit.as_mut() {
+                active.error = localized_error(self.language, &message);
+            }
+            return false;
+        }
+        self.editor.project = before.clone();
+        if let Err(message) =
+            self.editor
+                .set_wall_reference_line(edit.element_id, candidate_start, candidate_end)
+        {
+            if let Some(active) = self.wall_edit.as_mut() {
+                active.error = localized_error(self.language, &message);
+            }
+            return false;
+        }
+        if let Some(active) = self.wall_edit.as_mut() {
+            active.error.clear();
+        }
+        true
     }
     #[cfg(test)]
     pub(super) fn insert_polyline_node_at(
@@ -543,6 +717,16 @@ impl AtelierApp {
         self.polyline_edit = None;
     }
     pub(super) fn base_target(&self, p: Point, shift: bool) -> (Point, SnapKind) {
+        // The chain's first node is not part of the committed model yet, so
+        // the ordinary model snap cannot find it. Make it a magnetic target
+        // while the draft is open: this also keeps grid snap from moving a
+        // clicking-the-start gesture onto a different grid point.
+        if !self.tracker_locked
+            && let Some(start) = self.editor.wall_close_target()
+            && p.distance(start) <= 12. / self.plan_scale
+        {
+            return (start, SnapKind::Endpoint);
+        }
         if self.editor.tool == Tool::Polyline
             && let Some(anchor) = self.editor.polyline_points.last().copied()
         {
@@ -634,10 +818,7 @@ impl AtelierApp {
                 let Some(last) = points.last().copied() else {
                     return segments;
                 };
-                if method == WallGeometryMethod::Polygonal
-                    && points.len() >= 3
-                    && points[0].distance(cursor) <= close_tolerance
-                {
+                if points.len() >= 3 && points[0].distance(cursor) <= close_tolerance {
                     segments.push((last, points[0]));
                 } else if last.distance(cursor) >= 0.01 {
                     segments.push((last, cursor));
@@ -731,6 +912,21 @@ impl AtelierApp {
             self.draft_id = None;
             return;
         }
+        let method = self.editor.wall_settings.geometry.geometry_method;
+        let enough_input = match method {
+            crate::wall::WallGeometryMethod::Single
+            | crate::wall::WallGeometryMethod::Rectangular => false,
+            crate::wall::WallGeometryMethod::Continuous => self.editor.wall_points.len() >= 2,
+            crate::wall::WallGeometryMethod::Polygonal => self.editor.wall_points.len() >= 3,
+        };
+        if !enough_input {
+            self.editor.cancel_wall_draft();
+            self.editor.status = self.language.translate("Wall cancelled").into();
+            self.preview_tool = None;
+            self.tracker_locked = false;
+            self.draft_id = None;
+            return;
+        }
         match self.editor.finish_wall(None) {
             Ok(_) => self.preview_tool = None,
             Err(error) => self.editor.status = localized_error(self.language, &error),
@@ -778,6 +974,15 @@ impl AtelierApp {
         }
         let hovered = response.hovered();
         let pointer = ui.input(|i| i.pointer.hover_pos());
+        if self.editor.tool != Tool::Select {
+            self.wall_edit = None;
+            self.wall_edit_palette_rect = None;
+        }
+        let interact_position =
+            ui.input(|i| i.pointer.press_origin().or_else(|| i.pointer.latest_pos()));
+        let over_wall_edit_palette = self
+            .wall_edit_palette_rect
+            .is_some_and(|rect| interact_position.is_some_and(|position| rect.contains(position)));
         if trace_pointer {
             self.trace_pointer_in_plan(ui, r);
         }
@@ -992,7 +1197,18 @@ impl AtelierApp {
                     && self.editor.project.plan_options.element_visible(e)
             })
             .collect();
-        let mut joined_wall_footprints = Vec::new();
+        // Joins are physical wall geometry, not a property of the fill or pen
+        // group. Compute them across every visible wall on the story so a new
+        // wall can join an existing wall with another material or renovation
+        // status.
+        let footprints_by_id: std::collections::HashMap<_, _> =
+            geometry::plan_wall_footprints_by_id(&walls)
+                .into_iter()
+                .collect();
+        let story_footprints: Vec<_> = walls
+            .iter()
+            .map(|wall| footprints_by_id[&wall.id])
+            .collect();
         for material in Material::ALL {
             for renovation in [
                 RenovationStatus::Existing,
@@ -1010,9 +1226,11 @@ impl AtelierApp {
                 let Some(style) = self.plan_style(same_material[0]) else {
                     continue;
                 };
-                let footprints = geometry::plan_wall_footprints(&same_material);
+                let footprints: Vec<_> = same_material
+                    .iter()
+                    .map(|wall| footprints_by_id[&wall.id])
+                    .collect();
                 for (wall, footprint) in same_material.iter().zip(&footprints) {
-                    joined_wall_footprints.push((wall.id, *footprint));
                     if !selected_ids.contains(&wall.id) {
                         let pts: Vec<_> = footprint
                             .iter()
@@ -1032,24 +1250,41 @@ impl AtelierApp {
                         ));
                     }
                 }
-                let wall_stroke = Stroke::new(
-                    self.plan_pen_px(style.line_width_mm),
-                    Self::plan_color(style.line),
-                );
-                for mut path in geometry::wall_outline_paths(&footprints) {
-                    let closed = path.len() > 2 && path[0].distance(*path.last().unwrap()) <= 1e-3;
-                    if closed {
-                        path.pop();
-                    }
-                    let points: Vec<_> = path
-                        .into_iter()
-                        .map(|point| self.screen(r, point))
-                        .collect();
-                    if closed {
-                        p.add(egui::Shape::closed_line(points, wall_stroke));
-                    } else {
-                        p.add(egui::Shape::line(points, wall_stroke));
-                    }
+            }
+        }
+        // Resolve the whole story's exposed perimeter before applying pen
+        // styles. Fill and renovation groups are presentation batches; they
+        // must not split physical joins and stroke an internal wall end.
+        let mut outline_segments: std::collections::BTreeMap<([u8; 3], u32), Vec<(Point, Point)>> =
+            std::collections::BTreeMap::new();
+        for (wall_index, start, end) in geometry::wall_outline_segments_by_wall(&story_footprints) {
+            let Some(style) = self.plan_style(walls[wall_index]) else {
+                continue;
+            };
+            let width_key = (style.line_width_mm * 1000.0).round() as u32;
+            outline_segments
+                .entry((style.line, width_key))
+                .or_default()
+                .push((start, end));
+        }
+        for ((line, width_key), segments) in outline_segments {
+            let wall_stroke = Stroke::new(
+                self.plan_pen_px(width_key as f32 / 1000.0),
+                Self::plan_color(line),
+            );
+            for mut path in geometry::wall_outline_paths_from_segments(segments) {
+                let closed = path.len() > 2 && path[0].distance(*path.last().unwrap()) <= 1e-3;
+                if closed {
+                    path.pop();
+                }
+                let points: Vec<_> = path
+                    .into_iter()
+                    .map(|point| self.screen(r, point))
+                    .collect();
+                if closed {
+                    p.add(egui::Shape::closed_line(points, wall_stroke));
+                } else {
+                    p.add(egui::Shape::line(points, wall_stroke));
                 }
             }
         }
@@ -1060,10 +1295,9 @@ impl AtelierApp {
             .filter(|wall| selected_ids.contains(&wall.id))
             .collect();
         for wall in &selected_walls {
-            let joined = joined_wall_footprints
-                .iter()
-                .find(|(id, _)| *id == wall.id)
-                .map(|(_, footprint)| *footprint)
+            let joined = footprints_by_id
+                .get(&wall.id)
+                .copied()
                 .unwrap_or_else(|| geometry::footprint(wall));
             let pts: Vec<_> = joined.into_iter().map(|v| self.screen(r, v)).collect();
             p.add(egui::Shape::convex_polygon(
@@ -1641,7 +1875,11 @@ impl AtelierApp {
                     self.editor.wall_settings.geometry.geometry_method,
                     WallGeometryMethod::Continuous | WallGeometryMethod::Polygonal
                 );
-            if response.clicked() && !wall_double && !ui.input(|i| i.key_down(Key::Space)) {
+            if response.clicked()
+                && !wall_double
+                && !over_wall_edit_palette
+                && !ui.input(|i| i.key_down(Key::Space))
+            {
                 if self.orientation_pick_active {
                     if let Some(start) = self.orientation_pick_start.take() {
                         let dx = q.x - start.x;
@@ -1687,36 +1925,44 @@ impl AtelierApp {
                         MarqueeGeometry::Polygon => self.marquee_points.push(q),
                     }
                 } else if self.editor.tool == Tool::Select {
-                    let context = self.selected_polyline_hit(raw, 9. / self.plan_scale);
-                    if let Some((id, node, edge)) = context {
+                    let wall_context = self.selected_wall_baseline_hit(raw, 9. / self.plan_scale);
+                    if let Some((id, node)) = wall_context {
                         self.drag = None;
-                        self.open_polyline_edit(id, node, edge, pos);
-                    } else if ui.input(|i| i.modifiers.shift) {
                         self.polyline_edit = None;
-                        let hit = geometry::hit_plan(
-                            &self.editor.project,
-                            self.editor.story,
-                            raw,
-                            6. / self.plan_scale,
-                        );
-                        let mut ids = self.editor.selection_ids();
-                        if let Some(id) = hit {
-                            if ids.contains(&id) {
-                                ids.retain(|v| *v != id);
-                            } else {
-                                ids.push(id);
-                            }
-                        }
-                        self.editor.set_selection(ids);
+                        self.open_wall_edit(id, node, pos);
                     } else {
-                        self.polyline_edit = None;
-                        let hit = geometry::hit_plan(
-                            &self.editor.project,
-                            self.editor.story,
-                            raw,
-                            6. / self.plan_scale,
-                        );
-                        self.editor.set_selection(hit.into_iter().collect());
+                        self.wall_edit = None;
+                        let context = self.selected_polyline_hit(raw, 9. / self.plan_scale);
+                        if let Some((id, node, edge)) = context {
+                            self.drag = None;
+                            self.open_polyline_edit(id, node, edge, pos);
+                        } else if ui.input(|i| i.modifiers.shift) {
+                            self.polyline_edit = None;
+                            let hit = geometry::hit_plan(
+                                &self.editor.project,
+                                self.editor.story,
+                                raw,
+                                6. / self.plan_scale,
+                            );
+                            let mut ids = self.editor.selection_ids();
+                            if let Some(id) = hit {
+                                if ids.contains(&id) {
+                                    ids.retain(|v| *v != id);
+                                } else {
+                                    ids.push(id);
+                                }
+                            }
+                            self.editor.set_selection(ids);
+                        } else {
+                            self.polyline_edit = None;
+                            let hit = geometry::hit_plan(
+                                &self.editor.project,
+                                self.editor.story,
+                                raw,
+                                6. / self.plan_scale,
+                            );
+                            self.editor.set_selection(hit.into_iter().collect());
+                        }
                     }
                     self.tracker_locked = false;
                     self.draft_id = None;
@@ -1739,7 +1985,19 @@ impl AtelierApp {
                         .is_some_and(|state| state.dirty)
                         || self.commit_info_box_wall_tool();
                     if defaults_ok {
-                        self.editor.click(q, 6. / self.plan_scale);
+                        // Use the screen-space hit as a fallback for the
+                        // magnetic close target: a click within the visible
+                        // start marker must end the chain even when grid snap
+                        // or a slightly different pointer position moved `q`.
+                        let close_start = self
+                            .editor
+                            .wall_close_target()
+                            .filter(|start| self.screen(r, *start).distance(pos) <= 12.);
+                        if let Some(start) = close_start {
+                            self.editor.click(start, 2. / self.plan_scale);
+                        } else {
+                            self.editor.click(q, 6. / self.plan_scale);
+                        }
                     }
                     self.tracker_locked = false;
                     self.draft_id = None;
@@ -1776,6 +2034,9 @@ impl AtelierApp {
         if self.editor.tool == Tool::Polyline && response.clicked_by(PointerButton::Secondary) {
             self.finish_polyline();
         }
+        if self.editor.tool == Tool::Wall && response.clicked_by(PointerButton::Secondary) {
+            self.finish_wall_draft();
+        }
         if self.editor.tool == Tool::Marquee
             && self.marquee_geometry == MarqueeGeometry::Polygon
             && response.clicked_by(PointerButton::Secondary)
@@ -1808,7 +2069,87 @@ impl AtelierApp {
                 self.place_marquee(geometry::rectangle_polygon(a, b));
             }
         }
-        if self.editor.tool == Tool::Select && !pan && self.polyline_edit.is_some() {
+        if self.editor.tool == Tool::Select
+            && !pan
+            && !over_wall_edit_palette
+            && response.drag_started_by(PointerButton::Primary)
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin())
+        {
+            let w = self.world(r, pos);
+            if let Some((id, node)) = self.selected_wall_baseline_hit(w, 10. / self.plan_scale) {
+                self.drag = None;
+                self.polyline_edit = None;
+                self.open_wall_edit(id, node, pos);
+                if let Some(edit) = self.wall_edit.as_mut() {
+                    edit.drag = Some((self.editor.project.clone(), w));
+                }
+            }
+        }
+        if self.editor.tool == Tool::Select
+            && !pan
+            && self
+                .wall_edit
+                .as_ref()
+                .is_some_and(|edit| edit.drag.is_some())
+        {
+            if response.dragged_by(PointerButton::Primary)
+                && let (Some(pos), Some(edit)) = (pointer, self.wall_edit.clone())
+                && let Some((before, start)) = edit.drag.as_ref()
+            {
+                let (current, snap) = self.wall_endpoint_drag_target(
+                    before,
+                    &edit,
+                    self.world(r, pos),
+                    ui.input(|i| i.modifiers.shift),
+                );
+                if self.apply_wall_drag_preview(before, &edit, *start, current)
+                    && let Some(active) = self.wall_edit.as_mut()
+                {
+                    active.snap = snap;
+                }
+                ui.ctx().request_repaint();
+            }
+            if response.drag_stopped()
+                && let Some(edit) = self.wall_edit.clone()
+                && let Some((before, start)) = edit.drag.as_ref()
+            {
+                // Resolve the release position once more so a release inside
+                // the snap radius commits the exact reference-line point even
+                // when no pointer-move frame was delivered after entering it.
+                if let Some(pos) = pointer.or_else(|| ui.input(|i| i.pointer.latest_pos())) {
+                    let (current, snap) = self.wall_endpoint_drag_target(
+                        before,
+                        &edit,
+                        self.world(r, pos),
+                        ui.input(|i| i.modifiers.shift),
+                    );
+                    if self.apply_wall_drag_preview(before, &edit, *start, current)
+                        && let Some(active) = self.wall_edit.as_mut()
+                    {
+                        active.snap = snap;
+                    }
+                }
+                if let Some(active) = self.wall_edit.as_mut() {
+                    active.drag = None;
+                }
+                if self.editor.project != *before {
+                    let joined = self
+                        .wall_edit
+                        .as_ref()
+                        .is_some_and(|edit| edit.snap.is_some());
+                    self.editor.commit(before.clone());
+                    self.editor.status = match edit.command {
+                        WallEditCommand::MoveNode if joined => self
+                            .language
+                            .translate("Wall endpoint joined at reference line")
+                            .into(),
+                        WallEditCommand::MoveNode => "Wall reference-line endpoint moved".into(),
+                        WallEditCommand::Move => "Wall moved".into(),
+                    };
+                    self.wall_edit = None;
+                }
+            }
+        } else if self.editor.tool == Tool::Select && !pan && self.polyline_edit.is_some() {
             if response.drag_started_by(PointerButton::Primary)
                 && let Some(pos) = ui.input(|i| i.pointer.press_origin())
             {
@@ -1885,6 +2226,7 @@ impl AtelierApp {
                         ids = vec![id];
                         self.editor.set_selection(ids.clone());
                     }
+                    self.wall_edit = None;
                     self.drag = Some((self.editor.project.clone(), w, ids));
                 }
             }
@@ -1934,6 +2276,27 @@ impl AtelierApp {
                 }
             } else if pan {
                 CursorFeedback::Dragging
+            } else if self
+                .wall_edit
+                .as_ref()
+                .is_some_and(|edit| edit.drag.is_some())
+            {
+                CursorFeedback::Dragging
+            } else if self.editor.tool == Tool::Select
+                && self
+                    .selected_wall_baseline_hit(
+                        self.world(r, pointer.unwrap_or(r.center())),
+                        9. / self.plan_scale,
+                    )
+                    .is_some()
+            {
+                match self.selected_wall_baseline_hit(
+                    self.world(r, pointer.unwrap_or(r.center())),
+                    9. / self.plan_scale,
+                ) {
+                    Some((_, Some(_))) => CursorFeedback::ArrowWithCheck,
+                    _ => CursorFeedback::ArrowWithTripleRay,
+                }
             } else if self
                 .polyline_edit
                 .as_ref()
@@ -2047,10 +2410,72 @@ impl AtelierApp {
                 p.circle_filled(self.screen(r, point), 5., ACCENT);
             }
         }
+        if let Some(edit) = self.wall_edit.as_ref() {
+            let wall = self
+                .editor
+                .project
+                .elements
+                .iter()
+                .find(|element| element.id == edit.element_id);
+            if let Some((start, end)) = wall.and_then(geometry::wall_reference_line) {
+                if let Some(node) = edit.node {
+                    let point = if node == 0 { start } else { end };
+                    p.circle_stroke(self.screen(r, point), 7., Stroke::new(2., ACCENT));
+                }
+                if edit.drag.is_some()
+                    && let Some(pos) = pointer
+                {
+                    let length = start.distance(end);
+                    let angle = (end.y - start.y).atan2(end.x - start.x).to_degrees();
+                    let boxr = Rect::from_min_size(pos + vec2(18., -42.), vec2(177., 27.));
+                    p.rect_filled(boxr, 4., INK);
+                    p.text(
+                        boxr.center(),
+                        Align2::CENTER_CENTER,
+                        format!(
+                            "{}  /  {:.1}°",
+                            self.editor
+                                .project
+                                .plan_options
+                                .dimension_style
+                                .format_length(length),
+                            angle
+                        ),
+                        FontId::monospace(11.),
+                        Color32::WHITE,
+                    );
+                }
+            }
+            if let Some(snap) = edit.snap
+                && let Some((start, end)) = self
+                    .editor
+                    .project
+                    .elements
+                    .iter()
+                    .find(|element| element.id == snap.element_id)
+                    .and_then(geometry::wall_reference_line)
+            {
+                p.line_segment(
+                    [self.screen(r, start), self.screen(r, end)],
+                    Stroke::new(2.2, ACCENT),
+                );
+                let point = self.screen(r, snap.point);
+                p.circle_stroke(point, 7., Stroke::new(2., ACCENT));
+                p.circle_filled(point, 2.5, ACCENT);
+                p.text(
+                    point + vec2(11., 12.),
+                    Align2::LEFT_TOP,
+                    self.language.translate("Snap: wall reference line"),
+                    FontId::proportional(11.),
+                    ACCENT,
+                );
+            }
+        }
         if trace_pointer {
             self.trace_cursor(ui);
         }
         self.polyline_edit_palette(ui.ctx());
+        self.wall_edit_palette(ui.ctx());
     }
     pub(super) fn polyline_edit_palette(&mut self, ctx: &Context) {
         let language = self.language;
@@ -2217,6 +2642,78 @@ impl AtelierApp {
             ctx.set_cursor_icon(cursor);
         }
     }
+    pub(super) fn wall_edit_palette(&mut self, ctx: &Context) {
+        let language = self.language;
+        let Some(edit) = self.wall_edit.as_ref() else {
+            self.wall_edit_palette_rect = None;
+            return;
+        };
+        if edit.drag.is_some() {
+            self.wall_edit_palette_rect = None;
+            return;
+        }
+        let at = edit.palette_at;
+        let node = edit.node;
+        let length = self
+            .editor
+            .project
+            .elements
+            .iter()
+            .find(|element| element.id == edit.element_id)
+            .and_then(geometry::wall_reference_line)
+            .map(|(start, end)| start.distance(end));
+        let length = length.map(|length| {
+            format!(
+                "{}: {}",
+                language.translate("Length"),
+                self.editor
+                    .project
+                    .plan_options
+                    .dimension_style
+                    .format_length(length)
+            )
+        });
+        let error = edit.error.clone();
+        let mut close = false;
+        let response = Area::new(Id::new("wall_edit_palette"))
+            .order(Order::Foreground)
+            .fixed_pos(at)
+            .show(ctx, |ui| {
+                Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_min_width(215.);
+                    ui.strong(language.translate("Wall reference line"));
+                    ui.separator();
+                    ui.label(language.translate(match node {
+                        Some(0) => "Start endpoint",
+                        Some(1) => "End endpoint",
+                        _ => "Reference line",
+                    }));
+                    if let Some(length) = &length {
+                        ui.label(length);
+                    }
+                    ui.label(language.translate(if node.is_some() {
+                        "Drag the handle to reshape the wall"
+                    } else {
+                        "Drag the line to move the wall"
+                    }));
+                    if node.is_some() {
+                        ui.label(language.translate("Drag onto another reference line to join"));
+                    }
+                    if !error.is_empty() {
+                        ui.colored_label(Color32::from_rgb(240, 125, 110), &error);
+                    }
+                    if ui.button(language.translate("Done")).clicked() {
+                        close = true;
+                    }
+                });
+            });
+        self.wall_edit_palette_rect = Some(response.response.rect);
+        if close {
+            self.wall_edit = None;
+            self.wall_edit_palette_rect = None;
+            self.editor.status = "Select an element or start drawing".into();
+        }
+    }
     pub(super) fn tracker(&mut self, ui: &mut Ui) {
         let polyline = self.editor.tool == Tool::Polyline;
         let wall = self.editor.tool == Tool::Wall;
@@ -2242,11 +2739,11 @@ impl AtelierApp {
                         Self::label(ui, self.language.translate("TRACKER"));
                         let angular =
                             matches!(self.editor.tool, Tool::Wall | Tool::Polyline) && !rectangular;
-                        ui.label(if angular {
+                        ui.label(self.language.translate(if angular {
                             if wall { "Length" } else { "Distance" }
                         } else {
                             "Δ X"
-                        });
+                        }));
                         if ui
                             .add(
                                 DragValue::new(&mut self.tracker_a)
@@ -2258,7 +2755,10 @@ impl AtelierApp {
                         {
                             self.tracker_locked = true;
                         }
-                        ui.label(if angular { "Angle" } else { "Δ Y" });
+                        ui.label(
+                            self.language
+                                .translate(if angular { "Angle" } else { "Δ Y" }),
+                        );
                         if ui
                             .add(
                                 DragValue::new(&mut self.tracker_b)

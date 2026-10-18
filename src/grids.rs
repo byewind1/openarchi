@@ -13,8 +13,8 @@ const MAX_LINES: usize = 20_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GridSnapMode {
-    None,
     #[default]
+    None,
     SnapGrid,
     ConstructionGrid,
 }
@@ -58,7 +58,7 @@ pub struct GridSettings {
 impl Default for GridSettings {
     fn default() -> Self {
         Self {
-            show_construction_grid: true,
+            show_construction_grid: false,
             main_spacing_x: 2.0,
             main_spacing_y: 2.0,
             main_steps_x: 1,
@@ -67,8 +67,8 @@ impl Default for GridSettings {
             aux_spacing_y: 0.0,
             aux_steps_x: 0,
             aux_steps_y: 0,
-            grid_snap_enabled: true,
-            snap_mode: GridSnapMode::SnapGrid,
+            grid_snap_enabled: false,
+            snap_mode: GridSnapMode::None,
             snap_spacing_x: 0.05,
             snap_spacing_y: 0.05,
             rotate_enabled: false,
@@ -464,6 +464,7 @@ mod tests {
     fn rotated_snap_grid_rounds_in_local_coordinates() {
         let settings = GridSettings {
             grid_snap_enabled: true,
+            snap_mode: GridSnapMode::SnapGrid,
             snap_spacing_x: 0.5,
             snap_spacing_y: 0.5,
             rotate_enabled: true,
@@ -485,6 +486,7 @@ mod tests {
             aux_spacing_y: 1.0,
             aux_steps_x: 2,
             aux_steps_y: 2,
+            grid_snap_enabled: true,
             snap_mode: GridSnapMode::ConstructionGrid,
             ..Default::default()
         };
@@ -497,8 +499,21 @@ mod tests {
     }
 
     #[test]
-    fn display_density_and_validation() {
+    fn construction_grid_and_snap_are_off_by_default() {
         let settings = GridSettings::default();
+        assert!(!settings.show_construction_grid);
+        assert!(!settings.grid_snap_enabled);
+        assert_eq!(settings.snap_mode, GridSnapMode::None);
+        assert_eq!(settings.snap_point(Point::new(1.23, 4.56)), None);
+        assert!(!settings.grid_visible_at(100.0));
+    }
+
+    #[test]
+    fn display_density_and_validation() {
+        let settings = GridSettings {
+            show_construction_grid: true,
+            ..Default::default()
+        };
         assert!(settings.grid_visible_at(10.0));
         assert!(!settings.grid_visible_at(1.0));
         let mut invalid = settings.clone();

@@ -582,6 +582,22 @@ impl Editor {
         self.tool == Tool::Wall && (self.anchor.is_some() || !self.wall_points.is_empty())
     }
 
+    /// First node of the current wall chain when clicking it should end the
+    /// draft. Continuous chains can end after one segment; a polygonal ring
+    /// needs at least three nodes before it can close.
+    pub fn wall_close_target(&self) -> Option<Point> {
+        if self.tool != Tool::Wall {
+            return None;
+        }
+        let minimum = match self.wall_settings.geometry.geometry_method {
+            WallGeometryMethod::Continuous => 2,
+            WallGeometryMethod::Polygonal => 3,
+            WallGeometryMethod::Single | WallGeometryMethod::Rectangular => return None,
+        };
+        let first = *self.wall_points.first()?;
+        (self.wall_points.len() >= minimum).then_some(first)
+    }
+
     pub fn cancel_wall_draft(&mut self) {
         self.anchor = None;
         self.wall_points.clear();
@@ -625,6 +641,19 @@ impl Editor {
                     self.anchor = Some(p);
                     self.wall_points = vec![p];
                     self.status = WallGeometryMethod::Continuous.status_key().into();
+                } else if let Some(start) = self.wall_points.first().copied()
+                    && self.wall_points.len() >= 2
+                    && start.distance(p) <= tolerance.max(0.001)
+                {
+                    // Clicking the first node ends the chain. With two nodes
+                    // the chain is a single wall, so no zero-length closing
+                    // segment is added; with three or more the closing wall
+                    // is part of the completed contour.
+                    let _ = if self.wall_points.len() >= 3 {
+                        self.finish_wall(Some(start))
+                    } else {
+                        self.finish_wall(None)
+                    };
                 } else if self
                     .wall_points
                     .last()
@@ -639,10 +668,15 @@ impl Editor {
                     self.anchor = Some(p);
                     self.wall_points = vec![p];
                     self.status = WallGeometryMethod::Polygonal.status_key().into();
-                } else if self.wall_points.len() >= 3
-                    && self.wall_points[0].distance(p) <= tolerance.max(0.001)
+                } else if let Some(start) = self.wall_points.first().copied()
+                    && self.wall_points.len() >= 2
+                    && start.distance(p) <= tolerance.max(0.001)
                 {
-                    let _ = self.finish_wall(None);
+                    if self.wall_points.len() >= 3 {
+                        let _ = self.finish_wall(None);
+                    } else {
+                        self.status = "Polygon wall needs at least three nodes".into();
+                    }
                 } else if self
                     .wall_points
                     .last()
@@ -1426,6 +1460,36 @@ impl Editor {
             return Err(err);
         }
         self.commit(before);
+        Ok(())
+    }
+    /// Replace one wall's stored reference-line endpoints. This is the model
+    /// operation behind interactive baseline editing; callers that preview a
+    /// drag pass their gesture-start snapshot to `commit` only on release.
+    pub fn set_wall_reference_line(
+        &mut self,
+        id: u64,
+        start: Point,
+        end: Point,
+    ) -> Result<(), String> {
+        self.project.validate_wall_reference_line(id, start, end)?;
+        let Some(element) = self
+            .project
+            .elements
+            .iter_mut()
+            .find(|element| element.id == id)
+        else {
+            return Err("Missing wall".into());
+        };
+        let Shape::Wall {
+            start: stored_start,
+            end: stored_end,
+            ..
+        } = &mut element.shape
+        else {
+            return Err("Element is not a wall".into());
+        };
+        *stored_start = start;
+        *stored_end = end;
         Ok(())
     }
 }

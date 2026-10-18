@@ -388,6 +388,55 @@ impl Project {
             }
         }
     }
+    /// Validate a candidate reference line for an existing wall without
+    /// mutating the project. Wall-body geometry, joins and 3D are derived from
+    /// these endpoints, so editing only has to keep the reference line valid
+    /// for the wall itself and for hosted openings.
+    pub fn validate_wall_reference_line(
+        &self,
+        id: u64,
+        start: Point,
+        end: Point,
+    ) -> Result<(), String> {
+        let Some(wall) = self.elements.iter().find(|element| element.id == id) else {
+            return Err("Missing wall".into());
+        };
+        if !matches!(wall.shape, Shape::Wall { .. }) {
+            return Err("Element is not a wall".into());
+        }
+        let finite =
+            |point: Point| point.finite() && point.x.abs() < 100_000. && point.y.abs() < 100_000.;
+        if !finite(start) || !finite(end) {
+            return Err("Wall reference line must use finite points".into());
+        }
+        let length = start.distance(end);
+        if length < 0.01 {
+            return Err("Wall must stay at least 0.01 m long".into());
+        }
+        for element in &self.elements {
+            let Shape::Opening {
+                host_wall,
+                width,
+                offset,
+                ..
+            } = element.shape
+            else {
+                continue;
+            };
+            if host_wall != id {
+                continue;
+            }
+            let low = offset - width * 0.5;
+            let high = offset + width * 0.5;
+            if low < -1e-4 || high > length + 1e-4 {
+                return Err(format!(
+                    "Opening {} would be outside its host wall",
+                    element.name
+                ));
+            }
+        }
+        Ok(())
+    }
     pub fn validate(&self) -> Result<(), String> {
         if self.schema_version != 1 {
             return Err("Unsupported project schema".into());

@@ -129,9 +129,11 @@ impl WallGeometryMethod {
     pub fn status_key(self) -> &'static str {
         match self {
             Self::Single => "Wall · Single · Click start, then end",
-            Self::Continuous => "Wall · Continuous · Click nodes · double-click or Enter to finish",
+            Self::Continuous => {
+                "Wall · Continuous · Click nodes · right-click, double-click or Enter to finish"
+            }
             Self::Polygonal => {
-                "Wall · Polygonal · Click nodes · click the start or double-click to close"
+                "Wall · Polygonal · Click nodes · click the start or right-click/double-click to close"
             }
             Self::Rectangular => "Wall · Rectangular · Click two diagonal corners",
         }

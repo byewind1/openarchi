@@ -826,6 +826,12 @@ impl AtelierApp {
                 .copied()
                 .filter(|element| matches!(element.shape, Shape::Wall { .. }))
                 .collect();
+            // Trace fills follow material colors, but wall junctions are
+            // physical geometry shared by every material on the story.
+            let footprints_by_id: std::collections::HashMap<u64, [Point; 4]> =
+                geometry::plan_wall_footprints_by_id(&walls)
+                    .into_iter()
+                    .collect();
             for material in Material::ALL {
                 let same_material: Vec<_> = walls
                     .iter()
@@ -835,32 +841,43 @@ impl AtelierApp {
                 if same_material.is_empty() {
                     continue;
                 }
-                let footprints = geometry::plan_wall_footprints(&same_material);
                 if !self.trace.transparent_fills {
-                    for (wall, footprint) in same_material.iter().zip(&footprints) {
+                    for wall in &same_material {
+                        let footprint = footprints_by_id[&wall.id];
                         let points: Vec<Pos2> = footprint.iter().copied().map(screen).collect();
                         painter.add(egui::Shape::convex_polygon(
                             points,
                             reference_color(wall, fill_alpha),
-                            Stroke::new(0.75, reference_color(wall, stroke_alpha)),
+                            // Same-colour bleed seals sub-pixel gaps between
+                            // separately editable wall footprints.
+                            Stroke::new(0.75, reference_color(wall, fill_alpha)),
                         ));
                     }
                 }
-                for mut path in geometry::wall_outline_paths(&footprints) {
-                    let closed = path.len() > 2 && path[0].distance(*path.last().unwrap()) <= 1e-3;
-                    if closed {
-                        path.pop();
-                    }
-                    let points: Vec<Pos2> = path.into_iter().map(screen).collect();
-                    if points.len() < 2 {
-                        continue;
-                    }
-                    let color = reference_color(same_material[0], stroke_alpha);
-                    if closed {
-                        painter.add(egui::Shape::closed_line(points, Stroke::new(1.1, color)));
-                    } else {
-                        painter.add(egui::Shape::line(points, Stroke::new(1.1, color)));
-                    }
+            }
+            let story_footprints: Vec<_> = walls
+                .iter()
+                .map(|wall| footprints_by_id[&wall.id])
+                .collect();
+            // One exposed perimeter for the whole story keeps the outline
+            // continuous across material boundaries.
+            let outline_color = Color32::from_rgba_unmultiplied(36, 40, 42, stroke_alpha);
+            for mut path in geometry::wall_outline_paths(&story_footprints) {
+                let closed = path.len() > 2 && path[0].distance(*path.last().unwrap()) <= 1e-3;
+                if closed {
+                    path.pop();
+                }
+                let points: Vec<Pos2> = path.into_iter().map(screen).collect();
+                if points.len() < 2 {
+                    continue;
+                }
+                if closed {
+                    painter.add(egui::Shape::closed_line(
+                        points,
+                        Stroke::new(1.1, outline_color),
+                    ));
+                } else {
+                    painter.add(egui::Shape::line(points, Stroke::new(1.1, outline_color)));
                 }
             }
         }

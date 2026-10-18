@@ -76,6 +76,53 @@ fn click(ctx: &Context, app: &mut AtelierApp, pos: Pos2) -> CursorIcon {
         }],
     )
 }
+fn secondary_click(ctx: &Context, app: &mut AtelierApp, pos: Pos2) -> CursorIcon {
+    plan_frame(ctx, app, vec![Event::PointerMoved(pos)]);
+    plan_frame(
+        ctx,
+        app,
+        vec![Event::PointerButton {
+            pos,
+            button: PointerButton::Secondary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    plan_frame(
+        ctx,
+        app,
+        vec![Event::PointerButton {
+            pos,
+            button: PointerButton::Secondary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    )
+}
+fn drag(ctx: &Context, app: &mut AtelierApp, from: Pos2, to: Pos2) {
+    plan_frame(ctx, app, vec![Event::PointerMoved(from)]);
+    plan_frame(
+        ctx,
+        app,
+        vec![Event::PointerButton {
+            pos: from,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    plan_frame(ctx, app, vec![Event::PointerMoved(to)]);
+    plan_frame(
+        ctx,
+        app,
+        vec![Event::PointerButton {
+            pos: to,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+}
 #[test]
 fn selected_polyline_node_opens_palette_and_drag_edits_both_segments_once() {
     let (ctx, mut app) = setup();
@@ -838,6 +885,20 @@ fn collect_text(shapes: &[egui::epaint::ClippedShape], output: &mut Vec<String>)
         walk(&clipped.shape, output);
     }
 }
+fn text_center(shapes: &[egui::epaint::ClippedShape], needle: &str) -> Option<Pos2> {
+    fn walk(shape: &egui::Shape, needle: &str) -> Option<Pos2> {
+        match shape {
+            egui::Shape::Text(text) if text.galley.text() == needle => {
+                Some(text.pos + text.galley.size() / 2.)
+            }
+            egui::Shape::Vec(shapes) => shapes.iter().find_map(|shape| walk(shape, needle)),
+            _ => None,
+        }
+    }
+    shapes
+        .iter()
+        .find_map(|clipped| walk(&clipped.shape, needle))
+}
 fn collect_shapes<'a>(shapes: &'a [egui::epaint::ClippedShape], output: &mut Vec<&'a egui::Shape>) {
     fn walk<'a>(shape: &'a egui::Shape, output: &mut Vec<&'a egui::Shape>) {
         output.push(shape);
@@ -923,6 +984,647 @@ fn selected_wall_draws_the_archicad_style_reference_line_and_handles() {
             "the blue line must end in the black square handles"
         );
     }
+}
+
+#[test]
+fn same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups() {
+    let (ctx, mut app) = setup();
+    app.editor.project.add_with_status(
+        0,
+        Material::Plaster,
+        Shape::Wall {
+            start: Point::new(0., 0.),
+            end: Point::new(4., 0.),
+            thickness: 0.2,
+            height: 3.,
+        },
+        RenovationStatus::Existing,
+    );
+    app.editor.project.add_with_status(
+        0,
+        Material::Plaster,
+        Shape::Wall {
+            start: Point::new(2., 0.),
+            end: Point::new(2., 2.),
+            thickness: 0.2,
+            height: 3.,
+        },
+        RenovationStatus::New,
+    );
+
+    let output = plan_frame_output(&ctx, &mut app, vec![]);
+    let mut shapes = Vec::new();
+    collect_shapes(&output.shapes, &mut shapes);
+    let style = app
+        .plan_style(&app.editor.project.elements[0])
+        .expect("wall plan style");
+    let outline_color = AtelierApp::plan_color(style.line);
+    let mut outline_segments = Vec::new();
+    for shape in shapes {
+        match shape {
+            egui::Shape::Path(path)
+                if path.stroke.color == egui::epaint::ColorMode::Solid(outline_color) =>
+            {
+                outline_segments.extend(path.points.windows(2).map(|pair| (pair[0], pair[1])));
+            }
+            egui::Shape::LineSegment { points, stroke } if stroke.color == outline_color => {
+                outline_segments.push((points[0], points[1]));
+            }
+            _ => {}
+        }
+    }
+    assert!(
+        !outline_segments.is_empty(),
+        "the plan must paint wall outlines"
+    );
+
+    let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+    let face = app.screen(rect, Point::new(0., 0.1));
+    let near_face_left = app.screen(rect, Point::new(1.9, 0.1));
+    let near_face_right = app.screen(rect, Point::new(2.1, 0.1));
+    assert!(
+        !outline_segments.iter().any(|(a, b)| {
+            (a.y - face.y).abs() < 0.75
+                && (b.y - face.y).abs() < 0.75
+                && a.x.min(b.x) < near_face_left.x + 0.75
+                && a.x.max(b.x) > near_face_right.x - 0.75
+        }),
+        "the branch's buried end face must not be stroked between the two wall groups"
+    );
+}
+fn add_wall_for_editing(app: &mut AtelierApp) -> u64 {
+    app.editor.project.add(
+        0,
+        Material::Concrete,
+        Shape::Wall {
+            start: Point::new(0., 0.),
+            end: Point::new(4., 0.),
+            thickness: 0.3,
+            height: 3.,
+        },
+    )
+}
+fn wall_reference_line(app: &AtelierApp, id: u64) -> (Point, Point) {
+    let wall = app
+        .editor
+        .project
+        .elements
+        .iter()
+        .find(|element| element.id == id)
+        .expect("wall exists");
+    match wall.shape {
+        Shape::Wall { start, end, .. } => (start, end),
+        _ => panic!("expected wall"),
+    }
+}
+#[test]
+fn wall_endpoint_handle_drag_stretches_only_that_endpoint_once() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    let settings = app.editor.project.elements[0]
+        .wall_settings
+        .clone()
+        .expect("wall settings");
+    app.editor.set_selection(vec![id]);
+
+    drag(&ctx, &mut app, pos2(400., 300.), pos2(450., 300.));
+
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(1., 0.), Point::new(4., 0.))
+    );
+    assert_eq!(app.editor.project.elements[0].wall_settings, Some(settings));
+    assert_eq!(app.editor.undo.len(), 1, "one drag is one transaction");
+    assert_eq!(app.editor.selection_ids(), vec![id]);
+    assert!(app.wall_edit.is_none(), "a committed drag closes the edit");
+
+    plan_frame(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(0., 0.), Point::new(4., 0.))
+    );
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+    );
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(1., 0.), Point::new(4., 0.))
+    );
+}
+#[test]
+fn wall_baseline_drag_moves_the_whole_reference_line() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    app.editor.set_selection(vec![id]);
+
+    drag(&ctx, &mut app, pos2(500., 300.), pos2(550., 300.));
+
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(1., 0.), Point::new(5., 0.))
+    );
+    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.editor.selection_ids(), vec![id]);
+    assert!(app.wall_edit.is_none());
+}
+#[test]
+fn wall_endpoint_drag_snaps_to_another_reference_line_and_joins() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    let target = app.editor.project.add(
+        0,
+        Material::Concrete,
+        Shape::Wall {
+            start: Point::new(2., 2.),
+            end: Point::new(2., -1.),
+            thickness: 0.2,
+            height: 3.,
+        },
+    );
+    app.editor.set_selection(vec![id]);
+
+    drag(&ctx, &mut app, pos2(400., 300.), pos2(497., 301.));
+
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(2., 0.), Point::new(4., 0.)),
+        "the released endpoint must land exactly on the target reference line"
+    );
+    assert!(
+        app.editor
+            .status
+            .starts_with("Wall endpoint joined at reference line"),
+        "status was {}",
+        app.editor.status
+    );
+    assert!(app.wall_edit.is_none(), "a committed drag closes the edit");
+    assert_eq!(app.editor.undo.len(), 1, "one drag is one transaction");
+
+    let walls: Vec<&Element> = app
+        .editor
+        .project
+        .elements
+        .iter()
+        .filter(|element| element.story == 0 && matches!(element.shape, Shape::Wall { .. }))
+        .collect();
+    let footprints = geometry::plan_wall_footprints(&walls);
+    let edited = walls
+        .iter()
+        .position(|wall| wall.id == id)
+        .expect("edited wall");
+    let min_x = footprints[edited]
+        .iter()
+        .map(|corner| corner.x)
+        .fold(f32::MAX, f32::min);
+    assert!(
+        (min_x - 2.1).abs() < 1e-4,
+        "the T join must trim the edited wall to the near face of the target, got {min_x}"
+    );
+    assert!(
+        geometry::plan_wall_attached_ends(&walls, &footprints).contains(&(id, true)),
+        "3D must hide the end cap buried in the target wall"
+    );
+    assert!(
+        wall_reference_line(&app, target) == (Point::new(2., 2.), Point::new(2., -1.)),
+        "the target wall's stored reference line must not be rewritten by the join"
+    );
+}
+
+#[test]
+fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
+    let (ctx, mut app) = setup();
+    app.editor.project.grid_settings.grid_snap_enabled = true;
+    app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
+    let id = add_wall_for_editing(&mut app);
+    // The pointer lands 17.5 px from the target reference line but inside its
+    // 1 m body. A material or renovation boundary must not block the join.
+    let target = app.editor.project.add_with_status(
+        0,
+        Material::Plaster,
+        Shape::Wall {
+            start: Point::new(2., 2.),
+            end: Point::new(2., -2.),
+            thickness: 1.,
+            height: 3.,
+        },
+        crate::view_settings::RenovationStatus::Existing,
+    );
+    click(&ctx, &mut app, pos2(430., 300.));
+    assert_eq!(
+        app.editor.selection_ids(),
+        vec![id],
+        "the drag must start from a normally selected wall"
+    );
+
+    drag(&ctx, &mut app, pos2(400., 300.), pos2(517., 294.));
+
+    let (start, end) = wall_reference_line(&app, id);
+    assert!(
+        (start.x - 2.).abs() < 1e-3 && (end.x - 4.).abs() < 1e-3,
+        "the released endpoint must snap onto the foreign wall baseline: {start:?} -> {end:?}"
+    );
+    assert!(
+        (start.y - 0.1).abs() < 1e-3,
+        "the snap must keep the pointer's along-wall position: {start:?}"
+    );
+    assert!(
+        app.editor
+            .status
+            .starts_with("Wall endpoint joined at reference line"),
+        "status was {}",
+        app.editor.status
+    );
+    assert_eq!(
+        wall_reference_line(&app, target),
+        (Point::new(2., 2.), Point::new(2., -2.)),
+        "the target wall's stored reference line must not be rewritten"
+    );
+
+    let walls: Vec<&Element> = app
+        .editor
+        .project
+        .elements
+        .iter()
+        .filter(|element| element.story == 0 && matches!(element.shape, Shape::Wall { .. }))
+        .collect();
+    let footprints = geometry::plan_wall_footprints(&walls);
+    let edited = walls
+        .iter()
+        .position(|wall| wall.id == id)
+        .expect("edited wall");
+    let min_x = footprints[edited]
+        .iter()
+        .map(|corner| corner.x)
+        .fold(f32::MAX, f32::min);
+    assert!(
+        (min_x - 2.5).abs() < 1e-4,
+        "the branch must be cut at the far face of the thick host, got {min_x}"
+    );
+    assert!(
+        geometry::plan_wall_attached_ends(&walls, &footprints).contains(&(id, true)),
+        "3D must hide the end cap buried in the foreign-material host"
+    );
+
+    plan_frame(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(0., 0.), Point::new(4., 0.)),
+        "one undo must restore the whole join gesture"
+    );
+}
+
+#[test]
+fn wall_endpoint_reference_snap_wins_over_a_coarse_grid_snap() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    let target = app.editor.project.add(
+        0,
+        Material::Concrete,
+        Shape::Wall {
+            start: Point::new(2.4, 2.),
+            end: Point::new(2.4, -1.),
+            thickness: 0.2,
+            height: 3.,
+        },
+    );
+    app.editor.project.grid_settings.grid_snap_enabled = true;
+    app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
+    app.editor.project.grid_settings.snap_spacing_x = 1.;
+    app.editor.project.grid_settings.snap_spacing_y = 1.;
+    click(&ctx, &mut app, pos2(430., 300.));
+    assert_eq!(app.editor.selection_ids(), vec![id]);
+
+    // The pointer is exactly on the target baseline, but ordinary grid snap
+    // would first move it to x = 2.0 (0.4 m away). The endpoint must still
+    // capture the nearby reference line and join.
+    drag(&ctx, &mut app, pos2(400., 300.), pos2(520., 300.));
+
+    let (start, end) = wall_reference_line(&app, id);
+    assert!(
+        (start.x - 2.4).abs() < 1e-3 && (end.x - 4.).abs() < 1e-3,
+        "the endpoint must snap to the target baseline instead of the coarse grid: {start:?} -> {end:?}"
+    );
+    assert!((start.y - 0.).abs() < 1e-3);
+    assert!(
+        app.editor
+            .status
+            .starts_with("Wall endpoint joined at reference line"),
+        "status was {}",
+        app.editor.status
+    );
+    assert_eq!(
+        wall_reference_line(&app, target),
+        (Point::new(2.4, 2.), Point::new(2.4, -1.)),
+        "the target wall's reference line must stay unchanged"
+    );
+}
+
+#[test]
+fn wall_endpoint_release_inside_snap_radius_joins_without_pointer_move() {
+    let (ctx, mut app) = setup();
+    app.editor.project.grid_settings.grid_snap_enabled = true;
+    app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
+    let id = add_wall_for_editing(&mut app);
+    app.editor.project.add(
+        0,
+        Material::Concrete,
+        Shape::Wall {
+            start: Point::new(2., 2.),
+            end: Point::new(2., -1.),
+            thickness: 0.2,
+            height: 3.,
+        },
+    );
+    app.editor.set_selection(vec![id]);
+    let from = pos2(400., 300.);
+    let to = pos2(497., 301.);
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(from)]);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: from,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    let outside = pos2(470., 300.);
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(outside)]);
+    // Release inside the snap radius without a PointerMoved frame at `to`:
+    // the release handler itself must resolve the reference line.
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: to,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(2., 0.), Point::new(4., 0.))
+    );
+    assert_eq!(app.editor.undo.len(), 1);
+    assert!(app.wall_edit.is_none());
+    assert!(app.editor.status.starts_with("Wall endpoint joined"));
+}
+#[test]
+fn wall_endpoint_snap_preview_matches_the_active_language() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    let target = app.editor.project.add(
+        0,
+        Material::Concrete,
+        Shape::Wall {
+            start: Point::new(2., 2.),
+            end: Point::new(2., -1.),
+            thickness: 0.2,
+            height: 3.,
+        },
+    );
+    app.editor.set_selection(vec![id]);
+    let from = pos2(400., 300.);
+    let to = pos2(497., 301.);
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(from)]);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: from,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(to)]);
+
+    let edit = app.wall_edit.as_ref().expect("endpoint edit");
+    let snap = edit.snap.expect("reference-line snap");
+    assert_eq!(snap.element_id, target);
+    assert!(snap.point.distance(Point::new(2., 0.)) < 1e-4);
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(2., 0.), Point::new(4., 0.)),
+        "the live preview must use the projected reference-line point"
+    );
+    let mut english = Vec::new();
+    collect_text(&output.shapes, &mut english);
+    assert!(
+        english
+            .iter()
+            .any(|text| text == "Snap: wall reference line")
+    );
+
+    app.language = UiLanguage::SimplifiedChinese;
+    let output = plan_frame_output(&ctx, &mut app, vec![]);
+    let mut chinese = Vec::new();
+    collect_text(&output.shapes, &mut chinese);
+    assert!(chinese.iter().any(|text| text == "捕捉：墙参考线"));
+
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: to,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    assert!(app.wall_edit.is_none());
+    assert_eq!(app.status_text(), "墙端点已连接到参考线");
+}
+
+#[test]
+fn wall_baseline_click_opens_endpoint_or_line_edit_and_escape_closes_it() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    app.editor.set_selection(vec![id]);
+
+    click(&ctx, &mut app, pos2(400., 300.));
+    let edit = app.wall_edit.as_ref().expect("endpoint edit");
+    assert_eq!((edit.element_id, edit.node), (id, Some(0)));
+    assert_eq!(edit.command, WallEditCommand::MoveNode);
+    assert!(
+        app.editor
+            .status
+            .starts_with("Wall reference-line endpoint edit")
+    );
+
+    click(&ctx, &mut app, pos2(500., 300.));
+    let edit = app.wall_edit.as_ref().expect("line edit");
+    assert_eq!((edit.element_id, edit.node), (id, None));
+    assert_eq!(edit.command, WallEditCommand::Move);
+    assert!(app.editor.status.starts_with("Wall reference-line edit"));
+
+    plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+    assert!(app.wall_edit.is_none());
+    assert_eq!(app.editor.selection_ids(), vec![id]);
+}
+#[test]
+fn wall_reference_line_palette_renders_in_both_languages() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    app.editor.set_selection(vec![id]);
+    click(&ctx, &mut app, pos2(400., 300.));
+    assert!(app.wall_edit.is_some());
+
+    let output = plan_frame_output(&ctx, &mut app, vec![]);
+    let mut english = Vec::new();
+    collect_text(&output.shapes, &mut english);
+    assert!(english.iter().any(|text| text == "Wall reference line"));
+    assert!(english.iter().any(|text| text == "Start endpoint"));
+    assert!(english.iter().any(|text| text.contains("Length:")));
+    assert!(
+        english
+            .iter()
+            .any(|text| text == "Drag onto another reference line to join")
+    );
+
+    app.language = UiLanguage::SimplifiedChinese;
+    let output = plan_frame_output(&ctx, &mut app, vec![]);
+    let mut chinese = Vec::new();
+    collect_text(&output.shapes, &mut chinese);
+    assert!(chinese.iter().any(|text| text == "墙参考线"));
+    assert!(chinese.iter().any(|text| text == "起点"));
+    assert!(chinese.iter().any(|text| text.contains("长度:")));
+    assert!(
+        chinese
+            .iter()
+            .any(|text| text == "拖到另一条参考线上以自动连接")
+    );
+}
+#[test]
+fn wall_palette_keeps_the_edit_when_the_canvas_is_under_the_popup() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    app.editor.set_selection(vec![id]);
+    click(&ctx, &mut app, pos2(400., 300.));
+    assert!(app.wall_edit_palette_rect.is_some());
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 500.))]);
+    let palette = app
+        .wall_edit_palette_rect
+        .expect("palette bounds settle on the following frame");
+
+    let palette_click = palette.left_top() + vec2(4., 4.);
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(palette_click)]);
+    assert!(
+        app.wall_edit.is_some(),
+        "hovering the palette keeps the edit"
+    );
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: palette_click,
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    assert!(
+        app.wall_edit.is_some(),
+        "pressing the palette keeps the edit"
+    );
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: palette_click,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+
+    assert!(app.wall_edit.is_some());
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(0., 0.), Point::new(4., 0.))
+    );
+    assert!(app.editor.undo.is_empty());
+
+    let output = plan_frame_output(&ctx, &mut app, vec![]);
+    let done = text_center(&output.shapes, "Done").expect("Done button label");
+    click(&ctx, &mut app, done);
+    assert!(app.wall_edit.is_none(), "Done dismisses the unchanged edit");
+    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.editor.status, "Select an element or start drawing");
+}
+#[test]
+fn escape_cancels_a_live_wall_baseline_drag_without_undo() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    app.editor.set_selection(vec![id]);
+
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: pos2(400., 300.),
+            button: PointerButton::Primary,
+            pressed: true,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(450., 300.))]);
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(1., 0.), Point::new(4., 0.))
+    );
+    plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: pos2(450., 300.),
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(0., 0.), Point::new(4., 0.))
+    );
+    assert!(app.editor.undo.is_empty());
+    assert!(app.wall_edit.is_none());
+}
+#[test]
+fn wall_baseline_edit_refuses_to_strand_a_hosted_opening() {
+    let (ctx, mut app) = setup();
+    let id = add_wall_for_editing(&mut app);
+    app.editor.project.add(
+        0,
+        Material::Timber,
+        Shape::Opening {
+            host_wall: id,
+            kind: OpeningKind::Door,
+            width: 1.,
+            height: 2.1,
+            sill: 0.,
+            offset: 3.5,
+        },
+    );
+    app.editor.set_selection(vec![id]);
+
+    drag(&ctx, &mut app, pos2(600., 300.), pos2(500., 300.));
+
+    assert_eq!(
+        wall_reference_line(&app, id),
+        (Point::new(0., 0.), Point::new(4., 0.))
+    );
+    assert!(app.editor.undo.is_empty());
+    let edit = app.wall_edit.as_ref().expect("edit remains for feedback");
+    assert!(edit.error.contains("outside its host wall"));
 }
 #[test]
 fn pointer_wall_creation_selection_drag_undo_redo() {
@@ -1531,6 +2233,40 @@ fn tracker_enter_creates_exact_wall() {
         assert!((end.y - 7.25).abs() < 1e-5);
     } else {
         panic!("Expected wall")
+    }
+}
+#[test]
+fn tracker_labels_follow_language() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.anchor = Some(Point::new(1., 2.));
+    for (language, expected) in [
+        (
+            UiLanguage::English,
+            ["Length", "Angle", "Create [Enter]"].as_slice(),
+        ),
+        (
+            UiLanguage::SimplifiedChinese,
+            ["长度", "角度", "创建 [回车]"].as_slice(),
+        ),
+    ] {
+        app.language = language;
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.))),
+                ..Default::default()
+            },
+            |ui| app.tracker(ui),
+        );
+        output.textures_delta.clear();
+        let mut texts = Vec::new();
+        collect_text(&output.shapes, &mut texts);
+        for label in expected {
+            assert!(
+                texts.iter().any(|text| text == label),
+                "{language:?} tracker is missing {label:?}: {texts:?}"
+            );
+        }
     }
 }
 #[test]
@@ -2482,6 +3218,139 @@ fn continuous_wall_double_click_finishes_the_chain() {
     assert_eq!(app.editor.project.elements.len(), 2);
     assert!(app.editor.wall_points.is_empty());
     assert_eq!(app.editor.undo.len(), 1);
+}
+
+#[test]
+fn continuous_wall_clicking_the_start_point_closes_the_chain() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    click(&ctx, &mut app, pos2(300., 300.));
+    click(&ctx, &mut app, pos2(500., 300.));
+    click(&ctx, &mut app, pos2(500., 200.));
+    click(&ctx, &mut app, pos2(300., 300.));
+    assert_eq!(app.editor.project.elements.len(), 3);
+    assert!(app.editor.wall_points.is_empty());
+    assert!(app.editor.anchor.is_none());
+    assert_eq!(app.editor.undo.len(), 1);
+}
+
+#[test]
+fn wall_start_click_is_magnetic_even_when_grid_snap_moves_the_pointer() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    app.editor.project.grid_settings.grid_snap_enabled = false;
+    click(&ctx, &mut app, pos2(300., 300.));
+    click(&ctx, &mut app, pos2(500., 300.));
+    click(&ctx, &mut app, pos2(500., 200.));
+    app.editor.project.grid_settings.grid_snap_enabled = true;
+    app.editor.project.grid_settings.snap_spacing_x = 0.5;
+    app.editor.project.grid_settings.snap_spacing_y = 0.5;
+    // 10.4 px away from the first node; grid snap would otherwise move this
+    // click to a different world point and append a spurious node.
+    click(&ctx, &mut app, pos2(310., 303.));
+    assert_eq!(app.editor.project.elements.len(), 3);
+    assert!(app.editor.wall_points.is_empty());
+    assert!(app.editor.anchor.is_none());
+    assert_eq!(app.editor.undo.len(), 1);
+}
+
+#[test]
+fn continuous_wall_start_click_with_two_nodes_finishes_the_single_wall() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    click(&ctx, &mut app, pos2(300., 300.));
+    click(&ctx, &mut app, pos2(500., 300.));
+    click(&ctx, &mut app, pos2(300., 300.));
+    assert_eq!(app.editor.project.elements.len(), 1);
+    assert!(app.editor.wall_points.is_empty());
+    assert!(app.editor.anchor.is_none());
+    assert_eq!(app.editor.undo.len(), 1);
+}
+
+#[test]
+fn polygonal_wall_start_click_with_two_nodes_does_not_append_a_backtrack() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Polygonal;
+    click(&ctx, &mut app, pos2(300., 300.));
+    click(&ctx, &mut app, pos2(500., 300.));
+    click(&ctx, &mut app, pos2(300., 300.));
+    assert_eq!(app.editor.wall_points.len(), 2);
+    assert!(app.editor.project.elements.is_empty());
+    assert!(app.editor.undo.is_empty());
+}
+
+#[test]
+fn right_click_finishes_a_continuous_wall_draft() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    for point in [pos2(300., 300.), pos2(400., 300.), pos2(400., 200.)] {
+        click(&ctx, &mut app, point);
+    }
+    assert_eq!(app.editor.wall_points.len(), 3);
+    secondary_click(&ctx, &mut app, pos2(500., 300.));
+    assert_eq!(app.editor.project.elements.len(), 2);
+    assert!(app.editor.wall_points.is_empty());
+    assert!(app.editor.anchor.is_none());
+    assert_eq!(app.editor.undo.len(), 1);
+}
+
+#[test]
+fn right_click_cancels_single_and_rectangular_drafts_without_an_undo_entry() {
+    for method in [WallGeometryMethod::Single, WallGeometryMethod::Rectangular] {
+        let (ctx, mut app) = setup();
+        app.editor.set_tool(Tool::Wall);
+        app.editor.wall_settings.geometry.geometry_method = method;
+        click(&ctx, &mut app, pos2(300., 300.));
+        assert!(app.editor.anchor.is_some());
+        secondary_click(&ctx, &mut app, pos2(400., 300.));
+        assert!(app.editor.project.elements.is_empty());
+        assert!(app.editor.anchor.is_none());
+        assert!(app.editor.wall_points.is_empty());
+        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.editor.status, app.language.translate("Wall cancelled"));
+    }
+}
+
+#[test]
+fn right_drag_still_pans_without_finishing_the_wall_draft() {
+    let (ctx, mut app) = setup();
+    app.editor.set_tool(Tool::Wall);
+    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    for point in [pos2(300., 300.), pos2(400., 300.), pos2(400., 200.)] {
+        click(&ctx, &mut app, point);
+    }
+    let start = pos2(500., 300.);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![
+            Event::PointerMoved(start),
+            Event::PointerButton {
+                pos: start,
+                button: PointerButton::Secondary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+    );
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(560., 340.))]);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: pos2(560., 340.),
+            button: PointerButton::Secondary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    assert_eq!(app.editor.wall_points.len(), 3);
+    assert!(app.editor.project.elements.is_empty());
 }
 
 #[test]

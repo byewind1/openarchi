@@ -5,7 +5,10 @@ fn main() -> eframe::Result {
         .expect("failed to load OpenArchi application icon");
     let options = eframe::NativeOptions {
         viewport: eframe::egui::ViewportBuilder::default()
-            .with_title("OpenArchi — Architectural Workbench")
+            // eframe derives the macOS application-menu label from this
+            // initial title. Keep it language-neutral; the localized window
+            // title is applied from the first frame below.
+            .with_title("OpenArchi")
             .with_icon(icon)
             .with_inner_size([1512., 960.])
             .with_min_inner_size([1050., 700.]),
