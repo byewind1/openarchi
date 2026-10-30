@@ -2181,6 +2181,8 @@ fn quick_option_visibility_follows_layers_and_design_options() {
     let option_id = app.editor.project.design_options.create("Option A".into());
     option_element.design_option = Some(option_id);
     app.editor.project.elements = vec![main.clone(), option_element.clone()];
+    app.editor.project.next_id = 3;
+    app.editor.project.validate().unwrap();
 
     let layers = &app.editor.project.layers;
     let options = &app.editor.project.plan_options;
@@ -4104,6 +4106,8 @@ fn layer_settings_ok_applies_combination_and_undo_restores() {
         crate::layers::ElementLayer(crate::layers::LayerDocument::legacy_layer_id("Electrical")),
         None,
     )];
+    app.editor.project.next_id = 2;
+    app.editor.project.validate().unwrap();
     let undo_len = app.editor.undo.len();
 
     layers_frame_output(&ctx, &mut app, vec![key(Key::L, Modifiers::COMMAND)]);

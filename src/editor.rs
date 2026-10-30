@@ -172,6 +172,14 @@ impl Editor {
             return;
         }
         if before != self.project {
+            // Legacy callers edit a candidate in place. Validate before creating
+            // an ID-based delta: invalid duplicate IDs cannot be rolled back by
+            // a delta reliably, so restore the caller's complete baseline.
+            if let Err(error) = self.project.validate() {
+                self.project = before;
+                self.status = error;
+                return;
+            }
             self.revision = self.revision.wrapping_add(1);
             let delta = ProjectDelta::between(&before, &self.project);
             self.undo.push(CommandRecord::from_delta(delta));
@@ -216,6 +224,16 @@ impl Editor {
                     return Err(format!("Element {id} is on a locked layer"));
                 }
             }
+            ModelCommand::RestoreElements { elements } => {
+                // Executing a restore request places elements just like AddElement.
+                // History undo/redo uses deltas directly and does not pass here.
+                if elements
+                    .iter()
+                    .any(|(_, element)| self.project.layers.is_locked(element.layer.0))
+                {
+                    return Err("Selection contains locked elements".into());
+                }
+            }
             _ => {}
         }
         let record_command = command.clone();
@@ -233,7 +251,11 @@ impl Editor {
                 }
                 let header_before = ProjectHeader::capture(&self.project);
                 let index = self.project.elements.len();
-                self.project.next_id = self.project.next_id.max(element.id + 1);
+                let next_id = element
+                    .id
+                    .checked_add(1)
+                    .ok_or_else(|| "Invalid element identity or story".to_string())?;
+                self.project.next_id = self.project.next_id.max(next_id);
                 self.project.elements.push(element.clone());
                 delta.elements.push(ElementEdit {
                     id: element.id,
