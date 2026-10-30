@@ -48,6 +48,7 @@ impl AtelierApp {
         }
         storage::save(&self.editor.project, &PathBuf::from(path))?;
         self.editor.mark_saved();
+        self.path_confirmed = true;
         self.editor.status = self.language.translate("Project saved").into();
         self.discard_recovery_file();
         Ok(())
@@ -246,6 +247,7 @@ impl AtelierApp {
                                     self.draft_id = None;
                                     self.draft = None;
                                     self.discard_recovery_file();
+                                    self.path_confirmed = true;
                                     self.fit();
                                 }),
                             FileAction::New => {
@@ -257,6 +259,7 @@ impl AtelierApp {
                                 self.draft_id = None;
                                 self.draft = None;
                                 self.discard_recovery_file();
+                                self.path_confirmed = false;
                                 self.fit();
                                 Ok(())
                             }

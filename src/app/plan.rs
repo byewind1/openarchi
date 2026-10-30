@@ -1,6 +1,57 @@
+use super::wall_node_ui::WallPetCommand;
 use super::*;
+use crate::layers::{ARCHICAD_LAYER, ElementLayer};
 
 impl AtelierApp {
+    /// Triangulate wall junction caps: a multi-way footprint may be concave.
+    /// Stroke only the perimeter, never the internal triangulation edges.
+    pub(super) fn paint_wall_polygon(
+        painter: &egui::Painter,
+        polygon: &[Point],
+        screen: impl Fn(Point) -> Pos2,
+        fill: Color32,
+        stroke: Stroke,
+    ) {
+        let mut mesh = egui::Mesh::default();
+        for triangle in geometry::triangulate_polygon(polygon) {
+            let index = mesh.vertices.len() as u32;
+            for point in triangle {
+                mesh.colored_vertex(screen(point), fill);
+            }
+            mesh.add_triangle(index, index + 1, index + 2);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+        painter.add(egui::Shape::closed_line(
+            polygon.iter().copied().map(screen).collect(),
+            stroke,
+        ));
+    }
+
+    /// The same hole-aware triangles and sampled ring boundaries feed plan and trace.
+    pub(super) fn paint_slab_polygon(
+        painter: &egui::Painter,
+        element: &Element,
+        screen: impl Fn(Point) -> Pos2,
+        fill: Color32,
+        stroke: Stroke,
+    ) {
+        let mut mesh = egui::Mesh::default();
+        for triangle in crate::slab_geometry::triangles(element) {
+            let index = mesh.vertices.len() as u32;
+            for point in triangle {
+                mesh.colored_vertex(screen(point), fill);
+            }
+            mesh.add_triangle(index, index + 1, index + 2);
+        }
+        painter.add(egui::Shape::mesh(mesh));
+        for ring in crate::slab_geometry::outlines(element) {
+            painter.add(egui::Shape::closed_line(
+                ring.into_iter().map(&screen).collect(),
+                stroke,
+            ));
+        }
+    }
+
     pub(super) fn world(&self, r: Rect, p: Pos2) -> Point {
         let radians = self
             .editor
@@ -38,10 +89,11 @@ impl AtelierApp {
         &self,
         element: &Element,
     ) -> Option<crate::view_settings::PlanElementStyle> {
-        self.editor
-            .project
-            .plan_options
-            .style_for(element, self.plan_pen())
+        self.editor.project.plan_options.style_for(
+            element,
+            self.plan_pen(),
+            &self.editor.project.layers,
+        )
     }
     pub(super) fn plan_pen_px(&self, width_mm: f32) -> f32 {
         let world_width = width_mm / 1000. * self.editor.project.plan_options.drawing_scale as f32;
@@ -56,47 +108,72 @@ impl AtelierApp {
         tolerance: f32,
     ) -> Option<(u64, Option<usize>, Option<usize>)> {
         let selected = self.editor.selection_ids();
-        for element in self
-            .editor
-            .project
-            .elements
-            .iter()
-            .filter(|e| selected.contains(&e.id))
-        {
-            let Shape::Polyline { points, arcs } = &element.shape else {
-                continue;
-            };
-            if let Some((index, _)) = points
-                .iter()
-                .enumerate()
-                .map(|(index, node)| (index, node.distance(point)))
-                .filter(|(_, distance)| *distance <= tolerance)
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-            {
-                return Some((element.id, Some(index), None));
-            }
-            if let Some((index, _)) = points
-                .windows(2)
-                .enumerate()
-                .map(|(index, edge)| {
-                    let path = arcs
-                        .get(index)
-                        .and_then(|arc| *arc)
-                        .and_then(|arc| geometry::arc_points(edge[0], edge[1], arc))
-                        .unwrap_or_else(|| vec![edge[0], edge[1]]);
-                    let distance = path
-                        .windows(2)
-                        .map(|pair| geometry::segment_distance(point, pair[0], pair[1]))
-                        .fold(f32::INFINITY, f32::min);
-                    (index, distance)
-                })
-                .filter(|(_, distance)| *distance <= tolerance)
-                .min_by(|a, b| a.1.total_cmp(&b.1))
-            {
-                return Some((element.id, None, Some(index)));
+        let mut eligible: Vec<(
+            u64,
+            Vec<Point>,
+            Vec<Option<crate::model::ArcSegment>>,
+            bool,
+            usize,
+        )> = Vec::new();
+        for e in self.editor.project.elements.iter().rev().filter(|e| {
+            selected.contains(&e.id)
+                && e.story == self.editor.story
+                && self
+                    .editor
+                    .project
+                    .plan_options
+                    .element_visible(e, &self.editor.project.layers)
+        }) {
+            match &e.shape {
+                Shape::Polyline { points, arcs } => {
+                    eligible.push((e.id, points.clone(), arcs.clone(), false, 0))
+                }
+                Shape::Slab { .. } => {
+                    let mut base = 0;
+                    for ring in crate::slab_geometry::rings(e) {
+                        let n = ring.points.len();
+                        eligible.push((e.id, ring.points, ring.arcs, true, base));
+                        base += n;
+                    }
+                }
+                _ => {}
             }
         }
-        None
+        let node = eligible
+            .iter()
+            .flat_map(|(id, points, _, _, base)| {
+                points
+                    .iter()
+                    .enumerate()
+                    .map(move |(i, p)| (*id, *base + i, p.distance(point)))
+            })
+            .filter(|(_, _, d)| *d <= tolerance)
+            .min_by(|a, b| a.2.total_cmp(&b.2));
+        if let Some((id, node, _)) = node {
+            return Some((id, Some(node), None));
+        }
+        eligible
+            .iter()
+            .flat_map(|(id, points, arcs, closed, base)| {
+                let count = points.len().saturating_sub(if *closed { 0 } else { 1 });
+                (0..count).map(move |i| {
+                    let a = points[i];
+                    let b = points[(i + 1) % points.len()];
+                    let path = arcs
+                        .get(i)
+                        .and_then(|a| *a)
+                        .and_then(|arc| geometry::arc_points(a, b, arc))
+                        .unwrap_or_else(|| vec![a, b]);
+                    let distance = path
+                        .windows(2)
+                        .map(|p| geometry::segment_distance(point, p[0], p[1]))
+                        .fold(f32::INFINITY, f32::min);
+                    (*id, *base + i, distance)
+                })
+            })
+            .filter(|(_, _, d)| *d <= tolerance)
+            .min_by(|a, b| a.2.total_cmp(&b.2))
+            .map(|(id, edge, _)| (id, None, Some(edge)))
     }
     /// Hit-test the reference line of an already selected wall. Endpoints win
     /// over the segment so a handle just inside a thick wall still stretches
@@ -111,7 +188,11 @@ impl AtelierApp {
             selected.contains(&element.id)
                 && element.story == self.editor.story
                 && matches!(element.shape, Shape::Wall { .. })
-                && self.editor.project.plan_options.element_visible(element)
+                && self
+                    .editor
+                    .project
+                    .plan_options
+                    .element_visible(element, &self.editor.project.layers)
         });
         let mut endpoint: Option<(u64, usize, f32)> = None;
         for wall in walls.clone() {
@@ -130,15 +211,29 @@ impl AtelierApp {
         }
         let mut segment: Option<(u64, f32)> = None;
         for wall in walls {
-            let Some((start, end)) = geometry::wall_reference_line(wall) else {
-                continue;
-            };
-            let distance = geometry::segment_distance(point, start, end);
+            let distance = crate::wall_geometry::project_station(wall, point).1;
             if distance <= tolerance && segment.is_none_or(|(_, best)| distance < best) {
                 segment = Some((wall.id, distance));
             }
         }
         segment.map(|(id, _)| (id, None))
+    }
+    pub(super) fn paint_selected_wall_path(painter: &Painter, points: Vec<Pos2>) {
+        if points.len() == 2 {
+            paint_selected_wall_baseline(painter, points[0], points[1]);
+        } else if let (Some(start), Some(end)) = (points.first().copied(), points.last().copied()) {
+            painter.add(egui::Shape::line(
+                points,
+                Stroke::new(WALL_REFERENCE_LINE_WIDTH, WALL_REFERENCE_LINE),
+            ));
+            for handle in [start, end] {
+                painter.rect_filled(
+                    Rect::from_center_size(handle, Vec2::splat(WALL_REFERENCE_HANDLE_SIZE)),
+                    0.,
+                    Color32::BLACK,
+                );
+            }
+        }
     }
     pub(super) fn select_cursor_feedback(&self, point: Point) -> CursorFeedback {
         match geometry::plan_hover_kind(
@@ -154,36 +249,7 @@ impl AtelierApp {
             None => CursorFeedback::Empty,
         }
     }
-    pub(super) fn open_polyline_edit(
-        &mut self,
-        id: u64,
-        node: Option<usize>,
-        edge: Option<usize>,
-        at: Pos2,
-    ) {
-        let command = if node.is_some() {
-            PolylineEditCommand::MoveNode
-        } else {
-            PolylineEditCommand::OffsetPolyline
-        };
-        self.polyline_edit = Some(PolylineEdit {
-            element_id: id,
-            node,
-            edge,
-            command,
-            palette_at: at + vec2(14., 12.),
-            drag: None,
-            chamfer_length: 0.25,
-            fillet_radius: 0.25,
-            multiply_count: 2,
-            error: String::new(),
-        });
-        self.editor.status = if node.is_some() {
-            "Polyline node edit · drag the node or choose a palette command".into()
-        } else {
-            "Polyline edge edit · choose a palette command".into()
-        };
-    }
+
     pub(super) fn open_wall_edit(&mut self, id: u64, node: Option<usize>, at: Pos2) {
         self.wall_edit = Some(WallEdit {
             element_id: id,
@@ -194,6 +260,16 @@ impl AtelierApp {
                 WallEditCommand::Move
             },
             palette_at: at + vec2(14., 12.),
+            insert_anchor: self
+                .editor
+                .project
+                .elements
+                .iter()
+                .find(|e| e.id == id)
+                .and_then(geometry::wall_reference_line)
+                .map(|(a, b)| Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5))
+                .unwrap_or_default(),
+            elevation: None,
             drag: None,
             snap: None,
             error: String::new(),
@@ -316,406 +392,6 @@ impl AtelierApp {
         }
         true
     }
-    #[cfg(test)]
-    pub(super) fn insert_polyline_node_at(
-        &mut self,
-        id: u64,
-        edge_index: usize,
-        point: Point,
-        at: Pos2,
-    ) {
-        let before = self.editor.project.clone();
-        let Some(element) = before.elements.iter().find(|element| element.id == id) else {
-            return;
-        };
-        let Shape::Polyline { points, arcs } = &element.shape else {
-            return;
-        };
-        if arcs.get(edge_index).is_some_and(Option::is_some) {
-            self.open_polyline_edit(id, None, Some(edge_index), at);
-            self.editor.status =
-                "Curved edge selected · choose Curve edge to adjust its radius".into();
-            return;
-        }
-        let Some((&a, &b)) = points.get(edge_index).zip(points.get(edge_index + 1)) else {
-            return;
-        };
-        let dx = b.x - a.x;
-        let dy = b.y - a.y;
-        let length_squared = dx * dx + dy * dy;
-        if length_squared <= 1e-10 {
-            self.editor.status = "Cannot insert a node into a zero-length edge".into();
-            return;
-        }
-        let t = (((point.x - a.x) * dx + (point.y - a.y) * dy) / length_squared).clamp(0., 1.);
-        let node = Point::new(a.x + t * dx, a.y + t * dy);
-        if node.distance(a) < 0.01 || node.distance(b) < 0.01 {
-            self.editor.status =
-                "A new node must leave at least 0.01 m on both edge segments".into();
-            return;
-        }
-        let node_index = edge_index + 1;
-        let Some(slot) = self
-            .editor
-            .project
-            .elements
-            .iter_mut()
-            .find(|element| element.id == id)
-        else {
-            return;
-        };
-        let Shape::Polyline { points, arcs } = &mut slot.shape else {
-            return;
-        };
-        points.insert(node_index, node);
-        if !arcs.is_empty() {
-            arcs.insert(edge_index + 1, None);
-        }
-        if self.editor.project.validate().is_err() {
-            self.editor.project = before;
-            self.editor.status = "Cannot insert a node into invalid Polyline geometry".into();
-            return;
-        }
-        self.editor.commit(before);
-        self.editor.set_selection(vec![id]);
-        self.open_polyline_edit(id, Some(node_index), Some(edge_index), at);
-        self.editor.status = "Polyline node inserted · drag it or choose a palette command".into();
-    }
-    pub(super) fn apply_polyline_drag_preview(
-        &mut self,
-        before: &Project,
-        edit: &PolylineEdit,
-        start: Point,
-        current: Point,
-    ) {
-        self.editor.project = before.clone();
-        let Some(original) = before
-            .elements
-            .iter()
-            .find(|element| element.id == edit.element_id)
-        else {
-            return;
-        };
-        let Shape::Polyline {
-            points: source,
-            arcs: source_arcs,
-        } = &original.shape
-        else {
-            return;
-        };
-        let mut points = source.clone();
-        let mut arcs = if source_arcs.is_empty() {
-            vec![None; source.len().saturating_sub(1)]
-        } else {
-            source_arcs.clone()
-        };
-        let delta = Point::new(current.x - start.x, current.y - start.y);
-        match edit.command {
-            PolylineEditCommand::InsertNode => {
-                if let Some(index) = edit.edge.filter(|index| *index + 1 < source.len()) {
-                    let a = source[index];
-                    let b = source[index + 1];
-                    let (node, split) = if let Some(arc) = arcs[index] {
-                        let Some((center, sweep)) = geometry::arc_center_sweep(a, b, arc) else {
-                            return;
-                        };
-                        let angle = (current.y - center.y).atan2(current.x - center.x);
-                        let start_angle = (a.y - center.y).atan2(a.x - center.x);
-                        let traveled = if sweep > 0. {
-                            (angle - start_angle).rem_euclid(std::f32::consts::TAU)
-                        } else {
-                            (start_angle - angle).rem_euclid(std::f32::consts::TAU)
-                        };
-                        if traveled >= sweep.abs() {
-                            return;
-                        }
-                        let node = Point::new(
-                            center.x + arc.radius * angle.cos(),
-                            center.y + arc.radius * angle.sin(),
-                        );
-                        let mut first = arc;
-                        first.large_arc = traveled > std::f32::consts::PI;
-                        let mut second = arc;
-                        second.large_arc = sweep.abs() - traveled > std::f32::consts::PI;
-                        (node, (Some(first), Some(second)))
-                    } else {
-                        let dx = b.x - a.x;
-                        let dy = b.y - a.y;
-                        let t = (((current.x - a.x) * dx + (current.y - a.y) * dy)
-                            / (dx * dx + dy * dy))
-                            .clamp(0., 1.);
-                        (Point::new(a.x + t * dx, a.y + t * dy), (None, None))
-                    };
-                    if node.distance(a) < 0.01 || node.distance(b) < 0.01 {
-                        return;
-                    }
-                    points.insert(index + 1, node);
-                    arcs[index] = split.0;
-                    arcs.insert(index + 1, split.1);
-                }
-            }
-            PolylineEditCommand::MoveNode => {
-                if let Some(node) = edit.node.filter(|index| *index < points.len()) {
-                    points[node] = current;
-                    if source.len() > 2
-                        && source
-                            .first()
-                            .zip(source.last())
-                            .is_some_and(|(a, b)| a.distance(*b) < 0.01)
-                    {
-                        if node == 0 {
-                            let last = points.len() - 1;
-                            points[last] = current;
-                        }
-                        if node + 1 == points.len() {
-                            points[0] = current;
-                        }
-                    }
-                }
-            }
-            PolylineEditCommand::Move => {
-                for point in &mut points {
-                    point.x += delta.x;
-                    point.y += delta.y;
-                }
-            }
-            PolylineEditCommand::Rotate => {
-                let pivot = edit
-                    .node
-                    .and_then(|index| source.get(index).copied())
-                    .or_else(|| {
-                        edit.edge.and_then(|index| {
-                            source
-                                .get(index)
-                                .zip(source.get(index + 1))
-                                .map(|(a, b)| Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5))
-                        })
-                    })
-                    .unwrap_or(source[0]);
-                let a0 = (start.y - pivot.y).atan2(start.x - pivot.x);
-                let a1 = (current.y - pivot.y).atan2(current.x - pivot.x);
-                let angle = a1 - a0;
-                for point in &mut points {
-                    let (x, y) = (point.x - pivot.x, point.y - pivot.y);
-                    *point = Point::new(
-                        pivot.x + x * angle.cos() - y * angle.sin(),
-                        pivot.y + x * angle.sin() + y * angle.cos(),
-                    );
-                }
-            }
-            PolylineEditCommand::Mirror => {
-                let axis = Point::new(current.x - start.x, current.y - start.y);
-                let length = axis.x.hypot(axis.y);
-                if length > 1e-5 {
-                    let ux = axis.x / length;
-                    let uy = axis.y / length;
-                    for point in &mut points {
-                        let x = point.x - start.x;
-                        let y = point.y - start.y;
-                        let projection = x * ux + y * uy;
-                        *point = Point::new(
-                            start.x + 2. * projection * ux - x,
-                            start.y + 2. * projection * uy - y,
-                        );
-                    }
-                    for arc in arcs.iter_mut().flatten() {
-                        arc.clockwise = !arc.clockwise;
-                    }
-                }
-            }
-            PolylineEditCommand::OffsetPolyline => {
-                let edge = Self::polyline_context_edge(edit, source);
-                if let Some(index) = edge.filter(|index| *index + 1 < source.len()) {
-                    let a = source[index];
-                    let b = source[index + 1];
-                    let length = a.distance(b);
-                    if length > 1e-5 {
-                        let normal = source_arcs
-                            .get(index)
-                            .and_then(|arc| *arc)
-                            .and_then(|arc| {
-                                let (center, _) = geometry::arc_center_sweep(a, b, arc)?;
-                                let radial = Point::new(start.x - center.x, start.y - center.y);
-                                let len = radial.x.hypot(radial.y);
-                                (len > 1e-5).then(|| {
-                                    let sign = if arc.clockwise { 1. } else { -1. };
-                                    Point::new(sign * radial.x / len, sign * radial.y / len)
-                                })
-                            })
-                            .unwrap_or(Point::new(-(b.y - a.y) / length, (b.x - a.x) / length));
-                        let distance = delta.x * normal.x + delta.y * normal.y;
-                        if let Some((offset, offset_arcs)) =
-                            geometry::offset_polyline_with_arcs(source, source_arcs, distance)
-                        {
-                            points = offset;
-                            arcs = offset_arcs;
-                        } else if distance.abs() > 1e-6 {
-                            if let Some(active) = self.polyline_edit.as_mut() {
-                                active.error = "Offset cannot preserve a connected valid path at this distance".into();
-                            }
-                            return;
-                        }
-                    }
-                }
-            }
-            PolylineEditCommand::CurveEdge => {
-                if let Some(index) = Self::polyline_context_edge(edit, source)
-                    .filter(|index| *index + 1 < source.len())
-                    && let Some(arc) =
-                        geometry::arc_segment_through(source[index], source[index + 1], current)
-                {
-                    arcs[index] = Some(arc);
-                }
-            }
-            PolylineEditCommand::Multiply => {
-                for index in 1..=edit.multiply_count.clamp(1, 50) {
-                    let mut copy = original.clone();
-                    copy.id = self.editor.project.next_id;
-                    copy.name = format!("Polyline {:03}", copy.id);
-                    self.editor.project.next_id += 1;
-                    if let Shape::Polyline { points, .. } = &mut copy.shape {
-                        for point in points {
-                            point.x += delta.x * index as f32;
-                            point.y += delta.y * index as f32;
-                        }
-                    }
-                    self.editor.project.elements.push(copy);
-                }
-            }
-            PolylineEditCommand::Chamfer | PolylineEditCommand::Fillet => return,
-        }
-        if let Some(slot) = self
-            .editor
-            .project
-            .elements
-            .iter_mut()
-            .find(|element| element.id == edit.element_id)
-        {
-            slot.shape = Shape::Polyline { points, arcs };
-        }
-    }
-    pub(super) fn polyline_context_edge(edit: &PolylineEdit, points: &[Point]) -> Option<usize> {
-        edit.edge
-            .filter(|index| *index + 1 < points.len())
-            .or_else(|| {
-                let node = edit.node?;
-                if node + 1 < points.len() {
-                    Some(node)
-                } else {
-                    node.checked_sub(1)
-                        .filter(|index| *index + 1 < points.len())
-                }
-            })
-    }
-    pub(super) fn apply_polyline_corner_edit(&mut self) {
-        let Some(edit) = self.polyline_edit.as_mut() else {
-            return;
-        };
-        let Some(node) = edit.node else {
-            edit.error = "Choose a corner node first".into();
-            return;
-        };
-        let before = self.editor.project.clone();
-        let Some(element) = self
-            .editor
-            .project
-            .elements
-            .iter_mut()
-            .find(|element| element.id == edit.element_id)
-        else {
-            edit.error = "Polyline no longer exists".into();
-            return;
-        };
-        let Shape::Polyline { points, arcs } = &mut element.shape else {
-            edit.error = "Selected element is not a Polyline".into();
-            return;
-        };
-        if node == 0 || node + 1 >= points.len() {
-            edit.error = "Chamfer and Fillet need an interior node".into();
-            return;
-        }
-        let previous = points[node - 1];
-        let corner = points[node];
-        let next = points[node + 1];
-        let left = corner.distance(previous);
-        let right = corner.distance(next);
-        let operation = edit.command;
-        let (ax, ay) = (previous.x - corner.x, previous.y - corner.y);
-        let (bx, by) = (next.x - corner.x, next.y - corner.y);
-        let la = ax.hypot(ay);
-        let lb = bx.hypot(by);
-        let angle = ((ax * bx + ay * by) / (la * lb).max(1e-8))
-            .clamp(-1., 1.)
-            .acos();
-        if angle < 0.01 || (std::f32::consts::PI - angle).abs() < 0.01 {
-            edit.error = "Corner edit needs two non-collinear segments".into();
-            return;
-        }
-        let distance = if operation == PolylineEditCommand::Chamfer {
-            edit.chamfer_length
-        } else {
-            edit.fillet_radius * (angle * 0.5).tan()
-        };
-        if !distance.is_finite()
-            || distance <= 0.
-            || distance >= left - 0.01
-            || distance >= right - 0.01
-        {
-            edit.error = "Value must be positive and leave 10 mm on both adjacent segments".into();
-            return;
-        }
-        let p1 = Point::new(corner.x + ax / la * distance, corner.y + ay / la * distance);
-        let p2 = Point::new(corner.x + bx / lb * distance, corner.y + by / lb * distance);
-        let fillet_arc = if operation == PolylineEditCommand::Chamfer {
-            None
-        } else {
-            let center_distance = edit.fillet_radius / (angle * 0.5).sin();
-            let bisector = Point::new(ax / la + bx / lb, ay / la + by / lb);
-            let bisector_len = bisector.x.hypot(bisector.y);
-            let center = Point::new(
-                corner.x + bisector.x / bisector_len * center_distance,
-                corner.y + bisector.y / bisector_len * center_distance,
-            );
-            let start_angle = (p1.y - center.y).atan2(p1.x - center.x);
-            let end_angle = (p2.y - center.y).atan2(p2.x - center.x);
-            let cross =
-                (p1.x - center.x) * (p2.y - center.y) - (p1.y - center.y) * (p2.x - center.x);
-            let mut sweep = end_angle - start_angle;
-            if cross > 0. && sweep < 0. {
-                sweep += std::f32::consts::TAU;
-            }
-            if cross < 0. && sweep > 0. {
-                sweep -= std::f32::consts::TAU;
-            }
-            let middle_angle = start_angle + sweep * 0.5;
-            let through = Point::new(
-                center.x + edit.fillet_radius * middle_angle.cos(),
-                center.y + edit.fillet_radius * middle_angle.sin(),
-            );
-            geometry::arc_segment_through(p1, p2, through)
-        };
-        if arcs.is_empty() {
-            *arcs = vec![None; points.len() - 1];
-        }
-        points.splice(node..=node, [p1, p2]);
-        let start = node - 1;
-        arcs.splice(start..=node, [None, fillet_arc, None]);
-        if let Err(error) = self.editor.project.validate() {
-            self.editor.project = before;
-            if let Some(edit) = self.polyline_edit.as_mut() {
-                edit.error = error;
-            }
-            return;
-        }
-        self.editor.commit(before);
-        self.editor.status = if operation == PolylineEditCommand::Chamfer {
-            "Polyline corner chamfered"
-        } else {
-            "Polyline corner filleted"
-        }
-        .into();
-        self.polyline_edit = None;
-    }
     pub(super) fn base_target(&self, p: Point, shift: bool) -> (Point, SnapKind) {
         // The chain's first node is not part of the committed model yet, so
         // the ordinary model snap cannot find it. Make it a magnetic target
@@ -804,12 +480,30 @@ impl AtelierApp {
             WallGeometryMethod::Single => self
                 .editor
                 .anchor
-                .map(|start| vec![(start, cursor)])
+                .map(|start| {
+                    let mut segments: Vec<_> = self
+                        .editor
+                        .wall_points
+                        .windows(2)
+                        .map(|pair| (pair[0], pair[1]))
+                        .collect();
+                    segments.push((start, cursor));
+                    segments
+                })
                 .unwrap_or_default(),
             WallGeometryMethod::Rectangular => self
                 .editor
                 .anchor
-                .map(|start| rectangle_wall_segments(start, cursor))
+                .map(|start| {
+                    let mut segments: Vec<_> = self
+                        .editor
+                        .wall_points
+                        .windows(2)
+                        .map(|pair| (pair[0], pair[1]))
+                        .collect();
+                    segments.extend(rectangle_wall_segments(start, cursor));
+                    segments
+                })
                 .unwrap_or_default(),
             WallGeometryMethod::Continuous | WallGeometryMethod::Polygonal => {
                 let points = &self.editor.wall_points;
@@ -851,6 +545,8 @@ impl AtelierApp {
             layer: self.editor.wall_layer,
             renovation: self.editor.wall_renovation,
             design_option: None,
+            wall_contour: None,
+            slab_contour: None,
             wall_settings: Some(self.editor.wall_settings.clone()),
             shape,
         };
@@ -1017,6 +713,102 @@ impl AtelierApp {
             self.plan_center.y -= -view_x * sin + view_y * cos;
             ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
         }
+        // Establish the editing session before Option is routed to parameter transfer.
+        // A selected wall reference drag edits its node and commits on release.
+        if self.wall_insert.is_none()
+            && !self.trim_modifier_active(ui.ctx())
+            && self.reshape_session.is_none()
+            && self.pointer_drag.is_none()
+            && self.editor.tool == Tool::Select
+            && !pan
+            && !trace_pointer
+            && !over_wall_edit_palette
+            && response.drag_started_by(PointerButton::Primary)
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin())
+        {
+            let origin = self.world(r, pos);
+            let baseline = self.selected_wall_baseline_hit(origin, 10. / self.plan_scale);
+            if let Some((origin, ids)) =
+                self.selected_wall_junction_plan(origin, 10. / self.plan_scale)
+            {
+                self.start_wall_junction(origin, ids, pos, None, true);
+            } else if let Some((id, None)) = baseline {
+                self.open_wall_edit(id, None, pos);
+                self.set_wall_edit_hit(origin, None);
+                self.start_wall_insert();
+                if let Some(edit) = &mut self.wall_insert {
+                    edit.canvas_drag = true;
+                }
+            } else if let Some((id, node, edge)) =
+                self.selected_polyline_hit(origin, 9. / self.plan_scale)
+            {
+                self.start_polyline_pet(id, node, edge, pos, origin, true);
+            } else if baseline.is_none() {
+                let hit = self
+                    .selected_polyline_hit(origin, 9. / self.plan_scale)
+                    .map(|hit| hit.0)
+                    .or_else(|| {
+                        geometry::hit_plan(
+                            &self.editor.project,
+                            self.editor.story,
+                            origin,
+                            6. / self.plan_scale,
+                        )
+                    });
+                if let Some(id) = hit {
+                    if !self.editor.selection_ids().contains(&id) {
+                        self.editor.set_selection(vec![id]);
+                    }
+                    self.start_direct_pointer_drag(origin);
+                }
+            }
+        }
+        // Parameter transfer cursor: armed one-shot modes, or holding Option
+        // (+Cmd to inject) over the plan, show the eyedropper/syringe. It is
+        // primed with liquid while a transferable element is under the
+        // pointer, and that element is highlighted for the click to act on.
+        self.transfer_hover = None;
+        self.transfer_cursor = None;
+        let transfer_mode = if self.pick_armed {
+            Some(crate::transfer_cursor::TransferCursor::PickUp)
+        } else if self.inject_armed {
+            Some(crate::transfer_cursor::TransferCursor::Inject)
+        } else if hovered && ui.input(|i| i.modifiers.alt) {
+            Some(if ui.input(|i| i.modifiers.command) {
+                crate::transfer_cursor::TransferCursor::Inject
+            } else {
+                crate::transfer_cursor::TransferCursor::PickUp
+            })
+        } else {
+            None
+        };
+        let transfer_available = self.wall_insert.is_none()
+            && !self.trim_modifier_active(ui.ctx())
+            && self.reshape_session.is_none()
+            && self.pointer_drag.is_none()
+            && !pan
+            && !trace_pointer
+            && !ui.input(|i| i.key_down(Key::Space));
+        // While the transfer cursor is active it is the ONLY pointer feedback:
+        // the snap/hover markers stay hidden until the modifiers are released.
+        let transfer_cursor_active =
+            transfer_mode.is_some() && transfer_available && response.hovered();
+        if let Some(kind) = transfer_mode.filter(|_| transfer_cursor_active) {
+            if let Some(pos) = pointer {
+                let world = self.world(r, pos);
+                let hit = geometry::hit_plan(
+                    &self.editor.project,
+                    self.editor.story,
+                    world,
+                    6. / self.plan_scale,
+                );
+                let primed = self.transfer_hover_state(kind, hit);
+                // The glyph itself is painted after the elements; the system
+                // cursor is hidden so the painted tool is the only pointer.
+                self.transfer_cursor = Some((kind, primed, pos));
+                ui.ctx().set_cursor_icon(CursorIcon::None);
+            }
+        }
         let grid = &self.editor.project.grid_settings;
         if grid.grid_visible_at(self.plan_scale) {
             let local = [
@@ -1060,7 +852,12 @@ impl AtelierApp {
             .elements
             .iter()
             .filter(|e| {
-                e.story == self.editor.story && self.editor.project.plan_options.element_visible(e)
+                e.story == self.editor.story
+                    && self
+                        .editor
+                        .project
+                        .plan_options
+                        .element_visible(e, &self.editor.project.layers)
             })
             .collect();
         elements.sort_by_key(|e| matches!(e.shape, Shape::Wall { .. }));
@@ -1078,77 +875,65 @@ impl AtelierApp {
                 ref arcs,
             } = e.shape
             {
-                let preview_arc = self
-                    .polyline_edit
-                    .as_ref()
-                    .filter(|edit| {
-                        edit.element_id == e.id
-                            && edit.command == PolylineEditCommand::CurveEdge
-                            && edit.drag.is_some()
-                    })
-                    .and_then(|edit| {
-                        let index = Self::polyline_context_edge(edit, points)?;
-                        let current = self.world(r, pointer?);
-                        Some((
-                            index,
-                            geometry::arc_segment_through(
-                                points[index],
-                                points[index + 1],
-                                current,
-                            ),
-                        ))
-                    });
-                let mut live_arcs = arcs.clone();
-                if let Some((index, arc)) = preview_arc {
-                    live_arcs.resize(points.len() - 1, None);
-                    live_arcs[index] = arc;
-                }
-                let arcs = &live_arcs;
                 let tessellated = geometry::polyline_path(points, arcs);
                 let path: Vec<Pos2> = tessellated
                     .iter()
                     .map(|point| self.screen(r, *point))
                     .collect();
-                let color = if selected {
-                    Color32::from_rgb(0, 220, 70)
-                } else {
-                    Self::plan_color(style.line)
-                };
-                p.add(egui::Shape::line(
-                    path,
-                    Stroke::new(
-                        if selected {
-                            2.5
-                        } else {
-                            self.plan_pen_px(style.line_width_mm)
-                        },
-                        color,
-                    ),
-                ));
-                if let Some(edit) = self.polyline_edit.as_ref().filter(|edit| {
-                    selected
-                        && edit.element_id == e.id
-                        && edit.command == PolylineEditCommand::CurveEdge
-                        && edit.drag.is_some()
-                }) {
-                    let radius = edit
-                        .edge
-                        .and_then(|index| arcs.get(index).and_then(|arc| *arc))
-                        .map(|arc| arc.radius);
-                    if let (Some(radius), Some(pointer)) = (radius, pointer) {
-                        p.text(
-                            pointer + vec2(14., -18.),
-                            Align2::LEFT_BOTTOM,
-                            format!("R = {:.3} m", radius),
-                            FontId::monospace(11.),
-                            INK,
+                if selected {
+                    Self::paint_selected_wall_path(&p, path);
+                    for point in points.iter().skip(1).take(points.len().saturating_sub(2)) {
+                        p.rect_filled(
+                            Rect::from_center_size(
+                                self.screen(r, *point),
+                                Vec2::splat(WALL_REFERENCE_HANDLE_SIZE),
+                            ),
+                            0.,
+                            Color32::BLACK,
                         );
                     }
+                } else {
+                    p.add(egui::Shape::line(
+                        path,
+                        Stroke::new(
+                            self.plan_pen_px(style.line_width_mm),
+                            Self::plan_color(style.line),
+                        ),
+                    ));
                 }
+                continue;
+            }
+            if matches!(e.shape, Shape::Slab { .. }) && e.slab_contour.is_some() {
+                let fill = if selected {
+                    Color32::from_rgb(195, 225, 218)
+                } else {
+                    style.fill.map_or(Color32::TRANSPARENT, Self::plan_color)
+                };
+                let stroke = if selected {
+                    Stroke::new(2., ACCENT)
+                } else {
+                    Stroke::new(
+                        self.plan_pen_px(style.line_width_mm),
+                        Self::plan_color(style.line),
+                    )
+                };
+                Self::paint_slab_polygon(
+                    &p,
+                    e,
+                    |point| self.screen(r, point),
+                    self.trace_active_fill(fill),
+                    stroke,
+                );
                 if selected {
-                    for point in points {
-                        let node = self.screen(r, *point);
-                        p.circle_filled(node, 3.5, Color32::BLACK);
+                    for point in crate::slab_geometry::rings(e)
+                        .into_iter()
+                        .flat_map(|r| r.points)
+                    {
+                        p.rect_filled(
+                            Rect::from_center_size(self.screen(r, point), Vec2::splat(5.)),
+                            0.,
+                            Color32::BLACK,
+                        );
                     }
                 }
                 continue;
@@ -1186,28 +971,87 @@ impl AtelierApp {
                 }
             }
         }
-        let walls: Vec<_> = self
+        let all_walls: Vec<_> = self
             .editor
             .project
             .elements
             .iter()
-            .filter(|e| {
-                e.story == self.editor.story
-                    && matches!(e.shape, Shape::Wall { .. })
-                    && self.editor.project.plan_options.element_visible(e)
-            })
+            .filter(|e| e.story == self.editor.story && matches!(e.shape, Shape::Wall { .. }))
             .collect();
+        let walls: Vec<_> = all_walls
+            .iter()
+            .copied()
+            .filter(|wall| wall.wall_contour.is_none())
+            .collect();
+        for wall in all_walls
+            .iter()
+            .copied()
+            .filter(|wall| wall.wall_contour.is_some())
+        {
+            let Some(style) = self.plan_style(wall) else {
+                continue;
+            };
+            let selected = selected_ids.contains(&wall.id);
+            let fill = if selected {
+                WALL_SELECTION_FILL
+            } else {
+                self.trace_active_fill(
+                    style
+                        .fill
+                        .map_or(Self::plan_color(style.line), Self::plan_color),
+                )
+            };
+            for strip in crate::wall_geometry::strips(wall) {
+                p.add(egui::Shape::convex_polygon(
+                    strip
+                        .into_iter()
+                        .map(|point| self.screen(r, point))
+                        .collect(),
+                    fill,
+                    Stroke::new(0.5, fill),
+                ));
+            }
+            let stroke = if selected {
+                Stroke::new(1.5, WALL_SELECTION_OUTLINE)
+            } else {
+                Stroke::new(
+                    self.plan_pen_px(style.line_width_mm),
+                    Self::plan_color(style.line),
+                )
+            };
+            p.add(egui::Shape::closed_line(
+                crate::wall_geometry::outline(wall)
+                    .into_iter()
+                    .map(|point| self.screen(r, point))
+                    .collect(),
+                stroke,
+            ));
+            if selected {
+                for point in geometry::wall_edit_nodes(wall).into_iter().skip(2) {
+                    p.rect_filled(
+                        Rect::from_center_size(
+                            self.screen(r, point),
+                            Vec2::splat(WALL_REFERENCE_HANDLE_SIZE),
+                        ),
+                        0.,
+                        Color32::BLACK,
+                    );
+                }
+            }
+        }
         // Joins are physical wall geometry, not a property of the fill or pen
-        // group. Compute them across every visible wall on the story so a new
-        // wall can join an existing wall with another material or renovation
-        // status.
+        // group. Compute them across every wall on the story — including
+        // hidden-layer walls, which still trim visible walls per the AC29
+        // layer intersection rules — so a new wall can join an existing wall
+        // with another material, renovation status or visibility.
+        let layer_groups = self.editor.project.layers.wall_groups(&walls);
         let footprints_by_id: std::collections::HashMap<_, _> =
-            geometry::plan_wall_footprints_by_id(&walls)
+            geometry::plan_wall_polygons_by_id(&walls, &layer_groups)
                 .into_iter()
                 .collect();
         let story_footprints: Vec<_> = walls
             .iter()
-            .map(|wall| footprints_by_id[&wall.id])
+            .map(|wall| footprints_by_id[&wall.id].clone())
             .collect();
         for material in Material::ALL {
             for renovation in [
@@ -1228,26 +1072,24 @@ impl AtelierApp {
                 };
                 let footprints: Vec<_> = same_material
                     .iter()
-                    .map(|wall| footprints_by_id[&wall.id])
+                    .map(|wall| footprints_by_id[&wall.id].clone())
                     .collect();
                 for (wall, footprint) in same_material.iter().zip(&footprints) {
                     if !selected_ids.contains(&wall.id) {
-                        let pts: Vec<_> = footprint
-                            .iter()
-                            .map(|point| self.screen(r, *point))
-                            .collect();
                         let wall_fill = self.trace_active_fill(
                             style
                                 .fill
                                 .map_or(Self::plan_color(style.line), Self::plan_color),
                         );
-                        p.add(egui::Shape::convex_polygon(
-                            pts,
+                        Self::paint_wall_polygon(
+                            &p,
+                            footprint,
+                            |point| self.screen(r, point),
                             wall_fill,
                             // Slight same-colour bleed seals sub-pixel gaps where
                             // separately editable wall footprints meet.
                             Stroke::new(0.8, wall_fill),
-                        ));
+                        );
                     }
                 }
             }
@@ -1257,7 +1099,9 @@ impl AtelierApp {
         // must not split physical joins and stroke an internal wall end.
         let mut outline_segments: std::collections::BTreeMap<([u8; 3], u32), Vec<(Point, Point)>> =
             std::collections::BTreeMap::new();
-        for (wall_index, start, end) in geometry::wall_outline_segments_by_wall(&story_footprints) {
+        for (wall_index, start, end) in
+            geometry::wall_polygon_outline_segments_by_wall(&story_footprints)
+        {
             let Some(style) = self.plan_style(walls[wall_index]) else {
                 continue;
             };
@@ -1297,35 +1141,30 @@ impl AtelierApp {
         for wall in &selected_walls {
             let joined = footprints_by_id
                 .get(&wall.id)
-                .copied()
-                .unwrap_or_else(|| geometry::footprint(wall));
-            let pts: Vec<_> = joined.into_iter().map(|v| self.screen(r, v)).collect();
-            p.add(egui::Shape::convex_polygon(
-                pts,
+                .cloned()
+                .unwrap_or_else(|| geometry::footprint(wall).to_vec());
+            Self::paint_wall_polygon(
+                &p,
+                &joined,
+                |point| self.screen(r, point),
                 WALL_SELECTION_FILL,
                 Stroke::new(1.5, WALL_SELECTION_OUTLINE),
-            ));
+            );
         }
         // Paint every baseline after the fills so adjacently selected walls
         // cannot hide each other's reference lines at a junction.
-        for wall in selected_walls {
-            if let Some((start, end)) = geometry::wall_reference_line(wall) {
-                let a = self.screen(r, start);
-                let b = self.screen(r, end);
-                paint_selected_wall_baseline(&p, a, b);
-                let mid = a.lerp(b, 0.5);
-                p.text(
-                    mid + vec2(0., -14.),
-                    Align2::CENTER_CENTER,
-                    self.editor
-                        .project
-                        .plan_options
-                        .dimension_style
-                        .format_length(start.distance(end)),
-                    FontId::monospace(11.),
-                    WALL_SELECTION_OUTLINE,
-                );
-            }
+        for wall in all_walls
+            .iter()
+            .copied()
+            .filter(|wall| selected_ids.contains(&wall.id) && self.plan_style(wall).is_some())
+        {
+            Self::paint_selected_wall_path(
+                &p,
+                crate::wall_geometry::reference_path(wall)
+                    .into_iter()
+                    .map(|point| self.screen(r, point))
+                    .collect(),
+            );
         }
         // Hosted openings erase the wall band and draw their plan symbol.
         let background = self.editor.project.grid_settings.background;
@@ -1343,7 +1182,11 @@ impl AtelierApp {
             .filter(|element| {
                 element.story == self.editor.story
                     && matches!(element.shape, Shape::Opening { .. })
-                    && self.editor.project.plan_options.element_visible(element)
+                    && self
+                        .editor
+                        .project
+                        .plan_options
+                        .element_visible(element, &self.editor.project.layers)
             })
             .collect();
         for opening in openings {
@@ -1366,11 +1209,17 @@ impl AtelierApp {
                 color,
             );
             let points: Vec<Pos2> = outline.iter().map(|point| self.screen(r, *point)).collect();
-            p.add(egui::Shape::convex_polygon(
-                points.clone(),
-                hole_fill,
-                Stroke::NONE,
-            ));
+            let actual_outline = geometry::element_plan_outline(&self.editor.project, opening);
+            for triangle in geometry::triangulate_polygon(&actual_outline) {
+                p.add(egui::Shape::convex_polygon(
+                    triangle
+                        .into_iter()
+                        .map(|point| self.screen(r, point))
+                        .collect(),
+                    hole_fill,
+                    Stroke::new(0.5, hole_fill),
+                ));
+            }
             p.line_segment([points[0], points[3]], stroke);
             p.line_segment([points[1], points[2]], stroke);
             let Shape::Opening { kind, .. } = opening.shape else {
@@ -1421,22 +1270,83 @@ impl AtelierApp {
                     }
                 }
                 OpeningKind::Window => {
-                    let center_a = Pos2::new(
-                        (points[0].x + points[3].x) * 0.5,
-                        (points[0].y + points[3].y) * 0.5,
-                    );
-                    let center_b = Pos2::new(
-                        (points[1].x + points[2].x) * 0.5,
-                        (points[1].y + points[2].y) * 0.5,
-                    );
-                    p.line_segment([center_a, center_b], stroke);
+                    let Shape::Opening {
+                        host_wall,
+                        offset,
+                        width,
+                        ..
+                    } = opening.shape
+                    else {
+                        unreachable!()
+                    };
+                    if let Some(host) = self
+                        .editor
+                        .project
+                        .elements
+                        .iter()
+                        .find(|wall| wall.id == host_wall)
+                    {
+                        let strips = crate::wall_geometry::strips_between(
+                            host,
+                            offset - width * 0.5,
+                            offset + width * 0.5,
+                        );
+                        let mut centers = Vec::new();
+                        if let Some(first) = strips.first() {
+                            centers.push(Point::new(
+                                (first[0].x + first[3].x) * 0.5,
+                                (first[0].y + first[3].y) * 0.5,
+                            ));
+                        }
+                        centers.extend(strips.iter().map(|strip| {
+                            Point::new(
+                                (strip[1].x + strip[2].x) * 0.5,
+                                (strip[1].y + strip[2].y) * 0.5,
+                            )
+                        }));
+                        p.add(egui::Shape::line(
+                            centers
+                                .into_iter()
+                                .map(|point| self.screen(r, point))
+                                .collect(),
+                            stroke,
+                        ));
+                    }
                 }
             }
             if selected {
-                p.add(egui::Shape::closed_line(points, Stroke::new(2.2, ACCENT)));
+                p.add(egui::Shape::closed_line(
+                    actual_outline
+                        .into_iter()
+                        .map(|point| self.screen(r, point))
+                        .collect(),
+                    Stroke::new(2.2, ACCENT),
+                ));
             }
         }
         p.set_opacity(1.);
+        // AC29 pre-highlights the element the armed cursor will act on.
+        if let Some(id) = self.transfer_hover
+            && let Some(element) = self
+                .editor
+                .project
+                .elements
+                .iter()
+                .find(|element| element.id == id)
+        {
+            self.paint_transfer_hover(&p, r, element);
+        }
+        // The transfer tool glyph is the pointer while the mode is active.
+        if let Some((kind, primed, pos)) = self.transfer_cursor {
+            match kind {
+                crate::transfer_cursor::TransferCursor::PickUp => {
+                    crate::transfer_cursor::paint_pick_up(&p, pos, primed);
+                }
+                crate::transfer_cursor::TransferCursor::Inject => {
+                    crate::transfer_cursor::paint_inject(&p, pos, primed);
+                }
+            }
+        }
         if self.trace.on_top {
             let reference_painter = ui.painter_at(reference_clip);
             self.paint_trace_reference(&reference_painter, r, Some(reference_clip));
@@ -1479,7 +1389,11 @@ impl AtelierApp {
             .filter(|e| {
                 e.story == self.editor.story
                     && matches!(e.shape, Shape::Wall { .. })
-                    && self.editor.project.plan_options.element_visible(e)
+                    && self
+                        .editor
+                        .project
+                        .plan_options
+                        .element_visible(e, &self.editor.project.layers)
             })
             .flat_map(geometry::footprint)
             .collect();
@@ -1544,6 +1458,17 @@ impl AtelierApp {
                 .map(|v| self.screen(r, *v))
                 .collect();
             p.add(egui::Shape::closed_line(pts, Stroke::new(1.2, ACCENT)));
+        }
+        if self.wall_insert_canvas(ui, r, &response, false) {
+            return;
+        }
+        if self.reshape_canvas(ui, r, &response) {
+            return;
+        }
+        let pointer_drag_active = self.pointer_drag.is_some();
+        self.pointer_drag_canvas(ui, r, &response, false);
+        if pointer_drag_active {
+            return;
         }
         if !self.editor.polyline_points.is_empty() {
             let mut path: Vec<Pos2> = self
@@ -1628,7 +1553,7 @@ impl AtelierApp {
                 );
             }
         }
-        if self.polyline_edit.is_none() && self.guide_canvas(ui, r, &response) {
+        if self.guide_canvas(ui, r, &response) {
             return;
         }
         if let Some(pos) = pointer.filter(|v| r.contains(*v)) {
@@ -1789,13 +1714,13 @@ impl AtelierApp {
                         story: self.editor.story,
                         material: self.editor.material,
                         layer: match shape {
-                            Shape::Slab { .. } => Layer::Structural,
-                            Shape::Polyline { .. } => Layer::Drafting,
                             Shape::Wall { .. } => self.editor.wall_layer,
-                            _ => Layer::Architectural,
+                            _ => ElementLayer(ARCHICAD_LAYER),
                         },
                         renovation: self.editor.wall_renovation,
                         design_option: None,
+                        wall_contour: None,
+                        slab_contour: None,
                         wall_settings: if matches!(shape, Shape::Wall { .. }) {
                             Some(self.editor.wall_settings.clone())
                         } else {
@@ -1880,7 +1805,25 @@ impl AtelierApp {
                 && !over_wall_edit_palette
                 && !ui.input(|i| i.key_down(Key::Space))
             {
-                if self.orientation_pick_active {
+                // AC29 parameter transfer: hold Option to pick up, Option+Cmd
+                // to inject; the one-shot armed modes consume one click.
+                let alt_click = ui.input(|i| i.modifiers.alt);
+                if alt_click || self.pick_armed || self.inject_armed {
+                    let inject = if alt_click {
+                        ui.input(|i| i.modifiers.command)
+                    } else {
+                        self.inject_armed
+                    };
+                    let hit = geometry::hit_plan(
+                        &self.editor.project,
+                        self.editor.story,
+                        raw,
+                        6. / self.plan_scale,
+                    );
+                    self.pick_armed = false;
+                    self.inject_armed = false;
+                    self.execute_transfer(inject, hit);
+                } else if self.orientation_pick_active {
                     if let Some(start) = self.orientation_pick_start.take() {
                         let dx = q.x - start.x;
                         let dy = q.y - start.y;
@@ -1926,18 +1869,30 @@ impl AtelierApp {
                     }
                 } else if self.editor.tool == Tool::Select {
                     let wall_context = self.selected_wall_baseline_hit(raw, 9. / self.plan_scale);
-                    if let Some((id, node)) = wall_context {
+                    if let Some((origin, ids)) =
+                        self.selected_wall_junction_plan(raw, 9. / self.plan_scale)
+                    {
                         self.drag = None;
-                        self.polyline_edit = None;
+
+                        self.start_wall_junction(origin, ids, pos, None, false);
+                        ui.ctx().request_repaint();
+                    } else if let Some((id, node)) = wall_context {
+                        self.drag = None;
+
                         self.open_wall_edit(id, node, pos);
+                        self.set_wall_edit_hit(raw, None);
+                        if node.is_none() {
+                            self.start_wall_insert();
+                            ui.ctx().request_repaint();
+                        }
                     } else {
                         self.wall_edit = None;
                         let context = self.selected_polyline_hit(raw, 9. / self.plan_scale);
                         if let Some((id, node, edge)) = context {
                             self.drag = None;
-                            self.open_polyline_edit(id, node, edge, pos);
+                            self.start_polyline_pet(id, node, edge, pos, raw, false);
+                            ui.ctx().request_repaint();
                         } else if ui.input(|i| i.modifiers.shift) {
-                            self.polyline_edit = None;
                             let hit = geometry::hit_plan(
                                 &self.editor.project,
                                 self.editor.story,
@@ -1954,7 +1909,6 @@ impl AtelierApp {
                             }
                             self.editor.set_selection(ids);
                         } else {
-                            self.polyline_edit = None;
                             let hit = geometry::hit_plan(
                                 &self.editor.project,
                                 self.editor.story,
@@ -2078,7 +2032,7 @@ impl AtelierApp {
             let w = self.world(r, pos);
             if let Some((id, node)) = self.selected_wall_baseline_hit(w, 10. / self.plan_scale) {
                 self.drag = None;
-                self.polyline_edit = None;
+
                 self.open_wall_edit(id, node, pos);
                 if let Some(edit) = self.wall_edit.as_mut() {
                     edit.drag = Some((self.editor.project.clone(), w));
@@ -2149,212 +2103,120 @@ impl AtelierApp {
                     self.wall_edit = None;
                 }
             }
-        } else if self.editor.tool == Tool::Select && !pan && self.polyline_edit.is_some() {
-            if response.drag_started_by(PointerButton::Primary)
-                && let Some(pos) = ui.input(|i| i.pointer.press_origin())
-            {
-                let start = self.world(r, pos);
-                let before = self.editor.project.clone();
-                if let Some(edit) = self.polyline_edit.as_mut() {
-                    edit.drag = Some((before, start));
-                }
-            }
-            if response.dragged_by(PointerButton::Primary)
-                && let (Some(pos), Some(edit)) = (pointer, self.polyline_edit.clone())
-                && let Some((before, start)) = edit.drag.as_ref()
-            {
-                let current = self.world(r, pos);
-                self.apply_polyline_drag_preview(before, &edit, *start, current);
-                ui.ctx().request_repaint();
-            }
-            if response.drag_stopped()
-                && let Some(edit) = self.polyline_edit.as_mut()
-                && let Some((before, _)) = edit.drag.take()
-            {
-                if self.editor.project.validate().is_ok() && self.editor.project != before {
-                    if edit.command == PolylineEditCommand::Multiply {
-                        let new_ids: Vec<u64> = self
-                            .editor
-                            .project
-                            .elements
-                            .iter()
-                            .filter(|element| element.id >= before.next_id)
-                            .map(|element| element.id)
-                            .collect();
-                        self.editor.commit(before);
-                        self.editor.set_selection(new_ids.clone());
-                        self.editor.status = format!("Created {} Polyline copies", new_ids.len());
-                    } else {
-                        self.editor.commit(before);
-                        self.editor.status = match edit.command {
-                            PolylineEditCommand::InsertNode => "Polyline node inserted",
-                            PolylineEditCommand::MoveNode => "Polyline node moved",
-                            PolylineEditCommand::OffsetPolyline => "Polyline offset",
-                            PolylineEditCommand::CurveEdge => "Polyline edge curved",
-                            PolylineEditCommand::Move => "Polyline moved",
-                            PolylineEditCommand::Rotate => "Polyline rotated",
-                            PolylineEditCommand::Mirror => "Polyline mirrored",
-                            _ => "Polyline edited",
-                        }
-                        .into();
-                    }
-                    self.polyline_edit = None;
-                } else {
-                    self.editor.project = before;
-                    edit.error = "Edit produced no valid geometry change".into();
-                }
-            }
-        } else if self.editor.tool == Tool::Select && !pan {
-            if response.drag_started_by(PointerButton::Primary)
-                && let Some(pos) = ui.input(|i| i.pointer.press_origin())
-            {
-                let w = self.world(r, pos);
-                let id = self
-                    .selected_polyline_hit(w, 9. / self.plan_scale)
-                    .map(|hit| hit.0)
-                    .or_else(|| {
-                        geometry::hit_plan(
-                            &self.editor.project,
-                            self.editor.story,
-                            w,
-                            6. / self.plan_scale,
-                        )
-                    });
-                if let Some(id) = id {
-                    let mut ids = self.editor.selection_ids();
-                    if !ids.contains(&id) {
-                        ids = vec![id];
-                        self.editor.set_selection(ids.clone());
-                    }
-                    self.wall_edit = None;
-                    self.drag = Some((self.editor.project.clone(), w, ids));
-                }
-            }
-            if response.dragged_by(PointerButton::Primary)
-                && let (Some((before, start, ids)), Some(pos)) = (&self.drag, pointer)
-            {
-                let w = self.world(r, pos);
-                let mut delta = Point::new(w.x - start.x, w.y - start.y);
-                if self.editor.snap {
-                    delta.x = (delta.x * 10.).round() / 10.;
-                    delta.y = (delta.y * 10.).round() / 10.;
-                }
-                self.editor.project = before.clone();
-                self.editor.project.translate_many(ids, delta);
-                self.draft_id = None;
-            }
         }
-        if response.drag_stopped()
-            && let Some((before, _, _)) = self.drag.take()
-        {
-            self.editor.commit(before);
-            self.editor.status = "Element moved".into();
-        }
-        if hovered {
-            let feedback = if self.editor.tool == Tool::Polyline {
-                if ui.input(|i| i.pointer.button_down(PointerButton::Primary)) {
-                    CursorFeedback::SolidPencil
-                } else if self.editor.polyline_points.is_empty() {
-                    CursorFeedback::Drawing
-                } else {
-                    let (_, kind) = self.target(
-                        self.world(r, pointer.unwrap_or(r.center())),
-                        ui.input(|i| i.modifiers.shift),
-                    );
-                    if matches!(
-                        kind,
-                        SnapKind::Endpoint
-                            | SnapKind::Midpoint
-                            | SnapKind::Angle
-                            | SnapKind::Perpendicular
-                            | SnapKind::Alignment
-                    ) {
-                        CursorFeedback::HollowPencilWithLine
-                    } else {
-                        CursorFeedback::HollowPencil
-                    }
-                }
-            } else if pan {
-                CursorFeedback::Dragging
-            } else if self
-                .wall_edit
-                .as_ref()
-                .is_some_and(|edit| edit.drag.is_some())
-            {
-                CursorFeedback::Dragging
-            } else if self.editor.tool == Tool::Select
-                && self
-                    .selected_wall_baseline_hit(
-                        self.world(r, pointer.unwrap_or(r.center())),
-                        9. / self.plan_scale,
-                    )
-                    .is_some()
-            {
-                match self.selected_wall_baseline_hit(
-                    self.world(r, pointer.unwrap_or(r.center())),
-                    9. / self.plan_scale,
-                ) {
-                    Some((_, Some(_))) => CursorFeedback::ArrowWithCheck,
-                    _ => CursorFeedback::ArrowWithTripleRay,
-                }
-            } else if self
-                .polyline_edit
-                .as_ref()
-                .is_some_and(|edit| edit.command == PolylineEditCommand::MoveNode)
-            {
-                self.select_cursor_feedback(self.world(r, pointer.unwrap_or(r.center())))
-            } else if self.drag.as_ref().is_some_and(|(_, _, ids)| {
-                ids.iter().any(|id| {
-                    self.editor.project.elements.iter().any(|element| {
-                        element.id == *id && matches!(element.shape, Shape::Polyline { .. })
-                    })
-                })
-            }) {
-                CursorFeedback::Arrow
-            } else if self.drag.is_some()
+        if hovered && !transfer_cursor_active {
+            let drawing_tool = matches!(
+                self.editor.tool,
+                Tool::Wall | Tool::Slab | Tool::Stair | Tool::Polyline | Tool::Door | Tool::Window
+            );
+            let interaction_drag = pan
                 || self
-                    .polyline_edit
+                    .wall_edit
                     .as_ref()
                     .is_some_and(|edit| edit.drag.is_some())
-            {
-                CursorFeedback::Dragging
-            } else {
+                || self.drag.is_some();
+            if drawing_tool && !interaction_drag && self.rotated_grid_tool.is_none() {
+                // AC29 drawing cursor: a square crosshair riding the snap
+                // point — endpoint, midpoint or the raw pointer when free.
                 let pos = pointer.unwrap_or(r.center());
-                match self.editor.tool {
-                    Tool::Select => {
-                        let raw = self.world(r, pos);
-                        self.select_cursor_feedback(raw)
-                    }
-                    Tool::Marquee => CursorFeedback::Drawing,
-                    Tool::Wall
-                    | Tool::Slab
-                    | Tool::Stair
-                    | Tool::Polyline
-                    | Tool::Door
-                    | Tool::Window => {
-                        let (_, snap_kind) =
-                            self.target(self.world(r, pos), ui.input(|i| i.modifiers.shift));
+                let (target, _) = self.target(self.world(r, pos), ui.input(|i| i.modifiers.shift));
+                crate::transfer_cursor::paint_crosshair(&p, self.screen(r, target));
+                ui.ctx().set_cursor_icon(CursorIcon::None);
+            } else {
+                let feedback = if self.editor.tool == Tool::Polyline {
+                    if ui.input(|i| i.pointer.button_down(PointerButton::Primary)) {
+                        CursorFeedback::SolidPencil
+                    } else if self.editor.polyline_points.is_empty() {
+                        CursorFeedback::Drawing
+                    } else {
+                        let (_, kind) = self.target(
+                            self.world(r, pointer.unwrap_or(r.center())),
+                            ui.input(|i| i.modifiers.shift),
+                        );
                         if matches!(
-                            snap_kind,
+                            kind,
                             SnapKind::Endpoint
                                 | SnapKind::Midpoint
-                                | SnapKind::SnapPoint
-                                | SnapKind::Guide
+                                | SnapKind::Angle
+                                | SnapKind::Perpendicular
+                                | SnapKind::Alignment
                         ) {
-                            CursorFeedback::SnapTarget
+                            CursorFeedback::HollowPencilWithLine
                         } else {
-                            CursorFeedback::Drawing
+                            CursorFeedback::HollowPencil
                         }
                     }
-                }
-            };
-            ui.ctx()
-                .set_cursor_icon(if self.rotated_grid_tool.is_some() {
-                    CursorIcon::Crosshair
+                } else if pan {
+                    CursorFeedback::Dragging
+                } else if self
+                    .wall_edit
+                    .as_ref()
+                    .is_some_and(|edit| edit.drag.is_some())
+                {
+                    CursorFeedback::Dragging
+                } else if self.editor.tool == Tool::Select
+                    && self
+                        .selected_wall_baseline_hit(
+                            self.world(r, pointer.unwrap_or(r.center())),
+                            9. / self.plan_scale,
+                        )
+                        .is_some()
+                {
+                    match self.selected_wall_baseline_hit(
+                        self.world(r, pointer.unwrap_or(r.center())),
+                        9. / self.plan_scale,
+                    ) {
+                        Some((_, Some(_))) => CursorFeedback::ArrowWithCheck,
+                        _ => CursorFeedback::ArrowWithTripleRay,
+                    }
+                } else if self.drag.as_ref().is_some_and(|(_, _, ids)| {
+                    ids.iter().any(|id| {
+                        self.editor.project.elements.iter().any(|element| {
+                            element.id == *id && matches!(element.shape, Shape::Polyline { .. })
+                        })
+                    })
+                }) {
+                    CursorFeedback::Arrow
+                } else if self.drag.is_some() {
+                    CursorFeedback::Dragging
                 } else {
-                    feedback.icon()
-                });
-            feedback.paint(&p, pointer.unwrap_or(r.center()));
+                    let pos = pointer.unwrap_or(r.center());
+                    match self.editor.tool {
+                        Tool::Select => {
+                            let raw = self.world(r, pos);
+                            self.select_cursor_feedback(raw)
+                        }
+                        Tool::Marquee => CursorFeedback::Drawing,
+                        Tool::Wall
+                        | Tool::Slab
+                        | Tool::Stair
+                        | Tool::Polyline
+                        | Tool::Door
+                        | Tool::Window => {
+                            let (_, snap_kind) =
+                                self.target(self.world(r, pos), ui.input(|i| i.modifiers.shift));
+                            if matches!(
+                                snap_kind,
+                                SnapKind::Endpoint
+                                    | SnapKind::Midpoint
+                                    | SnapKind::SnapPoint
+                                    | SnapKind::Guide
+                            ) {
+                                CursorFeedback::SnapTarget
+                            } else {
+                                CursorFeedback::Drawing
+                            }
+                        }
+                    }
+                };
+                ui.ctx()
+                    .set_cursor_icon(if self.rotated_grid_tool.is_some() {
+                        CursorIcon::Crosshair
+                    } else {
+                        feedback.icon()
+                    });
+                feedback.paint(&p, pointer.unwrap_or(r.center()));
+            }
         }
         p.text(
             r.left_top() + vec2(18., 18.),
@@ -2392,24 +2254,7 @@ impl AtelierApp {
             FontId::proportional(12.),
             INK,
         );
-        if let Some(edit) = self.polyline_edit.as_ref() {
-            let active = edit
-                .node
-                .and_then(|_| {
-                    self.editor
-                        .project
-                        .elements
-                        .iter()
-                        .find(|element| element.id == edit.element_id)
-                })
-                .and_then(|element| match &element.shape {
-                    Shape::Polyline { points, .. } => points.get(edit.node?).copied(),
-                    _ => None,
-                });
-            if let Some(point) = active {
-                p.circle_filled(self.screen(r, point), 5., ACCENT);
-            }
-        }
+
         if let Some(edit) = self.wall_edit.as_ref() {
             let wall = self
                 .editor
@@ -2474,176 +2319,13 @@ impl AtelierApp {
         if trace_pointer {
             self.trace_cursor(ui);
         }
-        self.polyline_edit_palette(ui.ctx());
+        if self.wall_insert_canvas(ui, r, &response, false) {
+            return;
+        }
         self.wall_edit_palette(ui.ctx());
     }
-    pub(super) fn polyline_edit_palette(&mut self, ctx: &Context) {
-        let language = self.language;
-        let Some(edit) = self.polyline_edit.as_mut() else {
-            return;
-        };
-        if edit.drag.is_some() {
-            return;
-        }
-        let at = edit.palette_at;
-        let is_node = edit.node.is_some();
-        let mut apply_corner = false;
-        Area::new(Id::new("polyline_edit_palette"))
-            .order(Order::Foreground)
-            .fixed_pos(at)
-            .show(ctx, |ui| {
-                Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(190.);
-                    ui.strong(language.translate(if is_node {
-                        "Polyline node"
-                    } else {
-                        "Polyline edge"
-                    }));
-                    ui.separator();
-                    let commands: &[(PolylineEditCommand, &str)] = if is_node {
-                        &[
-                            (
-                                PolylineEditCommand::MoveNode,
-                                language.translate("Move node"),
-                            ),
-                            (PolylineEditCommand::Chamfer, language.translate("Chamfer…")),
-                            (PolylineEditCommand::Fillet, language.translate("Fillet…")),
-                            (
-                                PolylineEditCommand::CurveEdge,
-                                language.translate("Curve edge"),
-                            ),
-                            (
-                                PolylineEditCommand::OffsetPolyline,
-                                language.translate("Offset Polyline"),
-                            ),
-                            (PolylineEditCommand::Move, language.translate("Move")),
-                            (PolylineEditCommand::Rotate, language.translate("Rotate")),
-                            (PolylineEditCommand::Mirror, language.translate("Mirror")),
-                            (
-                                PolylineEditCommand::Multiply,
-                                language.translate("Multiply"),
-                            ),
-                        ]
-                    } else {
-                        &[
-                            (
-                                PolylineEditCommand::InsertNode,
-                                language.translate("Insert node"),
-                            ),
-                            (
-                                PolylineEditCommand::OffsetPolyline,
-                                language.translate("Offset Polyline"),
-                            ),
-                            (
-                                PolylineEditCommand::CurveEdge,
-                                language.translate("Curve edge"),
-                            ),
-                            (PolylineEditCommand::Move, language.translate("Move")),
-                            (PolylineEditCommand::Rotate, language.translate("Rotate")),
-                            (PolylineEditCommand::Mirror, language.translate("Mirror")),
-                            (
-                                PolylineEditCommand::Multiply,
-                                language.translate("Multiply"),
-                            ),
-                        ]
-                    };
-                    for (command, label) in commands {
-                        if ui
-                            .selectable_label(edit.command == *command, *label)
-                            .clicked()
-                        {
-                            edit.command = *command;
-                            edit.error.clear();
-                        }
-                    }
-                    if matches!(
-                        edit.command,
-                        PolylineEditCommand::Chamfer | PolylineEditCommand::Fillet
-                    ) {
-                        ui.separator();
-                        if edit.command == PolylineEditCommand::Chamfer {
-                            ui.label(language.translate("Cut length (m)"));
-                            ui.add(
-                                DragValue::new(&mut edit.chamfer_length)
-                                    .speed(0.01)
-                                    .range(0.001..=1000.),
-                            );
-                        } else {
-                            ui.label(language.translate("Radius (m)"));
-                            ui.add(
-                                DragValue::new(&mut edit.fillet_radius)
-                                    .speed(0.01)
-                                    .range(0.001..=1000.),
-                            );
-                        }
-                        if ui.button(language.translate("Apply corner edit")).clicked() {
-                            apply_corner = true;
-                        }
-                    } else if edit.command == PolylineEditCommand::Multiply {
-                        ui.separator();
-                        ui.label(language.translate("Number of copies"));
-                        ui.add(DragValue::new(&mut edit.multiply_count).range(1..=50));
-                        ui.label(language.translate("Drag to place repeated copies"));
-                    } else {
-                        ui.separator();
-                        ui.label(match edit.command {
-                            PolylineEditCommand::InsertNode => {
-                                "Drag on the selected edge to place a node"
-                            }
-                            PolylineEditCommand::MoveNode => {
-                                language.translate("Drag the selected node to edit it")
-                            }
-                            PolylineEditCommand::OffsetPolyline => language
-                                .translate("Drag inward or outward to offset the whole Polyline"),
-                            PolylineEditCommand::CurveEdge => {
-                                language.translate("Drag the segment to define a circular arc")
-                            }
-                            PolylineEditCommand::Move => {
-                                language.translate("Drag to move the Polyline")
-                            }
-                            PolylineEditCommand::Rotate => {
-                                language.translate("Drag around the pivot to rotate")
-                            }
-                            PolylineEditCommand::Mirror => {
-                                language.translate("Drag to define the mirror axis")
-                            }
-                            PolylineEditCommand::Multiply => {
-                                language.translate("Drag to place repeated copies")
-                            }
-                            _ => language.translate("Choose a corner command"),
-                        });
-                    }
-                    if !edit.error.is_empty() {
-                        ui.colored_label(Color32::from_rgb(240, 125, 110), &edit.error);
-                    }
-                });
-            });
-        if apply_corner {
-            self.apply_polyline_corner_edit();
-        }
-    }
-    pub(super) fn apply_polyline_edit_cursor(&self, ctx: &Context) {
-        if self
-            .polyline_edit
-            .as_ref()
-            .is_some_and(|edit| edit.command == PolylineEditCommand::MoveNode)
-        {
-            let cursor = ctx.input(|input| {
-                if input.pointer.button_down(PointerButton::Middle)
-                    || input.pointer.button_down(PointerButton::Secondary)
-                    || (input.pointer.button_down(PointerButton::Primary)
-                        && input.key_down(Key::Space))
-                {
-                    CursorIcon::Grabbing
-                } else {
-                    CursorIcon::Default
-                }
-            });
-            ctx.set_cursor_icon(cursor);
-        }
-    }
+
     pub(super) fn wall_edit_palette(&mut self, ctx: &Context) {
-        let language = self.language;
         let Some(edit) = self.wall_edit.as_ref() else {
             self.wall_edit_palette_rect = None;
             return;
@@ -2652,66 +2334,23 @@ impl AtelierApp {
             self.wall_edit_palette_rect = None;
             return;
         }
-        let at = edit.palette_at;
-        let node = edit.node;
-        let length = self
-            .editor
-            .project
-            .elements
-            .iter()
-            .find(|element| element.id == edit.element_id)
-            .and_then(geometry::wall_reference_line)
-            .map(|(start, end)| start.distance(end));
-        let length = length.map(|length| {
-            format!(
-                "{}: {}",
-                language.translate("Length"),
-                self.editor
-                    .project
-                    .plan_options
-                    .dimension_style
-                    .format_length(length)
-            )
-        });
-        let error = edit.error.clone();
-        let mut close = false;
-        let response = Area::new(Id::new("wall_edit_palette"))
-            .order(Order::Foreground)
-            .fixed_pos(at)
-            .show(ctx, |ui| {
-                Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_min_width(215.);
-                    ui.strong(language.translate("Wall reference line"));
-                    ui.separator();
-                    ui.label(language.translate(match node {
-                        Some(0) => "Start endpoint",
-                        Some(1) => "End endpoint",
-                        _ => "Reference line",
-                    }));
-                    if let Some(length) = &length {
-                        ui.label(length);
-                    }
-                    ui.label(language.translate(if node.is_some() {
-                        "Drag the handle to reshape the wall"
-                    } else {
-                        "Drag the line to move the wall"
-                    }));
-                    if node.is_some() {
-                        ui.label(language.translate("Drag onto another reference line to join"));
-                    }
-                    if !error.is_empty() {
-                        ui.colored_label(Color32::from_rgb(240, 125, 110), &error);
-                    }
-                    if ui.button(language.translate("Done")).clicked() {
-                        close = true;
-                    }
-                });
-            });
-        self.wall_edit_palette_rect = Some(response.response.rect);
-        if close {
-            self.wall_edit = None;
-            self.wall_edit_palette_rect = None;
-            self.editor.status = "Select an element or start drawing".into();
+        if !edit.error.is_empty() {
+            self.editor.status = edit.error.clone();
+        }
+        let endpoint = edit.node.is_some();
+        let (rect, chosen, _) = self.wall_pet_buttons(
+            ctx,
+            edit.palette_at,
+            endpoint.then_some(WallPetCommand::InsertNode),
+            endpoint,
+        );
+        self.wall_edit_palette_rect = Some(rect);
+        if let Some(command) = chosen {
+            // The first slot is Move node in endpoint context, retaining the
+            // existing endpoint drag/snap path rather than inserting at t=0/1.
+            if !(endpoint && command == WallPetCommand::InsertNode) {
+                self.start_wall_pet(command);
+            }
         }
     }
     pub(super) fn tracker(&mut self, ui: &mut Ui) {

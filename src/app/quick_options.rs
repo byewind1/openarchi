@@ -49,18 +49,29 @@ impl AtelierApp {
         true
     }
 
-    pub(super) fn set_layer_combination(&mut self, combination: LayerCombination) {
-        let status = self.option_status("Layer Combination", combination.name());
-        self.modify_plan_options(
-            |options| {
-                options.layer_combination = combination;
-                options.show_all_layers = false;
-            },
-            status,
-        );
+    /// Applies a layer combination from the project layer document as one
+    /// reversible change (AC29: selecting a combination overwrites every
+    /// layer status).
+    pub(super) fn apply_layer_combination(&mut self, id: crate::layers::CombinationId) {
+        let name = self
+            .editor
+            .project
+            .layers
+            .combinations
+            .iter()
+            .find(|combination| combination.id == id)
+            .map(|combination| combination.name.clone())
+            .unwrap_or_default();
+        let status = self.option_status("Layer Combination", &name);
+        let mut layers = self.editor.project.layers.clone();
+        if !layers.apply_combination(id) {
+            return;
+        }
+        self.editor.set_layer_document(layers, &[]);
+        self.editor.status = status;
     }
 
-    pub(super) fn set_show_all_layers(&mut self, show: bool) {
+    pub(super) fn apply_show_all_layers(&mut self, show: bool) {
         let status = self.option_status(
             "Show All Layers",
             if show {
@@ -69,7 +80,15 @@ impl AtelierApp {
                 self.language.translate("Off")
             },
         );
-        self.modify_plan_options(|options| options.show_all_layers = show, status);
+        let mut layers = self.editor.project.layers.clone();
+        if show {
+            layers.set_all_visible(true);
+        } else {
+            let id = layers.active_combination.unwrap_or_default();
+            layers.apply_combination(id);
+        }
+        self.editor.set_layer_document(layers, &[]);
+        self.editor.status = status;
     }
 
     pub(super) fn set_pen_set(&mut self, pen_set: PenSet) {
@@ -181,7 +200,6 @@ impl AtelierApp {
 
     pub(super) fn plan_option_title(language: UiLanguage, kind: PlanOptionKind) -> &'static str {
         language.translate(match kind {
-            PlanOptionKind::Layers => "Layers",
             PlanOptionKind::PenSets => "Pen Sets",
             PlanOptionKind::PartialStructure => "Partial Structure Display",
             PlanOptionKind::ModelView => "Model View Options",
@@ -356,31 +374,64 @@ impl AtelierApp {
         }
     }
 
+    /// Quick Options label: "All Layers" when everything is visible, otherwise
+    /// the effective combination name (AC29 shows the applied combination).
+    pub(super) fn layer_combination_label(&self) -> String {
+        let layers = &self.editor.project.layers;
+        if layers.layers.iter().all(|layer| layer.status.visible) {
+            return self.language.translate("All Layers").to_owned();
+        }
+        match layers.effective_combination() {
+            Some(id) => layers
+                .combinations
+                .iter()
+                .find(|combination| combination.id == id)
+                .map(|combination| self.language.translate(&combination.name).to_owned())
+                .unwrap_or_else(|| self.language.translate("Custom").to_owned()),
+            None => self.language.translate("Custom").to_owned(),
+        }
+    }
+
     pub(super) fn layers_menu_contents(&mut self, ui: &mut Ui) {
         let language = self.language;
         if ui
-            .button(language.translate("Layers (Model Views)…"))
+            .button(format!(
+                "{} ⌘L",
+                language.translate("Layers (Model Views)…")
+            ))
             .clicked()
         {
-            self.open_plan_option_dialog(PlanOptionKind::Layers);
+            self.open_layer_settings();
             ui.close();
         }
-        let mut show_all = self.editor.project.plan_options.show_all_layers;
+        let mut all_visible = self
+            .editor
+            .project
+            .layers
+            .layers
+            .iter()
+            .all(|layer| layer.status.visible);
         if ui
-            .checkbox(&mut show_all, language.translate("Show All Layers"))
+            .checkbox(&mut all_visible, language.translate("Show All Layers"))
             .changed()
         {
-            self.set_show_all_layers(show_all);
+            self.apply_show_all_layers(all_visible);
+            ui.close();
         }
-        ui.add_enabled(false, Button::new(language.translate("Layer Extras")));
         ui.separator();
-        let current = self.editor.project.plan_options.layer_combination;
-        if let Some(combination) =
-            Self::option_menu_list(ui, current, &LayerCombination::ALL, |value| {
-                language.translate(value.name())
-            })
-        {
-            self.set_layer_combination(combination);
+        let current = self.editor.project.layers.active_combination;
+        for combination in self.editor.project.layers.combinations.clone() {
+            let selected = current == Some(combination.id);
+            if ui
+                .selectable_label(
+                    selected,
+                    self.language.translate(&combination.name).to_owned(),
+                )
+                .clicked()
+            {
+                self.apply_layer_combination(combination.id);
+                ui.close();
+            }
         }
     }
 
@@ -625,13 +676,7 @@ impl AtelierApp {
                             );
                             Popup::menu(&response).show(|ui| self.scale_menu_contents(ui));
                             ui.separator();
-                            let layer_label = if self.editor.project.plan_options.show_all_layers {
-                                language.translate("All Layers").to_owned()
-                            } else {
-                                let name =
-                                    self.editor.project.plan_options.layer_combination.name();
-                                language.translate(name).to_owned()
-                            };
+                            let layer_label = self.layer_combination_label();
                             let response = Self::quick_option_button(
                                 ui,
                                 "Layer Combination",
@@ -801,12 +846,7 @@ impl AtelierApp {
                 Self::palette_row(ui, language.translate("Scale"), scale, |ui| {
                     self.scale_menu_contents(ui)
                 });
-                let layer = if self.editor.project.plan_options.show_all_layers {
-                    language.translate("All Layers").to_owned()
-                } else {
-                    let name = self.editor.project.plan_options.layer_combination.name();
-                    language.translate(name).to_owned()
-                };
+                let layer = self.layer_combination_label();
                 Self::palette_row(ui, language.translate("Layer Combination"), layer, |ui| {
                     self.layers_menu_contents(ui)
                 });

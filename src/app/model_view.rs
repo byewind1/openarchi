@@ -3,8 +3,36 @@ use super::*;
 impl AtelierApp {
     pub(super) fn model_view(&mut self, ui: &mut Ui) {
         let r = ui.available_rect_before_wrap();
+        // Per-frame transfer cursor feedback; re-set below when active. The
+        // bitmap cursor is sticky in egui output, so clear it every frame.
+        self.transfer_hover = None;
+        self.transfer_cursor = None;
         let response = ui.allocate_rect(r, Sense::click_and_drag());
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Other, true, "3D model canvas"));
+        let pointer_drag_active = self.pointer_drag.is_some();
+        if self.wall_insert.is_none()
+            && !pointer_drag_active
+            && self.editor.tool == Tool::Select
+            && !self.trim_modifier_active(ui.ctx())
+            && response.drag_started_by(PointerButton::Primary)
+            && let Some(pos) = ui.input(|i| i.pointer.press_origin())
+        {
+            if let Some((origin, ids, z)) = self.selected_wall_junction_model(r, pos) {
+                self.start_wall_junction(origin, ids, pos, Some(z), true);
+            } else if let Some((id, None, point, z)) = self.selected_wall_model_edge(r, pos) {
+                self.open_wall_edit(id, None, pos);
+                self.set_wall_edit_hit(point, Some(z));
+                self.start_wall_insert();
+                if let Some(edit) = &mut self.wall_insert {
+                    edit.canvas_drag = true;
+                }
+            }
+        }
+        let wall_insert_active = self.wall_insert.is_some();
+        let over_wall_palette = ui.input(|i| i.pointer.hover_pos()).is_some_and(|pos| {
+            self.wall_edit_palette_rect
+                .is_some_and(|rect| rect.contains(pos))
+        });
         let placing_3d_marquee = self.editor.tool == Tool::Marquee;
         let base_z = self.editor.project.elevation(self.editor.story);
         let hovered_model_hit = response.interact_pointer_pos().and_then(|pos| {
@@ -24,14 +52,14 @@ impl AtelierApp {
         });
         if placing_3d_marquee
             && self.marquee_geometry == MarqueeGeometry::Rectangle
-            && response.drag_started_by(PointerButton::Primary)
+            && (!pointer_drag_active && response.drag_started_by(PointerButton::Primary))
             && let Some(pos) = ui.input(|i| i.pointer.press_origin())
         {
             self.marquee_3d_preview = Some((pos, pos));
         }
         if placing_3d_marquee
             && self.marquee_geometry == MarqueeGeometry::Rectangle
-            && response.dragged_by(PointerButton::Primary)
+            && (!pointer_drag_active && response.dragged_by(PointerButton::Primary))
             && let (Some((start, _)), Some(pos)) =
                 (self.marquee_3d_preview, response.interact_pointer_pos())
         {
@@ -39,7 +67,7 @@ impl AtelierApp {
         }
         if placing_3d_marquee
             && self.marquee_geometry == MarqueeGeometry::Rectangle
-            && response.drag_stopped()
+            && (!pointer_drag_active && response.drag_stopped())
             && let Some((a, b)) = self.marquee_3d_preview.take()
             && a.distance(b) > 5.
         {
@@ -65,7 +93,7 @@ impl AtelierApp {
         }
         if placing_3d_marquee
             && self.marquee_geometry != MarqueeGeometry::Rectangle
-            && response.clicked_by(PointerButton::Primary)
+            && (!pointer_drag_active && response.clicked_by(PointerButton::Primary))
             && let Some(pos) = response.interact_pointer_pos()
         {
             if let Some(point) = Self::screen_to_ground(&self.camera, r, pos, base_z) {
@@ -95,7 +123,7 @@ impl AtelierApp {
         }
         if placing_3d_marquee
             && self.marquee_geometry == MarqueeGeometry::Polygon
-            && response.clicked_by(PointerButton::Secondary)
+            && (!pointer_drag_active && response.clicked_by(PointerButton::Secondary))
         {
             if self.marquee_points.len() >= 3 {
                 self.place_3d_marquee(self.marquee_points.clone(), base_z);
@@ -111,16 +139,24 @@ impl AtelierApp {
                 && i.pointer.delta().length_sq() > 0.
                 && i.pointer.hover_pos().is_some_and(|pos| r.contains(pos))
         });
-        let shift_middle_orbit = middle_dragging && ui.input(|i| i.modifiers.shift);
-        if (response.dragged_by(PointerButton::Primary)
+        let shift_middle_orbit = ui.input(|i| {
+            i.modifiers.shift
+                && i.pointer.button_down(PointerButton::Middle)
+                && i.pointer.press_origin().is_some_and(|pos| r.contains(pos))
+                && i.pointer.hover_pos().is_some_and(|pos| r.contains(pos))
+        });
+        let orbiting = (!wall_insert_active
+            && !over_wall_palette
+            && !pointer_drag_active
+            && response.dragged_by(PointerButton::Primary)
             && !placing_3d_marquee
             && self.editor.tool != Tool::Marquee)
-            || shift_middle_orbit
-        {
+            || shift_middle_orbit;
+        if orbiting {
             let d = ui.input(|i| i.pointer.delta());
             self.camera.yaw -= d.x * 0.009;
-            self.camera.pitch = (self.camera.pitch + d.y * 0.007).clamp(0.08, 1.53);
-            ui.ctx().set_cursor_icon(CursorIcon::Grabbing);
+            // Cross the horizon without rolling; stay clear of the Z-up poles.
+            self.camera.pitch = (self.camera.pitch + d.y * 0.007).clamp(-1.53, 1.53);
         }
         let model_pan = response.dragged_by(PointerButton::Secondary)
             || (middle_dragging && !ui.input(|i| i.modifiers.shift));
@@ -140,7 +176,42 @@ impl AtelierApp {
             let scroll = ui.input(|i| i.smooth_scroll_delta.y);
             self.camera.span = (self.camera.span * (-scroll * 0.002).exp()).clamp(2., 150.);
         }
-        if response.clicked()
+        // Parameter transfer cursor in 3D: armed one-shot modes, or holding
+        // Option (+Cmd to inject) over the canvas, show the eyedropper or
+        // syringe primed over the element the click would act on. The glyph
+        // is painted after the model render; the OS cursor is hidden.
+        let transfer_mode = if self.pick_armed {
+            Some(crate::transfer_cursor::TransferCursor::PickUp)
+        } else if self.inject_armed {
+            Some(crate::transfer_cursor::TransferCursor::Inject)
+        } else if response.hovered() && ui.input(|i| i.modifiers.alt) {
+            Some(if ui.input(|i| i.modifiers.command) {
+                crate::transfer_cursor::TransferCursor::Inject
+            } else {
+                crate::transfer_cursor::TransferCursor::PickUp
+            })
+        } else {
+            None
+        };
+        let transfer_cursor_active = !wall_insert_active
+            && !over_wall_palette
+            && !orbiting
+            && !pointer_drag_active
+            && transfer_mode.is_some()
+            && !model_pan
+            && !middle_dragging
+            && response.hovered();
+        if let Some(kind) = transfer_mode.filter(|_| transfer_cursor_active) {
+            let primed = self.transfer_hover_state(kind, hovered_model_hit);
+            if let Some(pos) = ui
+                .input(|i| i.pointer.hover_pos())
+                .filter(|pos| r.contains(*pos))
+            {
+                self.transfer_cursor = Some((kind, primed, pos));
+            }
+            ui.ctx().set_cursor_icon(CursorIcon::None);
+        }
+        if (!wall_insert_active && !over_wall_palette && !pointer_drag_active && response.clicked())
             && self.editor.tool != Tool::Marquee
             && let Some(pos) = response.interact_pointer_pos()
         {
@@ -157,8 +228,34 @@ impl AtelierApp {
                     Some(self.editor.story)
                 },
             );
-            self.editor.set_selection(hit.into_iter().collect());
-            self.draft_id = None;
+            // Parameter transfer works in any view: Option picks up,
+            // Option+Cmd injects, armed one-shot modes consume the click.
+            let alt_click = ui.input(|i| i.modifiers.alt);
+            if alt_click || self.pick_armed || self.inject_armed {
+                let inject = if alt_click {
+                    ui.input(|i| i.modifiers.command)
+                } else {
+                    self.inject_armed
+                };
+                self.pick_armed = false;
+                self.inject_armed = false;
+                self.execute_transfer(inject, hit);
+            } else if self.editor.tool == Tool::Select
+                && let Some((origin, ids, z)) = self.selected_wall_junction_model(r, pos)
+            {
+                self.start_wall_junction(origin, ids, pos, Some(z), false);
+            } else if self.editor.tool == Tool::Select
+                && let Some((id, None, point, z)) = self.selected_wall_model_edge(r, pos)
+            {
+                self.open_wall_edit(id, None, pos);
+                self.set_wall_edit_hit(point, Some(z));
+                self.start_wall_insert();
+            } else {
+                self.wall_edit = None;
+                self.wall_edit_palette_rect = None;
+                self.editor.set_selection(hit.into_iter().collect());
+                self.draft_id = None;
+            }
         }
         if let Some(renderer) = &mut self.renderer {
             let scale = ui.ctx().pixels_per_point();
@@ -168,6 +265,7 @@ impl AtelierApp {
             renderer.render(
                 &self.editor.project,
                 &selected,
+                self.transfer_hover,
                 &self.camera,
                 [(r.width() * scale) as u32, (r.height() * scale) as u32],
                 if self.all_stories {
@@ -193,6 +291,35 @@ impl AtelierApp {
             ui.painter().rect_filled(r, 0., LINE);
         }
         let p = ui.painter_at(r);
+        for wall in self.editor.project.elements.iter().filter(|e| {
+            self.editor.selection_ids().contains(&e.id)
+                && (self.all_stories || e.story == self.editor.story)
+                && self
+                    .editor
+                    .project
+                    .plan_options
+                    .element_visible(e, &self.editor.project.layers)
+        }) {
+            if matches!(wall.shape, Shape::Wall { .. }) {
+                let top = geometry::corners(&self.editor.project, wall)[4].z;
+                let points = crate::wall_geometry::reference_path(wall)
+                    .into_iter()
+                    .filter_map(|point| self.wall_project_point(r, point, top))
+                    .collect();
+                Self::paint_selected_wall_path(&p, points);
+            }
+        }
+        // The transfer tool glyph is the pointer while the mode is active.
+        if let Some((kind, primed, pos)) = self.transfer_cursor {
+            match kind {
+                crate::transfer_cursor::TransferCursor::PickUp => {
+                    crate::transfer_cursor::paint_pick_up(&p, pos, primed);
+                }
+                crate::transfer_cursor::TransferCursor::Inject => {
+                    crate::transfer_cursor::paint_inject(&p, pos, primed);
+                }
+            }
+        }
         if let Some((a, b)) = self.marquee_3d_preview {
             let rect = Rect::from_two_pos(a, b);
             p.rect_filled(rect, 0., Color32::from_rgba_unmultiplied(49, 136, 177, 25));
@@ -304,10 +431,16 @@ impl AtelierApp {
                 color,
             );
         }
-        if response.hovered() {
+        if self.wall_insert_canvas(ui, r, &response, true) {
+            return;
+        }
+        self.wall_edit_palette(ui.ctx());
+        self.pointer_drag_canvas(ui, r, &response, true);
+        if !pointer_drag_active && response.hovered() && self.transfer_cursor.is_none() {
             let feedback = if shift_middle_orbit
                 || model_pan
-                || (response.dragged_by(PointerButton::Primary) && !placing_3d_marquee)
+                || ((!pointer_drag_active && response.dragged_by(PointerButton::Primary))
+                    && !placing_3d_marquee)
             {
                 CursorFeedback::Dragging
             } else if placing_3d_marquee {
@@ -318,6 +451,15 @@ impl AtelierApp {
                 CursorFeedback::Empty
             };
             ui.ctx().set_cursor_icon(feedback.icon());
+        }
+        // Paint last so the navigation cursor wins over generic hover/drag feedback.
+        if orbiting
+            && let Some(pos) = ui
+                .input(|i| i.pointer.hover_pos())
+                .filter(|p| r.contains(*p))
+        {
+            ui.ctx().set_cursor_icon(CursorIcon::None);
+            crate::transfer_cursor::paint_orbit(&p, pos);
         }
     }
 }

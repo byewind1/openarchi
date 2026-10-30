@@ -718,7 +718,7 @@ impl AtelierApp {
         let mut max = Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY);
         for story in selection.story_ids(&self.editor.project) {
             for element in elements.iter().filter(|element| element.story == story) {
-                for point in geometry::footprint(element) {
+                for point in geometry::element_plan_outline(&self.editor.project, element) {
                     min.x = min.x.min(point.x);
                     min.y = min.y.min(point.y);
                     max.x = max.x.max(point.x);
@@ -790,20 +790,19 @@ impl AtelierApp {
                         }
                     }
                     Shape::Slab { .. } | Shape::Stair { .. } => {
-                        let points: Vec<Pos2> = geometry::footprint(element)
-                            .into_iter()
-                            .map(screen)
-                            .collect();
                         let fill = if self.trace.transparent_fills {
                             Color32::TRANSPARENT
                         } else {
                             reference_color(element, fill_alpha)
                         };
-                        painter.add(egui::Shape::convex_polygon(
-                            points,
-                            fill,
-                            Stroke::new(1.05, reference_color(element, stroke_alpha)),
-                        ));
+                        let stroke = Stroke::new(1.05, reference_color(element, stroke_alpha));
+                        if matches!(element.shape, Shape::Slab { .. }) {
+                            Self::paint_slab_polygon(&painter, element, screen, fill, stroke);
+                        } else {
+                            let outline =
+                                geometry::element_plan_outline(&self.editor.project, element);
+                            Self::paint_wall_polygon(&painter, &outline, screen, fill, stroke);
+                        }
                         if let Shape::Stair { ref spec } = element.shape
                             && let Ok(stair) = crate::stairs::generate(spec, 0.0)
                         {
@@ -821,15 +820,40 @@ impl AtelierApp {
                     Shape::Wall { .. } | Shape::Opening { .. } => {}
                 }
             }
+            for wall in story_elements
+                .iter()
+                .copied()
+                .filter(|e| matches!(e.shape, Shape::Wall { .. }) && e.wall_contour.is_some())
+            {
+                if !self.trace.transparent_fills {
+                    for strip in crate::wall_geometry::strips(wall) {
+                        painter.add(egui::Shape::convex_polygon(
+                            strip.into_iter().map(screen).collect(),
+                            reference_color(wall, fill_alpha),
+                            Stroke::NONE,
+                        ));
+                    }
+                }
+                painter.add(egui::Shape::closed_line(
+                    crate::wall_geometry::outline(wall)
+                        .into_iter()
+                        .map(screen)
+                        .collect(),
+                    Stroke::new(1.1, reference_color(wall, stroke_alpha)),
+                ));
+            }
             let walls: Vec<_> = story_elements
                 .iter()
                 .copied()
-                .filter(|element| matches!(element.shape, Shape::Wall { .. }))
+                .filter(|element| {
+                    matches!(element.shape, Shape::Wall { .. }) && element.wall_contour.is_none()
+                })
                 .collect();
             // Trace fills follow material colors, but wall junctions are
             // physical geometry shared by every material on the story.
-            let footprints_by_id: std::collections::HashMap<u64, [Point; 4]> =
-                geometry::plan_wall_footprints_by_id(&walls)
+            let layer_groups = self.editor.project.layers.wall_groups(&walls);
+            let footprints_by_id: std::collections::HashMap<u64, Vec<Point>> =
+                geometry::plan_wall_polygons_by_id(&walls, &layer_groups)
                     .into_iter()
                     .collect();
             for material in Material::ALL {
@@ -843,26 +867,29 @@ impl AtelierApp {
                 }
                 if !self.trace.transparent_fills {
                     for wall in &same_material {
-                        let footprint = footprints_by_id[&wall.id];
-                        let points: Vec<Pos2> = footprint.iter().copied().map(screen).collect();
-                        painter.add(egui::Shape::convex_polygon(
-                            points,
+                        let footprint = &footprints_by_id[&wall.id];
+                        Self::paint_wall_polygon(
+                            &painter,
+                            footprint,
+                            screen,
                             reference_color(wall, fill_alpha),
                             // Same-colour bleed seals sub-pixel gaps between
                             // separately editable wall footprints.
                             Stroke::new(0.75, reference_color(wall, fill_alpha)),
-                        ));
+                        );
                     }
                 }
             }
             let story_footprints: Vec<_> = walls
                 .iter()
-                .map(|wall| footprints_by_id[&wall.id])
+                .map(|wall| footprints_by_id[&wall.id].clone())
                 .collect();
             // One exposed perimeter for the whole story keeps the outline
             // continuous across material boundaries.
             let outline_color = Color32::from_rgba_unmultiplied(36, 40, 42, stroke_alpha);
-            for mut path in geometry::wall_outline_paths(&story_footprints) {
+            for mut path in geometry::wall_outline_paths_from_segments(
+                geometry::wall_polygon_outline_segments(&story_footprints),
+            ) {
                 let closed = path.len() > 2 && path[0].distance(*path.last().unwrap()) <= 1e-3;
                 if closed {
                     path.pop();

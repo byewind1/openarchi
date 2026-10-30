@@ -614,6 +614,23 @@ impl AtelierApp {
             base = point;
             kind = SnapKind::Guide;
         }
+        // Shift locks the next point onto the X or Y axis through the active
+        // drawing anchor (wall start or last polyline node). Exact endpoint
+        // snapping still wins so shift does not block closing a chain.
+        if shift
+            && !matches!(kind, SnapKind::Endpoint)
+            && let Some(anchor) = self
+                .editor
+                .anchor
+                .or_else(|| self.editor.polyline_points.last().copied())
+        {
+            if (p.x - anchor.x).abs() >= (p.y - anchor.y).abs() {
+                base.y = anchor.y;
+            } else {
+                base.x = anchor.x;
+            }
+            kind = SnapKind::Free;
+        }
         (base, kind)
     }
     fn add_guide(&mut self, primitive: GuidePrimitive) {
@@ -1400,6 +1417,49 @@ mod guide_ui_tests {
         );
         app.editor.project.guide_settings.guide_lines_enabled = false;
         assert_eq!(app.target(Point::new(1.23, 1.05), false).1, SnapKind::Free);
+    }
+    #[test]
+    fn shift_locks_drawing_to_dominant_axis_through_anchor() {
+        let (_, mut app) = setup();
+        app.editor.snap = false;
+        app.editor.project.grid_settings.grid_snap_enabled = false;
+        app.editor.anchor = Some(Point::new(1., 1.));
+        // Pointer moves mostly horizontally: Y locks to the anchor.
+        assert_eq!(
+            app.target(Point::new(3.5, 2.4), true),
+            (Point::new(3.5, 1.), SnapKind::Free)
+        );
+        // Pointer moves mostly vertically: X locks to the anchor.
+        assert_eq!(
+            app.target(Point::new(2.4, 4.5), true),
+            (Point::new(1., 4.5), SnapKind::Free)
+        );
+        // Without shift the cursor stays free.
+        assert_eq!(
+            app.target(Point::new(3.5, 2.4), false),
+            (Point::new(3.5, 2.4), SnapKind::Free)
+        );
+        // The last polyline node anchors the constraint the same way.
+        app.editor.anchor = None;
+        app.editor.polyline_points = vec![Point::new(0., 0.), Point::new(2., 2.)];
+        assert_eq!(
+            app.target(Point::new(5., 4.), true),
+            (Point::new(5., 2.), SnapKind::Free)
+        );
+        // Exact endpoint snapping still wins over the axis lock.
+        app.editor.anchor = Some(Point::new(0., 0.));
+        app.editor.polyline_points.clear();
+        app.editor.project.add(
+            0,
+            Material::Plaster,
+            Shape::Polyline {
+                points: vec![Point::new(3., 0.), Point::new(6., 0.)],
+                arcs: vec![],
+            },
+        );
+        app.editor.snap = true;
+        let (point, kind) = app.target(Point::new(5.98, 0.02), true);
+        assert_eq!((point, kind), (Point::new(6., 0.), SnapKind::Endpoint));
     }
     #[test]
     fn guide_intersections_snap_to_one_joint_not_one_line_projection() {

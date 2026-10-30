@@ -96,7 +96,8 @@ fn snapshot_undo_baseline_for_1k_10k_50k_walls() {
             .iter()
             .filter(|element| matches!(element.shape, Shape::Wall { .. }))
             .collect();
-        let footprints = geometry::plan_wall_footprints(&walls);
+        let groups = vec![1u8; walls.len()];
+        let footprints = geometry::plan_wall_footprints(&walls, &groups);
         let footprint_ms = elapsed_ms(start.elapsed());
 
         let start = Instant::now();

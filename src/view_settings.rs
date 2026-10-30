@@ -1,47 +1,9 @@
+use crate::layers::LayerDocument;
 use crate::model::{Element, Material};
 use serde::{Deserialize, Serialize};
 
 /// Archicad's default wall cut fill is a light neutral grey in floor plan.
 const WALL_CUT_FILL: [u8; 3] = [211, 211, 211];
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum Layer {
-    Site,
-    Drafting,
-    #[default]
-    Architectural,
-    Structural,
-    Mechanical,
-    Electrical,
-    Rendering,
-    Layouting,
-}
-
-impl Layer {
-    pub const ALL: [Self; 8] = [
-        Self::Site,
-        Self::Drafting,
-        Self::Architectural,
-        Self::Structural,
-        Self::Mechanical,
-        Self::Electrical,
-        Self::Rendering,
-        Self::Layouting,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Site => "01 Site",
-            Self::Drafting => "02 Drafting",
-            Self::Architectural => "03 Architectural",
-            Self::Structural => "04 Structural",
-            Self::Mechanical => "05 Mechanical",
-            Self::Electrical => "06 Electrical",
-            Self::Rendering => "07 Rendering",
-            Self::Layouting => "08 Layouting",
-        }
-    }
-}
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RenovationStatus {
@@ -57,67 +19,6 @@ impl RenovationStatus {
             Self::Existing => "Existing",
             Self::Demolition => "Demolition",
             Self::New => "New",
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum LayerCombination {
-    Site,
-    #[default]
-    Drafting,
-    PlansPreliminary,
-    PlansApproval,
-    PlansDetailed,
-    PlansMechanical,
-    PlansStructural,
-    Rendering,
-    Layouting,
-    Show3DZonesAsSolid,
-}
-
-impl LayerCombination {
-    pub const ALL: [Self; 10] = [
-        Self::Site,
-        Self::Drafting,
-        Self::PlansPreliminary,
-        Self::PlansApproval,
-        Self::PlansDetailed,
-        Self::PlansMechanical,
-        Self::PlansStructural,
-        Self::Rendering,
-        Self::Layouting,
-        Self::Show3DZonesAsSolid,
-    ];
-
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Site => "01 Site",
-            Self::Drafting => "02 Drafting",
-            Self::PlansPreliminary => "03 Plans - Preliminary",
-            Self::PlansApproval => "04 Plans - Approval",
-            Self::PlansDetailed => "05 Plans - Detailed",
-            Self::PlansMechanical => "06 Plans - Mechanical",
-            Self::PlansStructural => "07 Plans - Structural",
-            Self::Rendering => "08 Rendering",
-            Self::Layouting => "09 Layouting",
-            Self::Show3DZonesAsSolid => "10 Show 3D Zones as Solid",
-        }
-    }
-
-    pub fn shows(self, layer: Layer) -> bool {
-        use Layer::*;
-        match self {
-            Self::Site => matches!(layer, Site | Architectural | Structural | Rendering),
-            Self::Drafting => matches!(layer, Drafting | Architectural | Structural | Rendering),
-            Self::PlansPreliminary | Self::PlansApproval | Self::PlansDetailed => true,
-            Self::PlansMechanical => {
-                matches!(layer, Drafting | Architectural | Structural | Mechanical)
-            }
-            Self::PlansStructural => matches!(layer, Architectural | Structural),
-            Self::Rendering => matches!(layer, Architectural | Structural | Rendering),
-            Self::Layouting => matches!(layer, Drafting | Layouting),
-            Self::Show3DZonesAsSolid => true,
         }
     }
 }
@@ -543,10 +444,6 @@ pub struct PlanOptions {
     #[serde(default)]
     pub partial_structure: PartialStructureDisplay,
     #[serde(default)]
-    pub show_all_layers: bool,
-    #[serde(default)]
-    pub layer_combination: LayerCombination,
-    #[serde(default)]
     pub model_view: ModelViewOptions,
     #[serde(default)]
     pub graphic_overrides: GraphicOverrides,
@@ -570,8 +467,6 @@ impl Default for PlanOptions {
             orientation_degrees: 0.,
             pen_set: PenSet::default(),
             partial_structure: PartialStructureDisplay::default(),
-            show_all_layers: false,
-            layer_combination: LayerCombination::default(),
             model_view: ModelViewOptions::default(),
             graphic_overrides: GraphicOverrides::default(),
             renovation_filter: RenovationFilter::default(),
@@ -605,8 +500,8 @@ impl PlanOptions {
         if value < 0. { value + 360. } else { value }
     }
 
-    pub fn element_visible(&self, element: &Element) -> bool {
-        (self.show_all_layers || self.layer_combination.shows(element.layer))
+    pub fn element_visible(&self, element: &Element, layers: &LayerDocument) -> bool {
+        layers.is_visible(element.layer.0)
             && self.partial_structure.shows(element.material)
             && self.renovation_filter.shows(element.renovation)
             && self.model_view.shows(element.plan_part())
@@ -616,8 +511,13 @@ impl PlanOptions {
             }
     }
 
-    pub fn style_for(&self, element: &Element, pen: PenPalette) -> Option<PlanElementStyle> {
-        if !self.element_visible(element) {
+    pub fn style_for(
+        &self,
+        element: &Element,
+        pen: PenPalette,
+        layers: &LayerDocument,
+    ) -> Option<PlanElementStyle> {
+        if !self.element_visible(element, layers) {
             return None;
         }
         let part = element.plan_part();
@@ -709,17 +609,20 @@ fn mix(a: [u8; 3], b: [u8; 3], amount: f32) -> [u8; 3] {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::layers::{ARCHICAD_LAYER, ElementLayer, LayerDocument, LayerStatus};
     use crate::model::{Point, Shape};
 
-    fn wall(layer: Layer, renovation: RenovationStatus) -> Element {
+    fn wall(layer: u32, renovation: RenovationStatus) -> Element {
         Element {
             id: 1,
             name: "Wall 001".into(),
             story: 0,
             material: Material::Concrete,
-            layer,
+            layer: ElementLayer(layer),
             renovation,
             design_option: None,
+            wall_contour: None,
+            slab_contour: None,
             wall_settings: None,
             shape: Shape::Wall {
                 start: Point::new(0., 0.),
@@ -732,25 +635,53 @@ mod tests {
 
     #[test]
     fn options_gate_layers_partial_structure_and_renovation() {
-        let mut options = PlanOptions {
-            layer_combination: LayerCombination::Layouting,
-            ..Default::default()
-        };
-        let element = wall(Layer::Structural, RenovationStatus::Demolition);
-        assert!(!options.element_visible(&element));
+        let options = PlanOptions::default();
+        let mut layers = LayerDocument::template();
+        let structural_wall = layers
+            .layers
+            .iter()
+            .find(|l| l.name == "Structural - Wall")
+            .unwrap()
+            .id;
+        let element = wall(structural_wall, RenovationStatus::Demolition);
 
-        options.layer_combination = LayerCombination::PlansStructural;
-        options.renovation_filter = RenovationFilter::DemolitionPlan;
-        assert!(options.element_visible(&element));
+        layers.layer_mut(structural_wall).unwrap().status.visible = false;
+        assert!(!options.element_visible(&element, &layers));
 
-        options.partial_structure = PartialStructureDisplay::CoreOnly;
-        assert!(options.element_visible(&element));
-        options.partial_structure = PartialStructureDisplay::WithoutFinishes;
-        assert!(options.element_visible(&element));
+        layers.layer_mut(structural_wall).unwrap().status.visible = true;
+        let mut demolition = options.clone();
+        demolition.renovation_filter = RenovationFilter::DemolitionPlan;
+        assert!(demolition.element_visible(&element, &layers));
+
+        let mut core_only = demolition.clone();
+        core_only.partial_structure = PartialStructureDisplay::CoreOnly;
+        assert!(core_only.element_visible(&element, &layers));
+        let mut without_finishes = demolition.clone();
+        without_finishes.partial_structure = PartialStructureDisplay::WithoutFinishes;
+        assert!(without_finishes.element_visible(&element, &layers));
 
         let mut plaster = element.clone();
         plaster.material = Material::Plaster;
-        assert!(!options.element_visible(&plaster));
+        assert!(!without_finishes.element_visible(&plaster, &layers));
+    }
+
+    #[test]
+    fn hidden_layer_hides_elements_until_restored() {
+        let options = PlanOptions::default();
+        let mut layers = LayerDocument::template();
+        let element = wall(ARCHICAD_LAYER, RenovationStatus::Existing);
+        assert!(options.element_visible(&element, &layers));
+        layers.set_status(
+            ARCHICAD_LAYER,
+            LayerStatus {
+                visible: false,
+                ..LayerStatus::default()
+            },
+        );
+        assert!(
+            options.element_visible(&element, &layers),
+            "protected layer stays visible"
+        );
     }
 
     #[test]
@@ -781,11 +712,14 @@ mod tests {
     #[test]
     fn default_wall_cut_fill_is_light_gray_for_every_material() {
         let options = PlanOptions::default();
+        let layers = LayerDocument::template();
         let pen = PenSet::default().palette();
         for material in Material::ALL {
-            let mut element = wall(Layer::Architectural, RenovationStatus::Existing);
+            let mut element = wall(ARCHICAD_LAYER, RenovationStatus::Existing);
             element.material = material;
-            let style = options.style_for(&element, pen).expect("wall is visible");
+            let style = options
+                .style_for(&element, pen, &layers)
+                .expect("wall is visible");
             assert_eq!(style.fill, Some([211, 211, 211]), "{material:?}");
         }
     }
