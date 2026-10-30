@@ -105,6 +105,11 @@ impl AtelierApp {
         }
     }
     pub(super) fn apply_wall_default_draft(&mut self, draft: &WallSettingsDraft) {
+        let method = draft.settings.geometry.geometry_method;
+        if self.editor.wall_settings.geometry.geometry_method != method {
+            self.editor.set_wall_geometry_method(method);
+            self.tracker_locked = false;
+        }
         self.editor.wall_settings = draft.settings.clone();
         self.editor.thickness = draft.thickness;
         self.editor.height = draft.height;
@@ -314,12 +319,21 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Layer:"));
             let before_layer = draft.layer;
+            let layers = &self.editor.project.layers;
             ComboBox::from_id_salt("info_box_wall_layer")
-                .selected_text(layer_label(language, draft.layer))
+                .selected_text(crate::wall_ui::wall_layer_label(
+                    language,
+                    layers,
+                    draft.layer.0,
+                ))
                 .width(145.)
                 .show_ui(ui, |ui| {
-                    for layer in Layer::ALL {
-                        ui.selectable_value(&mut draft.layer, layer, layer_label(language, layer));
+                    for layer in &layers.layers {
+                        ui.selectable_value(
+                            &mut draft.layer,
+                            crate::layers::ElementLayer(layer.id),
+                            crate::wall_ui::wall_layer_label(language, layers, layer.id),
+                        );
                     }
                 });
             if draft.layer != before_layer {
@@ -490,7 +504,6 @@ impl AtelierApp {
         let mut commit = false;
         let mut open_settings = false;
         let mut open_floor_plan = false;
-        let mut method_changed = false;
         {
             let Some(state) = self.info_box_wall_tool.as_mut() else {
                 return;
@@ -503,12 +516,21 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Layer:"));
             let before_layer = draft.layer;
+            let layers = &self.editor.project.layers;
             ComboBox::from_id_salt("info_box_wall_tool_layer")
-                .selected_text(layer_label(language, draft.layer))
+                .selected_text(crate::wall_ui::wall_layer_label(
+                    language,
+                    layers,
+                    draft.layer.0,
+                ))
                 .width(145.)
                 .show_ui(ui, |ui| {
-                    for layer in Layer::ALL {
-                        ui.selectable_value(&mut draft.layer, layer, layer_label(language, layer));
+                    for layer in &layers.layers {
+                        ui.selectable_value(
+                            &mut draft.layer,
+                            crate::layers::ElementLayer(layer.id),
+                            crate::wall_ui::wall_layer_label(language, layers, layer.id),
+                        );
                     }
                 });
             if draft.layer != before_layer {
@@ -532,7 +554,6 @@ impl AtelierApp {
             if draft.settings.geometry.geometry_method != before_method {
                 dirty = true;
                 commit = true;
-                method_changed = true;
             }
 
             ui.label(Self::t(language, "Reference Line:"));
@@ -652,10 +673,6 @@ impl AtelierApp {
                 .is_some_and(|state| state.dirty)
         {
             let _ = self.commit_info_box_wall_tool();
-        }
-        if method_changed {
-            self.editor.cancel_wall_draft();
-            self.editor.refresh_wall_status();
         }
         if open_floor_plan {
             self.open_info_box_wall_settings(true);

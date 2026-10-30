@@ -1,0 +1,686 @@
+AXApplication | OpenArchi
+AXWindow | Window
+AXButton | WindowSharingSessionButton
+AXWindow | 未命名
+AXButton | 辅助线
+AXButton | 网格
+AXCheckBox | 描图
+AXButton | ▾
+AXButton | 测量
+AXCheckBox | 组
+AXCheckBox | 三维剖切
+AXCheckBox | 楼层平面 · F2
+AXCheckBox | 三维透视 · F3
+AXStaticText | 编辑工具
+AXStaticText | 工作区控制 · 视口上下文
+AXStaticText | 信息框
+AXStaticText | 箭头
+AXStaticText | 选择设置
+AXCheckBox | 子元素选择
+AXCheckBox | 包含锁定构件
+AXStaticText | 选择方式
+AXStaticText | 已选 2 个
+AXStaticText | 就绪
+AXStaticText | 指定移动终点 · 多重复制
+AXStaticText | X 3.851 m   Y 3.537 m   |   2 个构件
+AXStaticText | 工具箱
+AXButton | ⋯
+AXStaticText | 选择与区域
+AXCheckBox | 箭头
+AXCheckBox | 选区框
+AXButton | 设计
+AXCheckBox | 墙
+AXCheckBox | 楼板
+AXCheckBox | 楼梯
+AXCheckBox | 门
+AXCheckBox | 窗
+AXCheckBox | 柱
+AXCheckBox | 梁
+AXCheckBox | 对象
+AXCheckBox | 灯具
+AXCheckBox | 屋顶
+AXCheckBox | 壳体
+AXCheckBox | 栏杆
+AXCheckBox | 幕墙
+AXCheckBox | 天窗
+AXCheckBox | 转角窗
+AXCheckBox | 洞口
+AXCheckBox | 墙端
+AXCheckBox | 网格地形
+AXCheckBox | 形体
+AXCheckBox | 区域
+AXButton | 视点
+AXButton | 文档
+AXButton | 结构工程
+AXButton | 机电工程
+AXStaticText | OPENARCHI
+米制 · Z 轴向上
+Apple Silicon / Metal
+AXStaticText | 导航器
+AXStaticText | Untitled project
+AXButton | 楼层
+AXCheckBox | 00  Ground floor     +0.00 m
+AXCheckBox | 01  First floor     +3.20 m
+AXCheckBox | 02  Roof level     +6.40 m
+AXButton | 剖面
+AXButton | 立面
+AXButton | 室内立面
+AXButton | 工作表
+AXButton | 详图
+AXButton | 三维文档
+AXButton | 三维
+AXButton | 明细表
+AXButton | 项目索引
+AXButton | 列表
+AXButton | 信息
+AXButton | 帮助
+AXCheckBox | 三维显示所有楼层
+AXCheckBox | 属性
+AXCheckBox | 图库
+AXCheckBox | AI 助手
+AXStaticText | 构件设置
+AXStaticText | Wall 002
+AXStaticText | Warm plaster · 12.00 m²
+AXStaticText | 构件名称
+AXTextField | Wall 001
+AXStaticText | 所属楼层
+AXPopUpButton | Ground floor
+AXStaticText | 表面
+AXPopUpButton | Warm plaster
+AXStaticText | 起点 X
+AXIncrementor | 2.125 m
+AXStaticText | 起点 Y
+AXIncrementor | 3.537 m
+AXStaticText | 终点 X
+AXIncrementor | 6.125 m
+AXStaticText | 终点 Y
+AXIncrementor | 3.537 m
+AXStaticText | 厚度
+AXIncrementor | 0.220 m
+AXStaticText | 高度
+AXIncrementor | 3.000 m
+AXStaticText | 墙设置
+AXStaticText | 厚度
+AXStaticText | 0.220 m
+AXStaticText | 高度
+AXStaticText | 3.000 m
+AXStaticText | Reference Line
+AXStaticText | 居中
+AXStaticText | 参考线偏移
+AXStaticText | 0.000 m
+AXStaticText | 顶部 / 底部偏移
+AXStaticText | 0.000 / 0.000 m
+AXStaticText | Structure
+AXStaticText | Generic Wall/Shell
+AXStaticText | 平面显示
+AXStaticText | 投影
+AXStaticText | 未剖线
+AXStaticText | 实线
+AXStaticText | 左侧表面
+AXStaticText | Stucco - Yellow Rough
+AXStaticText | 右侧表面
+AXStaticText | Stucco - Yellow Rough
+AXStaticText | 端面
+AXStaticText | Stucco - White Rough
+AXStaticText | 结构功能
+AXStaticText | 未定义
+AXStaticText | 属性 ID
+AXStaticText | SW - 014
+AXButton | 编辑墙设置  ⌘T
+AXButton | 应用修改
+AXButton | 复制
+AXButton | 删除
+AXButton | 当前楼层构件
+AXStaticText | 2 个构件
+AXUnknown | Floor plan canvas
+AXStaticText | 未命名
+AXMenuBarItem | Apple
+AXMenuItem | 关于本机
+AXMenuItem | 系统信息
+AXMenuItem | 系统设置…, 1项更新
+AXMenuItem | App Store
+AXMenuItem | 最近使用的项目
+AXMenuItem | 应用程序
+AXMenuItem | 系统设置
+AXMenuItem | 在访达中显示“系统设置”
+AXMenuItem | 预览
+AXMenuItem | 在访达中显示“预览”
+AXMenuItem | App Store
+AXMenuItem | 在访达中显示“App Store”
+AXMenuItem | Archicad 29
+AXMenuItem | 在访达中显示“Archicad 29”
+AXMenuItem | ChatGPT
+AXMenuItem | 在访达中显示“ChatGPT”
+AXMenuItem | Google Chrome
+AXMenuItem | 在访达中显示“Google Chrome”
+AXMenuItem | Microsoft PowerPoint
+AXMenuItem | 在访达中显示“Microsoft PowerPoint”
+AXMenuItem | OpenArchi
+AXMenuItem | 在访达中显示“OpenArchi”
+AXMenuItem | PhotoCraft
+AXMenuItem | 在访达中显示“PhotoCraft”
+AXMenuItem | WordCraft
+AXMenuItem | 在访达中显示“WordCraft”
+AXMenuItem | 文稿
+AXMenuItem | 分镜头脚本设计教程 storyboarding design course ([意]乔瑟·克里斯提亚诺(编著),赵婧(译),梅叶挺(译)) (z-library.sk, 1lib.sk, z-lib.sk).pdf
+AXMenuItem | 在访达中显示“分镜头脚本设计教程 storyboarding design course ([意]乔瑟·克里斯提亚诺(编著),赵婧(译),梅叶挺(译)) (z-library.sk, 1lib.sk, z-lib.sk).pdf”
+AXMenuItem | 库
+AXMenuItem | 在访达中显示“库”
+AXMenuItem | 粮食干校项目.pln
+AXMenuItem | 在访达中显示“粮食干校项目.pln”
+AXMenuItem | 山东商务职业学院济南校区更新项目_概念设计V3_双方案完整汇报.pdf
+AXMenuItem | 在访达中显示“山东商务职业学院济南校区更新项目_概念设计V3_双方案完整汇报.pdf”
+AXMenuItem | 山东商务职业学院济南校区更新项目_概念设计V4_体育核心双方案.pdf
+AXMenuItem | 在访达中显示“山东商务职业学院济南校区更新项目_概念设计V4_体育核心双方案.pdf”
+AXMenuItem | 山东商务职业学院济南校区更新项目_概念设计V7_方案1前期意向恢复.pptx
+AXMenuItem | 在访达中显示“山东商务职业学院济南校区更新项目_概念设计V7_方案1前期意向恢复.pptx”
+AXMenuItem | 山东商务职业学院济南校区更新项目_概念设计V8_方案2双视角鸟瞰.pptx
+AXMenuItem | 在访达中显示“山东商务职业学院济南校区更新项目_概念设计V8_方案2双视角鸟瞰.pptx”
+AXMenuItem | 追忆似水年华.epub
+AXMenuItem | 在访达中显示“追忆似水年华.epub”
+AXMenuItem | GDL 测试 2.pln
+AXMenuItem | 在访达中显示“GDL 测试 2.pln”
+AXMenuItem | Windows 11.pvm
+AXMenuItem | 在访达中显示“Windows 11.pvm”
+AXMenuItem | 服务器
+AXMenuItem | 经典影视
+AXMenuItem | 书库
+AXMenuItem | home
+AXMenuItem | homes
+AXMenuItem | Mac电脑文件
+AXMenuItem | Macintosh HD
+AXMenuItem | music
+AXMenuItem | photo
+AXMenuItem | WORK
+AXMenuItem | zlib电子书
+AXMenuItem | 清除菜单
+AXMenuItem | 强制退出…
+AXMenuItem | 强制退出“OpenArchi”
+AXMenuItem | 睡眠
+AXMenuItem | 重新启动…
+AXMenuItem | 重新启动
+AXMenuItem | 关机…
+AXMenuItem | 关机
+AXMenuItem | 锁定屏幕
+AXMenuItem | 退出登录“ren”…
+AXMenuItem | 退出登录“ren”
+AXMenuBarItem | OpenArchi
+AXMenuItem | 关于 OpenArchi
+AXMenuItem | 项目首选项
+AXMenuItem | 工作单位…
+AXMenuItem | 尺寸…
+AXMenuItem | 计算单位…
+AXMenuItem | 区域…
+AXMenuItem | 参考标高…
+AXMenuItem | 位置设置…
+AXMenuItem | 项目北向…
+AXMenuItem | 测量点…
+AXMenuItem | 工作环境
+AXMenuItem | 外观…
+AXMenuItem | 键盘快捷键…
+AXMenuItem | 对话框与面板…
+AXMenuItem | 工具箱…
+AXMenuItem | 信息框…
+AXMenuItem | 工具栏…
+AXMenuItem | 菜单…
+AXMenuItem | 服务
+AXMenuItem | No Services Apply
+AXMenuItem | Services Settings…
+AXMenuItem | 隐藏 OpenArchi
+AXMenuItem | 隐藏其他
+AXMenuItem | 显示全部
+AXMenuItem | 退出 OpenArchi
+AXMenuBarItem | 文件
+AXMenuItem | 新建
+AXMenuItem | 新建空白项目…
+AXMenuItem | 新建并全部重置…
+AXMenuItem | 共享为协作项目…
+AXMenuItem | 打开 JSON…     ⌘O
+AXMenuItem | 保存 JSON…     ⌘S
+AXMenuItem | Save As…
+AXMenuItem | 另存为模板…
+AXMenuItem | 将选择保存为模块…
+AXMenuItem | 保存到 BIMcloud…
+AXMenuItem | 发布…
+AXMenuItem | 最近项目
+AXMenuItem | Untitled project
+AXMenuItem | 互操作
+AXMenuItem | 合并…
+AXMenuItem | IFC 项目管理器…
+AXMenuItem | IFC 转换器…
+AXMenuItem | 导入 / 导出 IFC…
+AXMenuItem | SAF 转换器…
+AXMenuItem | DXF-DWG 转换设置…
+AXMenuItem | 分类与属性…
+AXMenuItem | 导入点云…
+AXMenuItem | 从测量数据放置网格…
+AXMenuItem | Grasshopper 连接…
+AXMenuItem | Bimplus 连接…
+AXMenuItem | 外部内容
+AXMenuItem | 热链接管理器…
+AXMenuItem | 放置外部图纸…
+AXMenuItem | 图纸管理器…
+AXMenuItem | 外部参照管理器…
+AXMenuItem | 图库与对象
+AXMenuItem | 图库管理器…
+AXMenuItem | BIMcloud 图库…
+AXMenuItem | 新建对象…
+AXMenuItem | 打开对象…
+AXMenuItem | 将所选项保存为对象…
+AXMenuItem | 导入块…
+AXMenuItem | 导入 RFA…
+AXMenuItem | 导入 Rhino / OBJ / FBX…
+AXMenuItem | 信息
+AXMenuItem | 项目信息…
+AXMenuItem | 操作中心…
+AXMenuItem | 项目备注…
+AXMenuItem | 预览与鸣谢…
+AXMenuItem | 会话报告…
+AXMenuItem | 绘图与打印
+AXMenuItem | 绘图设置…
+AXMenuItem | 绘图…
+AXMenuItem | 页面设置…
+AXMenuItem | 打印…
+AXMenuItem | 关于 OpenArchi
+AXMenuBarItem | 编辑
+AXMenuItem | 撤销  ⌘Z
+AXMenuItem | 重做  ⌥⌘Z / ⇧⌘Z
+AXMenuItem | 重复上次命令  ⌘B
+AXMenuItem | 剪切  ⌘X
+AXMenuItem | 复制  ⌘C
+AXMenuItem | 粘贴  ⌘V
+AXMenuItem | 删除  ⌫ / Delete
+AXMenuItem | 全选  ⌘A
+AXMenuItem | 查找并选择…  ⌘F
+AXMenuItem | 搜索并替换文本…
+AXMenuItem | 组
+AXMenuItem | 成组  ⌘G
+AXMenuItem | 解组  ⌥⌘G
+AXMenuItem | 暂停成组  ⌥G
+AXMenuItem | 自动成组
+AXMenuItem | 显示顺序
+AXMenuItem | 置于最前
+AXMenuItem | 上移一层
+AXMenuItem | 下移一层
+AXMenuItem | 置于最后
+AXMenuItem | 恢复默认顺序
+AXMenuItem | 锁定
+AXMenuItem | 锁定
+AXMenuItem | 解锁
+AXMenuItem | 全部解锁
+AXMenuItem | 移动
+AXMenuItem | 拖动  ⌘D
+AXMenuItem | 旋转  ⌘E
+AXMenuItem | 顺时针快速旋转  ⇧⌘R
+AXMenuItem | 逆时针快速旋转  ⌘R
+AXMenuItem | 镜像  ⌘M
+AXMenuItem | 提升…  ⌘9
+AXMenuItem | 拖动副本  ⌥⌘D
+AXMenuItem | 旋转副本  ⌥⌘E / ⌥⌘R
+AXMenuItem | 镜像副本  ⌥⌘M
+AXMenuItem | 拖动多个副本
+AXMenuItem | 旋转多个副本
+AXMenuItem | 阵列复制…  ⌘U
+AXMenuItem | 按楼层编辑构件…
+AXMenuItem | 对齐
+AXMenuItem | 水平靠左
+AXMenuItem | 水平居中
+AXMenuItem | 水平靠右
+AXMenuItem | 垂直靠上
+AXMenuItem | 垂直居中
+AXMenuItem | 垂直靠下
+AXMenuItem | 特殊对齐
+AXMenuItem | 分布
+AXMenuItem | 沿 X 轴
+AXMenuItem | 沿 Y 轴
+AXMenuItem | 沿 XY 轴
+AXMenuItem | 特殊分布
+AXMenuItem | 重塑
+AXMenuItem | 修剪
+AXMenuItem | 拉伸
+AXMenuItem | 缩放…  ⌘K
+AXMenuItem | 分屏
+AXMenuItem | 圆角／倒角…
+AXMenuItem | 相交
+AXMenuItem | 调整  ⌘−
+AXMenuItem | 偏移
+AXMenuItem | 分解到当前视图  ⌘=
+AXMenuItem | 统一
+AXMenuItem | 线条整理…
+AXMenuItem | 填充整理…
+AXMenuItem | 拆分为单平面屋顶
+AXMenuItem | 将构件调整到板…
+AXMenuItem | 合并梁
+AXMenuItem | 合并柱
+AXMenuItem | 合并墙
+AXMenuItem | 构件设置
+AXMenuItem | 工具设置  ⌘T
+AXMenuItem | 编辑所选构件集…  ⌥⌘T
+AXMenuItem | 吸取参数  ⌥C
+AXMenuItem | 注入参数  ⌥⌘C
+AXMenuItem | 元素传输设置…
+AXMenuItem | 重新链接所属楼层…
+AXMenuItem | 参考线与参考面
+AXMenuItem | 修改墙参考线…
+AXMenuItem | 反转墙方向
+AXMenuItem | 修改板参考平面…
+AXMenuBarItem | 视图
+AXMenuItem | 楼层平面  F2
+AXMenuItem | 分屏视图
+AXMenuItem | 三维透视  F3
+AXMenuItem | 在三维中显示选择 / 选区框  F5
+AXMenuItem | 在三维中显示选区框
+AXMenuItem | 描图
+AXMenuItem | 描图选项
+AXMenuItem | 辅助线
+AXMenuItem | 捕捉辅助线与点
+AXMenuItem | 辅助线
+AXMenuItem | 设置捕捉点数值…
+AXMenuItem | 辅助线
+AXMenuItem | 构造网格显示
+AXMenuItem | 构件捕捉
+AXMenuItem | 捕捉选项
+AXMenuItem | 构件捕捉
+AXMenuItem | 网格捕捉
+AXMenuItem | 捕捉辅助线与点
+AXMenuItem | 网格与编辑平面选项
+AXMenuItem | 三维视图中的构件
+AXMenuItem | 三维显示所有楼层
+AXMenuItem | 三维剖切
+AXMenuItem | 在三维中过滤并剖切构件
+AXMenuItem | 显示选择 / 选区框
+AXMenuItem | 隐藏所选
+AXMenuItem | 显示全部
+AXMenuItem | 三维视图选项
+AXMenuItem | 投影设置…
+AXMenuItem | 透视
+AXMenuItem | Axonometry
+AXMenuItem | Basic
+AXMenuItem | Vectorial
+AXMenuItem | Simple Shading
+AXMenuItem | Technical
+AXMenuItem | Detailed
+AXMenuItem | Shadows
+AXMenuItem | White Model
+AXMenuItem | Wireframe
+AXMenuItem | Orbit
+AXMenuItem | Explore Model
+AXMenuItem | 缩放与重建
+AXMenuItem | 适合窗口 · F
+AXMenuItem | 重建
+AXMenuItem | 刷新
+AXMenuItem | 重建并重新生成
+AXMenuItem | 语言
+AXMenuItem | English
+AXMenuItem | 简体中文
+AXMenuBarItem | 设计
+AXMenuItem | 建筑工具
+AXMenuItem | 箭头
+AXMenuItem | 选区框
+AXMenuItem | 墙
+AXMenuItem | 墙端
+AXMenuItem | 柱
+AXMenuItem | 梁
+AXMenuItem | 楼板
+AXMenuItem | 屋顶
+AXMenuItem | 壳体
+AXMenuItem | 楼梯
+AXMenuItem | 栏杆
+AXMenuItem | 幕墙
+AXMenuItem | 门
+AXMenuItem | 窗
+AXMenuItem | 转角窗
+AXMenuItem | 天窗
+AXMenuItem | 洞口
+AXMenuItem | 区域
+AXMenuItem | 网格地形
+AXMenuItem | 形体
+AXMenuItem | 对象
+AXMenuItem | 灯具
+AXMenuItem | 结构工程工具
+AXMenuItem | 支座
+AXMenuItem | 连接
+AXMenuItem | 点荷载
+AXMenuItem | 线荷载
+AXMenuItem | 面荷载
+AXMenuItem | 机电工具
+AXMenuItem | 风管路径
+AXMenuItem | 管道路径
+AXMenuItem | 电缆路径
+AXMenuItem | 分支
+AXMenuItem | 管件
+AXMenuItem | 末端设备
+AXMenuItem | 附件
+AXMenuItem | 设备
+AXMenuItem | 楼层与连接
+AXMenuItem | Story Settings…
+AXMenuItem | 按楼层编辑构件…
+AXMenuItem | 修剪构件
+AXMenuItem | 合并构件
+AXMenuItem | 墙与幕墙连接
+AXMenuItem | 创建洞口
+AXMenuItem | 清除连接
+AXMenuItem | 模型操作
+AXMenuItem | 实体运算…
+AXMenuItem | 魔术棒
+AXMenuItem | 修改形体
+AXMenuItem | 修改栏杆
+AXMenuItem | 修改幕墙
+AXMenuItem | 设计扩展
+AXMenuItem | 屋顶工具…
+AXMenuItem | 桁架工具…
+AXMenuItem | 网格系统…
+AXMenuItem | 更新区域
+AXMenuItem | 模型检查
+AXMenuItem | 碰撞检测…
+AXMenuItem | Physical Quality…
+AXMenuItem | Model Compare…
+AXMenuItem | Structural Analytical Model…
+AXMenuItem | 能耗评估…
+AXMenuBarItem | 文档
+AXMenuItem | 文档工具
+AXMenuItem | 剖面
+AXMenuItem | 立面
+AXMenuItem | 室内立面
+AXMenuItem | 详图
+AXMenuItem | 工作表
+AXMenuItem | 相机
+AXMenuItem | 尺寸标注
+AXMenuItem | 标高标注
+AXMenuItem | 半径标注
+AXMenuItem | 角度标注
+AXMenuItem | 文字
+AXMenuItem | 标签
+AXMenuItem | 网格元素
+AXMenuItem | 填充
+AXMenuItem | 直线
+AXMenuItem | 弧线 / 圆
+AXMenuItem | 多段线
+AXMenuItem | 样条曲线
+AXMenuItem | 热点
+AXMenuItem | 图像
+AXMenuItem | 图纸
+AXMenuItem | 图层…
+AXMenuItem | 楼层平面比例…
+AXMenuItem | 局部结构显示…
+AXMenuItem | 画笔集
+AXMenuItem | 模型视图
+AXMenuItem | 图形覆盖
+AXMenuItem | 设计选项
+AXMenuItem | 翻新
+AXMenuItem | 标注
+AXMenuItem | 自动标注…
+AXMenuItem | 为所选构件添加标签
+AXMenuItem | 创建修补…
+AXMenuItem | Spell Checker
+AXMenuItem | 明细表与清单
+AXMenuItem | 方案设置…
+AXMenuItem | 墙明细表
+AXMenuItem | 门明细表
+AXMenuItem | 窗明细表
+AXMenuItem | Object Inventory
+AXMenuItem | Element Lists
+AXMenuItem | Component Lists
+AXMenuItem | Zone Lists
+AXMenuItem | 项目索引
+AXMenuItem | 问题与更改
+AXMenuItem | Issue Manager
+AXMenuItem | Issue Organizer
+AXMenuItem | Change Manager
+AXMenuItem | Keynotes
+AXMenuItem | 创意图像
+AXMenuItem | 照片级渲染投影
+AXMenuItem | 渲染选区框区域
+AXMenuItem | PhotoRendering Settings…
+AXMenuItem | 表面绘制器
+AXMenuItem | 创建漫游动画…
+AXMenuItem | 创建日照研究…
+AXMenuBarItem | 选项
+AXMenuItem | 捕捉到几何与网格
+AXMenuItem | 正交绘制
+AXMenuItem | 构件属性
+AXMenuItem | 图层…
+AXMenuItem | Lines…
+AXMenuItem | 笔与颜色…
+AXMenuItem | Fills…
+AXMenuItem | Surfaces…
+AXMenuItem | 建筑材料…
+AXMenuItem | 复合结构…
+AXMenuItem | 截面管理器…
+AXMenuItem | 区域类别…
+AXMenuItem | Attributes…
+AXMenuItem | 属性管理器…
+AXMenuItem | 属性与分类
+AXMenuItem | 属性管理器…
+AXMenuItem | 分类管理器…
+AXMenuItem | Operation Profiles…
+AXMenuItem | 结构属性
+AXMenuItem | Load Manager…
+AXMenuItem | Load Combinations…
+AXMenuItem | Load Mapping…
+AXMenuItem | Load Categories…
+AXMenuItem | 项目首选项
+AXMenuItem | 工作单位…
+AXMenuItem | 尺寸…
+AXMenuItem | 计算单位…
+AXMenuItem | Calculation Rules…
+AXMenuItem | 区域…
+AXMenuItem | 参考标高…
+AXMenuItem | Legacy…
+AXMenuItem | Stair Rules and Standards…
+AXMenuItem | Structural Analytical Model Units…
+AXMenuItem | 位置设置…
+AXMenuItem | 项目北向…
+AXMenuItem | 测量点…
+AXMenuItem | 工作环境
+AXMenuItem | 对话框与面板…
+AXMenuItem | Selection and Element Information…
+AXMenuItem | Tracker and Coordinate Input…
+AXMenuItem | Input Constraints and Guides…
+AXMenuItem | Model Rebuild Options…
+AXMenuItem | 外观…
+AXMenuItem | Data Safety and Integrity…
+AXMenuItem | 键盘快捷键…
+AXMenuItem | 工具箱…
+AXMenuItem | Tool Settings Dialog Boxes…
+AXMenuItem | 信息框…
+AXMenuItem | 工具栏…
+AXMenuItem | 菜单…
+AXMenuItem | 扩展管理器…
+AXMenuBarItem | 协作
+AXMenuItem | 项目
+AXMenuItem | 共享…
+AXMenuItem | 迁移协作项目…
+AXMenuItem | 打开 / 加入协作项目…
+AXMenuItem | 本地数据管理器…
+AXMenuItem | 携带项目
+AXMenuItem | 创建协作旅行包
+AXMenuItem | 导入协作旅行包
+AXMenuItem | 退出协作项目
+AXMenuItem | 发送与接收
+AXMenuItem | 发送与接收
+AXMenuItem | 发送更改
+AXMenuItem | 接收更改
+AXMenuItem | 发送并接收后比较
+AXMenuItem | 保留构件…
+AXMenuItem | 全部释放
+AXMenuItem | 消息与审阅
+AXMenuItem | 分配所选构件
+AXMenuItem | 新消息…
+AXMenuItem | 审阅所选构件…
+AXMenuItem | 变更追踪
+AXMenuItem | 协作面板
+AXMenuBarItem | 窗
+AXMenuItem | Fill
+AXMenuItem | Center
+AXMenuItem | Move & Resize
+AXMenuItem | Halves
+AXMenuItem | Left
+AXMenuItem | Right
+AXMenuItem | Top
+AXMenuItem | Bottom
+AXMenuItem | Quarters
+AXMenuItem | Top Left
+AXMenuItem | Top Right
+AXMenuItem | Bottom Left
+AXMenuItem | Bottom Right
+AXMenuItem | Arrange
+AXMenuItem | Left & Right
+AXMenuItem | Left & Quarters
+AXMenuItem | Right & Left
+AXMenuItem | Right & Quarters
+AXMenuItem | Top & Bottom
+AXMenuItem | Top & Quarters
+AXMenuItem | Bottom & Top
+AXMenuItem | Bottom & Quarters
+AXMenuItem | Quarters
+AXMenuItem | Return to Previous Size
+AXMenuItem | Full Screen Tile
+AXMenuItem | Left of Screen
+AXMenuItem | Right of Screen
+AXMenuItem | Remove Window from Set
+AXMenuItem | 隐藏快捷选项栏
+AXMenuItem | 最小化
+AXMenuItem | 工具箱
+AXMenuItem | 导航器与属性
+AXMenuItem | 调色板
+AXMenuItem | 信息框
+AXMenuItem | Status Bar
+AXMenuItem | 快捷选项
+AXMenuItem | Organizer
+AXMenuItem | Navigator Preview
+AXMenuItem | Drawing Manager
+AXMenuItem | Model Check Report
+AXMenuItem | Issue Manager
+AXMenuItem | Change Manager
+AXMenuItem | 设计选项
+AXMenuItem | 翻新
+AXMenuItem | 描图与参考
+AXMenuItem | 收藏夹
+AXMenuItem | Attributes
+AXMenuItem | Profile Manager
+AXMenuItem | Element Information
+AXMenuItem | Selections
+AXMenuItem | Coordinates
+AXMenuItem | Control Box
+AXMenuItem | Quick Layers
+AXMenuItem | 协作面板
+AXMenuItem | 工具栏
+AXMenuItem | Standard
+AXMenuItem | Standard for Low-Res Screens
+AXMenuItem | Tools - Architectural
+AXMenuItem | Arrange Elements
+AXMenuItem | Attributes
+AXMenuItem | Drafting Aids
+AXMenuItem | Drag Elements
+AXMenuItem | Edit Elements
+AXMenuItem | 3D Visualization
+AXMenuItem | Classic 3D Navigation
+AXMenuItem | MEP Toolbar
+AXMenuItem | 模型检查
+AXMenuItem | 结构工程
+AXMenuItem | 协作
+AXMenuItem | 重置工作区布局
+AXMenuItem | 未命名
+AXMenuBarItem | 帮助
+AXMenuItem | 关于 OpenArchi

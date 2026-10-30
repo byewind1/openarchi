@@ -33,29 +33,29 @@ fn push_triangle(
     out.extend([vertex(a, color), vertex(b, color), vertex(c, color)]);
 }
 
-/// Draws connected, coplanar walls as one extruded perimeter. This removes
-/// overlapping internal faces at clean orthogonal wall junctions.
-fn append_joined_wall_prism(
-    project: &Project,
-    story: u32,
-    height: f32,
-    material: Material,
-    mut outline: Vec<crate::model::Point>,
+/// Extrude the same arbitrary wall display polygon used by the plan. A junction
+/// can contribute two cap edges through its hub, so a four-corner prism loses
+/// geometry. Keep all individual cap faces: at unequal elevations they may be
+/// exposed, while the same-level merged path removes internal faces beforehand.
+fn append_wall_polygon_prism(
+    outline: &[Point],
+    bottom: f32,
+    top: f32,
+    base: [f32; 3],
+    edge: [f32; 3],
     vertices: &mut Vec<Vertex>,
     lines: &mut Vec<Vertex>,
 ) {
-    use crate::geometry::triangulate_polygon;
-    if outline.len() > 2 && outline[0].distance(*outline.last().unwrap()) <= 1e-3 {
-        outline.pop();
-    }
-    if outline.len() < 3 {
+    let outline = if outline.len() > 2 && outline[0].distance(*outline.last().unwrap()) <= 1e-3 {
+        &outline[..outline.len() - 1]
+    } else {
+        outline
+    };
+    if outline.len() < 3 || top <= bottom + 1e-5 {
         return;
     }
-    let bottom = project.elevation(story);
-    let top = bottom + height;
-    let at = |point: crate::model::Point, z: f32| glam::Vec3::new(point.x, point.y, z);
-    let base = material.color();
-    for [a, b, c] in triangulate_polygon(&outline) {
+    let at = |point: Point, z: f32| glam::Vec3::new(point.x, point.y, z);
+    for [a, b, c] in crate::geometry::triangulate_polygon(outline) {
         push_triangle(
             vertices,
             at(a, bottom),
@@ -66,7 +66,6 @@ fn append_joined_wall_prism(
         push_triangle(vertices, at(a, top), at(b, top), at(c, top), base);
     }
     let side = base.map(|x| x * 0.73);
-    let edge = base.map(|x| x * 0.42);
     for index in 0..outline.len() {
         let a = outline[index];
         let b = outline[(index + 1) % outline.len()];
@@ -82,6 +81,98 @@ fn append_joined_wall_prism(
             vertex(a1, edge),
         ]);
     }
+}
+
+fn append_slab_prism(
+    e: &Element,
+    bottom: f32,
+    top: f32,
+    base: [f32; 3],
+    vertices: &mut Vec<Vertex>,
+    lines: &mut Vec<Vertex>,
+) {
+    let story_base = top - crate::slab_geometry::contour(e).elevation;
+    if let Ok(caps) = crate::slab_geometry::cap_triangles(e, story_base) {
+        for [a, b, c] in caps {
+            let color = if (a.z - top).abs() < 1e-5 {
+                base
+            } else {
+                base.map(|x| x * 0.48)
+            };
+            push_triangle(vertices, a, b, c, color);
+        }
+    }
+    if let Ok(faces) = crate::slab_geometry::side_faces(e, story_base) {
+        for (setting, q) in faces {
+            let side = setting
+                .surface
+                .map_or(base, |m| m.color())
+                .map(|x| x * 0.73);
+            push_triangle(vertices, q[0], q[1], q[2], side);
+            push_triangle(vertices, q[0], q[2], q[3], side);
+            let edge = base.map(|x| x * 0.48);
+            lines.extend([
+                vertex(q[0], edge),
+                vertex(q[1], edge),
+                vertex(q[2], edge),
+                vertex(q[3], edge),
+            ]);
+        }
+    }
+    if let Ok(bottom_contour) = crate::slab_geometry::bottom_contour(e) {
+        let top_contour = crate::slab_geometry::contour(e);
+        for (a, b) in std::iter::once(&top_contour)
+            .chain(top_contour.holes.iter())
+            .zip(std::iter::once(&bottom_contour).chain(bottom_contour.holes.iter()))
+        {
+            for (p, q) in a.points.iter().zip(&b.points) {
+                let edge = base.map(|x| x * 0.48);
+                lines.extend([
+                    vertex(glam::Vec3::new(p.x, p.y, top), edge),
+                    vertex(glam::Vec3::new(q.x, q.y, bottom), edge),
+                ]);
+            }
+        }
+    }
+}
+
+fn wall_level_groups(project: &Project, walls: &[&Element]) -> Vec<(f32, f32, Vec<usize>)> {
+    let mut groups: Vec<(f32, f32, Vec<usize>)> = Vec::new();
+    for (index, wall) in walls.iter().enumerate() {
+        let c = corners(project, wall);
+        let (bottom, top) = (c[0].z, c[4].z);
+        if let Some((_, _, indices)) = groups
+            .iter_mut()
+            .find(|(low, high, _)| (bottom - *low).abs() <= 1e-4 && (top - *high).abs() <= 1e-4)
+        {
+            indices.push(index);
+        } else {
+            groups.push((bottom, top, vec![index]));
+        }
+    }
+    groups
+}
+
+/// Draws connected, coplanar walls as one extruded perimeter. Actual bottom/top
+/// levels (including wall offsets) determine whether walls can share this mesh.
+fn append_joined_wall_prism(
+    bottom: f32,
+    top: f32,
+    material: Material,
+    outline: Vec<Point>,
+    vertices: &mut Vec<Vertex>,
+    lines: &mut Vec<Vertex>,
+) {
+    let base = material.color();
+    append_wall_polygon_prism(
+        &outline,
+        bottom,
+        top,
+        base,
+        base.map(|x| x * 0.42),
+        vertices,
+        lines,
+    );
 }
 
 /// Emit a straight wall as solid piers plus sill/lintel blocks around its
@@ -265,6 +356,177 @@ fn append_wall_with_openings(
     }
 }
 
+/// Curved and variable-width walls use the same station-cut solid as picking.
+/// Tessellation never changes the element ID or the saved exact contour.
+fn append_contour_wall(
+    project: &Project,
+    wall: &Element,
+    base: [f32; 3],
+    marquee: Option<&MarqueeArea>,
+    vertices: &mut Vec<Vertex>,
+    lines: &mut Vec<Vertex>,
+) {
+    let solids = crate::geometry::wall_solid_prisms(project, wall);
+    let face_key = |corners: &[glam::Vec3; 8], face: &[usize; 4]| {
+        let mut points: Vec<[i64; 3]> = face
+            .iter()
+            .map(|&i| {
+                corners[i]
+                    .to_array()
+                    .map(|v| (v as f64 * 100000.).round() as i64)
+            })
+            .collect();
+        points.sort_unstable();
+        points
+    };
+    let mut counts = std::collections::HashMap::new();
+    for solid in &solids {
+        for face in FACES {
+            *counts.entry(face_key(solid, &face)).or_insert(0usize) += 1;
+        }
+    }
+    for solid in &solids {
+        if let Some(area) = marquee {
+            let outline: Vec<_> = solid[..4].iter().map(|p| Point::new(p.x, p.y)).collect();
+            let (mut low, mut high) = (solid[0].z, solid[4].z);
+            if let Some((a, b)) = area.z_range {
+                low = low.max(a.min(b));
+                high = high.min(a.max(b));
+            }
+            if high <= low + 1e-5 {
+                continue;
+            }
+            for polygon in
+                crate::geometry::intersect_footprint_with_polygon(&outline, &area.vertices)
+            {
+                let at = |p: Point, z| glam::Vec3::new(p.x, p.y, z);
+                for [a, b, c] in crate::geometry::triangulate_polygon(&polygon) {
+                    push_triangle(vertices, at(a, high), at(b, high), at(c, high), base);
+                    push_triangle(
+                        vertices,
+                        at(a, low),
+                        at(c, low),
+                        at(b, low),
+                        base.map(|v| v * 0.55),
+                    );
+                }
+                for i in 0..polygon.len() {
+                    let a = polygon[i];
+                    let b = polygon[(i + 1) % polygon.len()];
+                    let source = (0..4).find(|&j| {
+                        crate::geometry::point_on_segment(a, outline[j], outline[(j + 1) % 4], 2e-4)
+                            && crate::geometry::point_on_segment(
+                                b,
+                                outline[j],
+                                outline[(j + 1) % 4],
+                                2e-4,
+                            )
+                    });
+                    if let Some(j) = source
+                        && counts[&face_key(solid, &FACES[j + 2])] > 1
+                    {
+                        continue;
+                    }
+                    if source.is_none() && !edge_on_polygon(a, b, &area.vertices) {
+                        continue;
+                    }
+                    let color = base.map(|v| v * 0.76);
+                    push_triangle(vertices, at(a, low), at(b, low), at(b, high), color);
+                    push_triangle(vertices, at(a, low), at(b, high), at(a, high), color);
+                    let edge = base.map(|v| v * 0.42);
+                    lines.extend([
+                        vertex(at(a, low), edge),
+                        vertex(at(b, low), edge),
+                        vertex(at(a, high), edge),
+                        vertex(at(b, high), edge),
+                    ]);
+                }
+            }
+            continue;
+        }
+        for (index, face) in FACES.iter().enumerate() {
+            if counts[&face_key(solid, face)] > 1 {
+                continue;
+            }
+            let normal = (solid[face[1]] - solid[face[0]])
+                .cross(solid[face[2]] - solid[face[0]])
+                .normalize_or_zero();
+            let shade = if index == 1 {
+                1.
+            } else if index == 0 {
+                0.55
+            } else {
+                0.65 + 0.2 * normal.dot(glam::Vec3::new(0.6, -0.8, 0.)).abs()
+            };
+            let color = base.map(|v| v * shade);
+            for i in [0, 1, 2, 0, 2, 3] {
+                vertices.push(vertex(solid[face[i]], color));
+            }
+            if index >= 2 {
+                let edge = base.map(|v| v * 0.42);
+                lines.extend([
+                    vertex(solid[face[0]], edge),
+                    vertex(solid[face[1]], edge),
+                    vertex(solid[face[2]], edge),
+                    vertex(solid[face[3]], edge),
+                ]);
+                if index == 3 || index == 5 {
+                    lines.extend([
+                        vertex(solid[face[0]], edge),
+                        vertex(solid[face[3]], edge),
+                        vertex(solid[face[1]], edge),
+                        vertex(solid[face[2]], edge),
+                    ]);
+                }
+            }
+        }
+    }
+    // Curved glazing follows each local wall section, including taper widths.
+    if marquee.is_none() {
+        for opening in &project.elements {
+            let Shape::Opening {
+                host_wall,
+                kind: OpeningKind::Window,
+                offset,
+                width,
+                sill,
+                height,
+            } = opening.shape
+            else {
+                continue;
+            };
+            if host_wall != wall.id {
+                continue;
+            }
+            let bottom = project.elevation(wall.story) + sill + 0.03;
+            let top = bottom + height - 0.06;
+            if top <= bottom {
+                continue;
+            }
+            for strip in crate::wall_geometry::strips_between(
+                wall,
+                offset - width * 0.5,
+                offset + width * 0.5,
+            ) {
+                let a = Point::new(
+                    (strip[0].x + strip[3].x) * 0.5,
+                    (strip[0].y + strip[3].y) * 0.5,
+                );
+                let b = Point::new(
+                    (strip[1].x + strip[2].x) * 0.5,
+                    (strip[1].y + strip[2].y) * 0.5,
+                );
+                let a0 = glam::Vec3::new(a.x, a.y, bottom);
+                let a1 = glam::Vec3::new(a.x, a.y, top);
+                let b0 = glam::Vec3::new(b.x, b.y, bottom);
+                let b1 = glam::Vec3::new(b.x, b.y, top);
+                push_triangle(vertices, a0, b0, b1, [0.55, 0.74, 0.82]);
+                push_triangle(vertices, a0, b1, a1, [0.55, 0.74, 0.82]);
+            }
+        }
+    }
+}
+
 fn edge_on_polygon(
     a: crate::model::Point,
     b: crate::model::Point,
@@ -290,8 +552,67 @@ fn append_clipped_prism(
     vertices: &mut Vec<Vertex>,
     lines: &mut Vec<Vertex>,
 ) {
-    use crate::geometry::{footprint, intersect_footprint_with_polygon};
-    let original = footprint(element);
+    if matches!(element.shape, Shape::Slab { .. }) {
+        use geo::{BooleanOps, TriangulateEarcut};
+        let clip = geo::Polygon::new(
+            geo::LineString::from(
+                marquee
+                    .vertices
+                    .iter()
+                    .chain(marquee.vertices.first())
+                    .map(|p| (p.x as f64, p.y as f64))
+                    .collect::<Vec<_>>(),
+            ),
+            vec![],
+        );
+        let result = crate::slab_geometry::polygon(element).intersection(&clip);
+        let c = corners(project, element);
+        let (mut low, mut high) = (c[0].z, c[4].z);
+        if let Some((a, b)) = marquee.z_range {
+            low = low.max(a.min(b));
+            high = high.min(a.max(b));
+        }
+        if high <= low {
+            return;
+        }
+        let at = |p: geo::Coord<f64>, z| glam::Vec3::new(p.x as f32, p.y as f32, z);
+        for poly in result.0 {
+            for tri in poly.earcut_triangles() {
+                let [a, b, c] = tri.to_array();
+                push_triangle(vertices, at(a, high), at(b, high), at(c, high), base);
+                push_triangle(
+                    vertices,
+                    at(a, low),
+                    at(c, low),
+                    at(b, low),
+                    base.map(|x| x * 0.48),
+                );
+            }
+            for ring in std::iter::once(poly.exterior()).chain(poly.interiors()) {
+                for pair in ring.0.windows(2) {
+                    let (a, b, c, d) = (
+                        at(pair[0], low),
+                        at(pair[1], low),
+                        at(pair[1], high),
+                        at(pair[0], high),
+                    );
+                    let side = base.map(|x| x * 0.73);
+                    push_triangle(vertices, a, b, c, side);
+                    push_triangle(vertices, a, c, d, side);
+                    let edge = base.map(|x| x * 0.48);
+                    lines.extend([
+                        vertex(a, edge),
+                        vertex(b, edge),
+                        vertex(c, edge),
+                        vertex(d, edge),
+                    ]);
+                }
+            }
+        }
+        return;
+    }
+    use crate::geometry::intersect_footprint_with_polygon;
+    let original = crate::geometry::element_plan_outline(project, element);
     let fragments = intersect_footprint_with_polygon(&original, &marquee.vertices);
     if fragments.is_empty() {
         return;
@@ -537,6 +858,7 @@ impl SceneRenderer {
         &mut self,
         p: &Project,
         selected: &[u64],
+        hovered: Option<u64>,
         camera: &Camera,
         size: [u32; 2],
         story: Option<u32>,
@@ -633,8 +955,7 @@ impl SceneRenderer {
                 });
             }
         }
-        let mut wall_display_footprints = Vec::new();
-        let mut attached_wall_ends = Vec::new();
+        let mut wall_display_polygons = Vec::new();
         let mut merged_wall_ids = Vec::new();
         let walls_with_openings: std::collections::HashSet<u64> = p
             .elements
@@ -657,25 +978,20 @@ impl SceneRenderer {
                 .elements
                 .iter()
                 .filter(|element| {
-                    element.story == story_id && matches!(element.shape, Shape::Wall { .. })
+                    element.story == story_id
+                        && matches!(element.shape, Shape::Wall { .. })
+                        && element.wall_contour.is_none()
                 })
                 .collect();
-            let story_footprints_by_id: std::collections::HashMap<u64, [Point; 4]> =
-                crate::geometry::plan_wall_footprints_by_id(&story_walls)
+            let layer_groups = p.layers.wall_groups(&story_walls);
+            let story_polygons_by_id: std::collections::HashMap<u64, Vec<Point>> =
+                crate::geometry::plan_wall_polygons_by_id(&story_walls, &layer_groups)
                     .into_iter()
                     .collect();
-            let story_footprints: Vec<[Point; 4]> = story_walls
-                .iter()
-                .map(|wall| story_footprints_by_id[&wall.id])
-                .collect();
-            attached_wall_ends.extend(crate::geometry::plan_wall_attached_ends(
-                &story_walls,
-                &story_footprints,
-            ));
-            wall_display_footprints.extend(
+            wall_display_polygons.extend(
                 story_walls
                     .iter()
-                    .map(|wall| (wall.id, story_footprints_by_id[&wall.id])),
+                    .map(|wall| (wall.id, story_polygons_by_id[&wall.id].clone())),
             );
             for material in Material::ALL {
                 let walls: Vec<_> = story_walls
@@ -688,32 +1004,22 @@ impl SceneRenderer {
                 }
                 if join_3d_display
                     && !walls.iter().any(|wall| {
-                        selected.contains(&wall.id) || walls_with_openings.contains(&wall.id)
+                        selected.contains(&wall.id)
+                            || hovered == Some(wall.id)
+                            || walls_with_openings.contains(&wall.id)
                     })
                 {
-                    let mut height_groups: Vec<(f32, Vec<usize>)> = Vec::new();
-                    for (index, wall) in walls.iter().enumerate() {
-                        let Shape::Wall { height, .. } = wall.shape else {
-                            continue;
-                        };
-                        if let Some((_, indices)) = height_groups
-                            .iter_mut()
-                            .find(|(candidate, _)| (height - *candidate).abs() <= 1e-4)
-                        {
-                            indices.push(index);
-                        } else {
-                            height_groups.push((height, vec![index]));
-                        }
-                    }
-                    for (height, indices) in height_groups {
+                    for (bottom, top, indices) in wall_level_groups(p, &walls) {
                         if indices.len() < 2 {
                             continue;
                         }
-                        let group_footprints: Vec<_> = indices
+                        let polygons: Vec<_> = indices
                             .iter()
-                            .map(|index| story_footprints_by_id[&walls[*index].id])
+                            .map(|index| story_polygons_by_id[&walls[*index].id].clone())
                             .collect();
-                        let outlines = crate::geometry::wall_outline_paths(&group_footprints);
+                        let outlines = crate::geometry::wall_outline_paths_from_segments(
+                            crate::geometry::wall_polygon_outline_segments(&polygons),
+                        );
                         // A single closed loop is the common connected L/T
                         // junction case. Groups with separate loops or holes
                         // retain per-element geometry.
@@ -722,9 +1028,8 @@ impl SceneRenderer {
                             && outlines[0][0].distance(*outlines[0].last().unwrap()) <= 1e-3
                         {
                             append_joined_wall_prism(
-                                p,
-                                story_id,
-                                height,
+                                bottom,
+                                top,
                                 material,
                                 outlines.into_iter().next().unwrap(),
                                 &mut vertices,
@@ -769,12 +1074,24 @@ impl SceneRenderer {
             if join_3d_display && merged_wall_ids.contains(&e.id) {
                 continue;
             }
-            let mut element_corners = corners(p, e);
-            let base = if selected.contains(&e.id) {
+            let element_corners = corners(p, e);
+            let base = if hovered == Some(e.id) {
+                // Transfer-cursor hover highlight, lighter than selection.
+                [0.55, 0.8, 1.]
+            } else if selected.contains(&e.id) {
                 [0.31, 0.70, 0.70]
             } else {
                 e.material.color()
             };
+            if e.wall_contour.is_some() && matches!(e.shape, Shape::Wall { .. }) {
+                let clip = if !outside_marquee && !selection_only {
+                    marquee
+                } else {
+                    None
+                };
+                append_contour_wall(p, e, base, clip, &mut vertices, &mut lines);
+                continue;
+            }
             if join_3d_display
                 && matches!(e.shape, Shape::Wall { .. })
                 && walls_with_openings.contains(&e.id)
@@ -795,6 +1112,17 @@ impl SceneRenderer {
                 && !matches!(&e.shape, Shape::Stair { .. })
             {
                 append_clipped_prism(p, e, area, base, &mut vertices, &mut lines);
+                continue;
+            }
+            if matches!(e.shape, Shape::Slab { .. }) && e.slab_contour.is_some() {
+                append_slab_prism(
+                    e,
+                    element_corners[0].z,
+                    element_corners[4].z,
+                    base,
+                    &mut vertices,
+                    &mut lines,
+                );
                 continue;
             }
             if let Shape::Stair { ref spec } = e.shape {
@@ -822,24 +1150,25 @@ impl SceneRenderer {
             }
             if join_3d_display
                 && matches!(e.shape, Shape::Wall { .. })
-                && let Some((_, footprint)) =
-                    wall_display_footprints.iter().find(|(id, _)| *id == e.id)
+                && let Some((_, polygon)) = wall_display_polygons.iter().find(|(id, _)| *id == e.id)
             {
-                for i in 0..4 {
-                    element_corners[i].x = footprint[i].x;
-                    element_corners[i].y = footprint[i].y;
-                    element_corners[i + 4].x = footprint[i].x;
-                    element_corners[i + 4].y = footprint[i].y;
-                }
+                let edge = if selected.contains(&e.id) {
+                    [0.07, 0.40, 0.42]
+                } else {
+                    base.map(|x| x * 0.48)
+                };
+                append_wall_polygon_prism(
+                    polygon,
+                    element_corners[0].z,
+                    element_corners[4].z,
+                    base,
+                    edge,
+                    &mut vertices,
+                    &mut lines,
+                );
+                continue;
             }
-            let start_joined = join_3d_display && attached_wall_ends.contains(&(e.id, true));
-            let end_joined = join_3d_display && attached_wall_ends.contains(&(e.id, false));
             for (fi, face) in FACES.iter().enumerate() {
-                // The extended rectangular wall bodies overlap at a join, so
-                // their internal end faces must not be drawn.
-                if (fi == 3 && end_joined) || (fi == 5 && start_joined) {
-                    continue;
-                }
                 let shade = [0.55, 1., 0.73, 0.87, 0.81, 0.66][fi];
                 let c = base.map(|x| x * shade);
                 for i in [0, 1, 2, 0, 2, 3] {
@@ -868,13 +1197,6 @@ impl SceneRenderer {
                 [2, 6],
                 [3, 7],
             ] {
-                let is_start_cap_edge = [[3, 0], [7, 4], [3, 7], [0, 4]].contains(&[a, b])
-                    || [[3, 0], [7, 4], [3, 7], [0, 4]].contains(&[b, a]);
-                let is_end_cap_edge = [[1, 2], [5, 6], [1, 5], [2, 6]].contains(&[a, b])
-                    || [[1, 2], [5, 6], [1, 5], [2, 6]].contains(&[b, a]);
-                if (start_joined && is_start_cap_edge) || (end_joined && is_end_cap_edge) {
-                    continue;
-                }
                 lines.push(Vertex {
                     position: element_corners[a].to_array(),
                     color,
@@ -946,6 +1268,43 @@ mod clipping_tests {
     };
 
     #[test]
+    fn slab_concave_prism_cap_area_matches_model_without_bounding_box_fill() {
+        let mut project = Project::default();
+        project.add(
+            0,
+            Material::Concrete,
+            Shape::Slab {
+                min: Point::new(0., 0.),
+                max: Point::new(4., 3.),
+                thickness: 0.3,
+            },
+        );
+        crate::slab_geometry::insert_node(&mut project.elements[0], 2, Point::new(2., 2.)).unwrap();
+        let mut vertices = Vec::new();
+        let mut lines = Vec::new();
+        append_slab_prism(
+            &project.elements[0],
+            -0.3,
+            0.,
+            [1.; 3],
+            &mut vertices,
+            &mut lines,
+        );
+        let top_area: f32 = vertices
+            .chunks_exact(3)
+            .filter(|t| t.iter().all(|v| v.position[2] == 0.))
+            .map(|t| {
+                let a = glam::Vec3::from_array(t[0].position);
+                let b = glam::Vec3::from_array(t[1].position);
+                let c = glam::Vec3::from_array(t[2].position);
+                (b - a).cross(c - a).length() * 0.5
+            })
+            .sum();
+        assert!((top_area - project.elements[0].area()).abs() < 1e-5);
+        assert_eq!(lines.len(), 30);
+    }
+
+    #[test]
     fn joined_wall_prism_emits_only_the_exposed_l_outline() {
         let mut project = Project::default();
         project.add(
@@ -969,8 +1328,11 @@ mod clipping_tests {
             },
         );
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = crate::geometry::plan_wall_footprints(&walls);
-        let outlines = crate::geometry::wall_outline_paths(&footprints);
+        let layer_groups = project.layers.wall_groups(&walls);
+        let polygons = crate::geometry::plan_wall_polygons(&walls, &layer_groups);
+        let outlines = crate::geometry::wall_outline_paths_from_segments(
+            crate::geometry::wall_polygon_outline_segments(&polygons),
+        );
         assert_eq!(outlines.len(), 1, "an L junction has one exposed perimeter");
         let outline = &outlines[0];
         let unique_count = outline.len() - 1;
@@ -987,8 +1349,7 @@ mod clipping_tests {
         let mut triangles = Vec::new();
         let mut edges = Vec::new();
         append_joined_wall_prism(
-            &project,
-            0,
+            0.,
             3.,
             Material::Concrete,
             outline.clone(),
@@ -1049,6 +1410,295 @@ mod clipping_tests {
         assert!(
             triangles.iter().any(|v| v.color != [0.7, 0.7, 0.7]),
             "cut caps should be shaded"
+        );
+    }
+}
+
+#[cfg(test)]
+mod contour_render_tests {
+    use super::*;
+
+    #[test]
+    fn contour_mesh_preserves_curvature_and_has_no_tessellation_cap_lines() {
+        let mut project = Project::default();
+        project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.3,
+                height: 3.,
+            },
+        );
+        project.elements[0].wall_contour = Some(WallContour::Arc {
+            arc: crate::geometry::arc_segment_through(
+                Point::new(0., 0.),
+                Point::new(4., 0.),
+                Point::new(2., 2.),
+            )
+            .unwrap(),
+        });
+        let mut vertices = Vec::new();
+        let mut lines = Vec::new();
+        append_contour_wall(
+            &project,
+            &project.elements[0],
+            [0.7; 3],
+            None,
+            &mut vertices,
+            &mut lines,
+        );
+        assert!(!vertices.is_empty());
+        assert!(vertices.iter().any(|v| v.position[1] > 1.9));
+        let vertical_lines = lines
+            .chunks_exact(2)
+            .filter(|pair| {
+                let a = pair[0].position;
+                let b = pair[1].position;
+                (a[0] - b[0]).abs() < 1e-5 && (a[1] - b[1]).abs() < 1e-5 && (a[2] - b[2]).abs() > 1.
+            })
+            .count();
+        assert_eq!(
+            vertical_lines, 4,
+            "only the two ends have vertical cap edges"
+        );
+        assert!(
+            vertices
+                .iter()
+                .all(|v| v.position.iter().all(|x| x.is_finite()))
+        );
+    }
+
+    #[test]
+    fn contour_mesh_clips_to_marquee_xy_and_z() {
+        let mut project = Project::default();
+        project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.3,
+                height: 3.,
+            },
+        );
+        project.elements[0].wall_contour = Some(WallContour::Arc {
+            arc: crate::geometry::arc_segment_through(
+                Point::new(0., 0.),
+                Point::new(4., 0.),
+                Point::new(2., 2.),
+            )
+            .unwrap(),
+        });
+        let area = MarqueeArea {
+            vertices: vec![
+                Point::new(1., -1.),
+                Point::new(3., -1.),
+                Point::new(3., 3.),
+                Point::new(1., 3.),
+            ],
+            scope: crate::editor::MarqueeScope::CurrentStory,
+            story: 0,
+            z_range: Some((1., 2.)),
+        };
+        let mut vertices = Vec::new();
+        let mut lines = Vec::new();
+        append_contour_wall(
+            &project,
+            &project.elements[0],
+            [0.7; 3],
+            Some(&area),
+            &mut vertices,
+            &mut lines,
+        );
+        assert!(!vertices.is_empty());
+        assert!(
+            vertices
+                .iter()
+                .chain(&lines)
+                .all(|v| (0.9999..=3.0001).contains(&v.position[0])
+                    && (0.9999..=2.0001).contains(&v.position[2]))
+        );
+    }
+}
+
+#[cfg(test)]
+mod wall_polygon_render_tests {
+    use super::*;
+
+    #[test]
+    fn polygon_prism_preserves_concave_hub_and_actual_vertical_levels() {
+        let polygon = vec![
+            Point::new(0., 0.),
+            Point::new(4., 0.),
+            Point::new(4., 0.4),
+            Point::new(0.4, 0.4),
+            Point::new(0.2, 0.2),
+            Point::new(0., 0.4),
+        ];
+        let mut vertices = vec![];
+        let mut lines = vec![];
+        let selected = [0.31, 0.70, 0.70];
+        let edge = [0.07, 0.40, 0.42];
+        append_wall_polygon_prism(
+            &polygon,
+            1.25,
+            5.5,
+            selected,
+            edge,
+            &mut vertices,
+            &mut lines,
+        );
+        let top_area: f32 = vertices
+            .chunks_exact(3)
+            .filter(|tri| tri.iter().all(|v| v.position[2] == 5.5))
+            .map(|tri| {
+                let a = tri[0].position;
+                let b = tri[1].position;
+                let c = tri[2].position;
+                ((b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])).abs() * 0.5
+            })
+            .sum();
+        assert!((top_area - 1.56).abs() < 1e-5, "{top_area}");
+        assert_eq!(lines.len(), polygon.len() * 6);
+        for v in vertices.iter().chain(lines.iter()) {
+            assert!(v.position[2] == 1.25 || v.position[2] == 5.5);
+            assert!(polygon.contains(&Point::new(v.position[0], v.position[1])));
+        }
+        assert!(vertices.iter().any(|v| v.position == [0.2, 0.2, 5.5]));
+        assert!(lines.iter().all(|v| v.color == edge));
+        assert!(
+            vertices
+                .iter()
+                .any(|v| v.position[2] == 5.5 && v.color == selected)
+        );
+    }
+
+    #[test]
+    fn junction_selected_and_mixed_material_meshes_use_every_plan_polygon_vertex() {
+        let mut p = Project::default();
+        for (angle, material) in [
+            (0_f32, Material::Concrete),
+            (120., Material::Timber),
+            (240., Material::Concrete),
+        ] {
+            let a = angle.to_radians();
+            p.add(
+                0,
+                material,
+                Shape::Wall {
+                    start: Point::default(),
+                    end: Point::new(a.cos() * 4., a.sin() * 4.),
+                    thickness: 0.4,
+                    height: 3.,
+                },
+            );
+        }
+        let walls: Vec<_> = p.elements.iter().collect();
+        let polygons = crate::geometry::plan_wall_polygons(&walls, &p.layers.wall_groups(&walls));
+        assert!(
+            polygons.iter().any(|polygon| polygon.len() > 4),
+            "junction must exercise the non-quad route"
+        );
+        for (wall, polygon) in walls.iter().zip(&polygons) {
+            for selected in [false, true] {
+                let base = if selected {
+                    [0.31, 0.70, 0.70]
+                } else {
+                    wall.material.color()
+                };
+                let mut vertices = vec![];
+                let mut lines = vec![];
+                append_wall_polygon_prism(
+                    polygon,
+                    0.,
+                    3.,
+                    base,
+                    base.map(|v| v * 0.42),
+                    &mut vertices,
+                    &mut lines,
+                );
+                for point in polygon {
+                    assert!(
+                        vertices
+                            .iter()
+                            .any(|v| v.position == [point.x, point.y, 3.])
+                    );
+                }
+                assert!(
+                    vertices
+                        .iter()
+                        .chain(&lines)
+                        .all(|v| polygon.contains(&Point::new(v.position[0], v.position[1])))
+                );
+                assert_eq!(lines.len(), polygon.len() * 6);
+            }
+        }
+        let outlines = crate::geometry::wall_outline_paths_from_segments(
+            crate::geometry::wall_polygon_outline_segments(&polygons),
+        );
+        assert_eq!(outlines.len(), 1);
+        let mut vertices = vec![];
+        let mut lines = vec![];
+        append_joined_wall_prism(
+            0.,
+            3.,
+            Material::Concrete,
+            outlines[0].clone(),
+            &mut vertices,
+            &mut lines,
+        );
+        assert!(
+            vertices
+                .iter()
+                .all(|v| v.position.iter().all(|x| x.is_finite()))
+        );
+    }
+
+    #[test]
+    fn joined_wall_groups_respect_bottom_and_top_offsets() {
+        let mut p = Project::default();
+        for i in 0..3 {
+            p.add(
+                0,
+                Material::Concrete,
+                Shape::Wall {
+                    start: Point::new(i as f32, 0.),
+                    end: Point::new(i as f32 + 1., 0.),
+                    thickness: 0.2,
+                    height: 3.,
+                },
+            );
+        }
+        for (i, wall) in p.elements.iter_mut().enumerate() {
+            let settings = wall.wall_settings.get_or_insert_with(Default::default);
+            settings.geometry.bottom_offset = if i == 2 { 0.5 } else { 1. };
+            settings.geometry.top_offset = 2.;
+        }
+        let walls: Vec<_> = p.elements.iter().collect();
+        let groups = wall_level_groups(&p, &walls);
+        assert_eq!(groups, vec![(1., 5., vec![0, 1]), (0.5, 5., vec![2])]);
+        let mut vertices = vec![];
+        let mut lines = vec![];
+        append_joined_wall_prism(
+            groups[0].0,
+            groups[0].1,
+            Material::Concrete,
+            vec![
+                Point::new(0., 0.),
+                Point::new(2., 0.),
+                Point::new(2., 0.2),
+                Point::new(0., 0.2),
+            ],
+            &mut vertices,
+            &mut lines,
+        );
+        assert!(
+            vertices
+                .iter()
+                .chain(&lines)
+                .all(|v| v.position[2] == 1. || v.position[2] == 5.)
         );
     }
 }

@@ -77,3 +77,19 @@ proportions. No Archicad source, resource or asset is copied.
 - Exact AC29 pen definitions, highlight opacity and high-DPI sub-pixel
   behaviour are not claimed.
 - CUA screenshots have no REA Evidence ID.
+
+## 2026-10-29 — remove passive selected-wall length (pre-code)
+
+Authority: current maintainer request, “选中墙线，不要出现墙体长度，没有必要”. This supersedes the retained wall-length label above. Reused source: `plan.rs` selected-reference-path paint loop and `wall_edit_palette` endpoint popup; existing highlight/handle and bilingual palette regressions. Target identity AC29 INT 5101 unchanged; no new Archicad behavior observation is needed for this explicit OpenArchi presentation choice.
+
+Remove the always-visible wall length above a selected reference line and the redundant static length row in its selection endpoint palette. Preserve reference-line/handle highlighting, edit distance/angle trackers, property inspection, real dimensions, geometry, hit testing, preview, confirmation/cancel, selection, undo/redo and persistence. No cursor/gesture/state transition changes. Acceptance: select a wall and its endpoint in English/Chinese → no passive wall-length text; blue baseline/black handles and edit tracker remain; project/history unchanged. Curved and multiselected walls use the same label-free paint loop. Exact AC29 selection-label equivalence and cursor hotspots remain outside this presentation fix.
+
+### Removal delivered and checked
+
+Deleted the selected-reference-loop length paint and the selection endpoint palette's static Length row in `src/app/plan.rs`. Reference paths/handles, real overall dimensions, editable property length and active-operation trackers are unchanged. Existing bilingual selection/endpoint-palette regressions now require no passive label and preserve model/history; the selection test separately retains the real overall dimension (which can equal wall length numerically).
+
+Fresh forced verification passed: format, all-target check, localization validation, **432 Rust tests** (one performance case ignored), **15 tooling tests**, whitespace and packaging. Receipt `target/ac29-workflow/runs/20261029T062421Z-2231a9dd/report.json`, finished `2026-10-29T06:24:56Z`. App `dist/OpenArchi.app`; release/bundle arm64 UUID **5858F0D1-77C2-36F5-9485-0F512AA2329B**; strict deep ad-hoc signature passed.
+
+Current native smoke: isolated HOME `/tmp/openarchi-no-selection-length-20261029`, final package PID 69597, 1512×988-point window / 3024×1976-pixel capture. Select demo Wall 004: no green `12.000 m` label above its blue baseline; black endpoint handles, actual `12.220 m` overall dimension and `2.580 m` gap feedback remain. View → Language English → 简体中文 → English retained selection and 12-element count. [English screenshot](wall-selection-evidence/2026-10-29-no-length-en.png), [Chinese screenshot](wall-selection-evidence/2026-10-29-no-length-zh.png). Endpoint popup absence is covered by bilingual event tests; it was not separately captured natively. Chinese restart was checked with a second final-package isolated instance (PID 87819): first AX window title `未命名`, using stored `zh-CN` preference; it was then closed and the test preference restored to en. Untouched dialogs were not rechecked for this removal. No new locale keys needed: removed render usages, with existing shared Length translations retained. The pre-existing title-bar selector remains absent under the native-title contract. Test instance closed normally; original user PID 2851 (20 elements, 1 selected) was preserved. No model edits, commit or push.
+
+Experience proposal pending maintainer confirmation (not added to AGENTS.md): distinguish selection-only annotations from real dimension objects and operation trackers; when removing one, assert its screen context, because the same numeric text may legitimately remain in another surface.

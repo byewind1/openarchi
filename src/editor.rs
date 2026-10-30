@@ -1,8 +1,9 @@
 use crate::{
     command::{CommandRecord, ElementEdit, ModelCommand, ProjectDelta, ProjectHeader},
     geometry,
+    layers::{ARCHICAD_LAYER, ElementLayer, LayerDocument},
     model::*,
-    view_settings::{Layer, RenovationStatus},
+    view_settings::RenovationStatus,
     wall::{WallGeometryMethod, WallSettings},
 };
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -69,10 +70,12 @@ pub enum MarqueeGeometry {
     Polygon,
 }
 pub struct Editor {
+    pub last_edit: Option<crate::editing::EditCommand>,
     pub project: Project,
     pub selected: Option<u64>,
     pub selected_ids: Vec<u64>,
     pub clipboard: Vec<Element>,
+    pub clipboard_groups: Vec<Vec<u64>>,
     pub story: u32,
     pub previous_story: u32,
     pub tool: Tool,
@@ -89,13 +92,15 @@ pub struct Editor {
     pub door_defaults: OpeningDefaults,
     pub window_defaults: OpeningDefaults,
     pub wall_settings: WallSettings,
-    pub wall_layer: Layer,
+    pub wall_layer: ElementLayer,
     pub wall_renovation: RenovationStatus,
     pub material: Material,
     pub snap: bool,
     pub orthogonal: bool,
     pub undo: Vec<CommandRecord>,
     pub redo: Vec<CommandRecord>,
+    /// Parameters picked up with the AC29-style eyedropper, per element type.
+    pub pick_up_buffer: crate::transfer::PickUpBuffer,
     pub saved: Project,
     /// Monotonic model revision, incremented by commits and undo/redo.
     pub revision: u64,
@@ -106,11 +111,13 @@ pub struct Editor {
 impl Editor {
     pub fn new(project: Project) -> Self {
         Self {
+            last_edit: None,
             saved: project.clone(),
             project,
             selected: None,
             selected_ids: Vec::new(),
             clipboard: Vec::new(),
+            clipboard_groups: Vec::new(),
             story: 0,
             previous_story: 0,
             tool: Tool::Select,
@@ -125,13 +132,14 @@ impl Editor {
             door_defaults: OpeningKind::Door.defaults(),
             window_defaults: OpeningKind::Window.defaults(),
             wall_settings: WallSettings::default(),
-            wall_layer: Layer::Architectural,
+            wall_layer: ElementLayer(ARCHICAD_LAYER),
             wall_renovation: RenovationStatus::New,
             material: Material::Plaster,
             snap: true,
             orthogonal: false,
             undo: vec![],
             redo: vec![],
+            pick_up_buffer: crate::transfer::PickUpBuffer::default(),
             revision: 0,
             recovered_unsaved: false,
             status: "Select an element or start drawing".into(),
@@ -154,6 +162,15 @@ impl Editor {
         self.status = "Recovered unsaved project".into();
     }
     pub fn commit(&mut self, before: Project) {
+        // Final guard for legacy pointer/property paths which edit a draft directly.
+        if before.elements.iter().any(|old| {
+            (before.edit_state.locked.contains(&old.id) || before.layers.is_locked(old.layer.0))
+                && self.project.elements.iter().find(|e| e.id == old.id) != Some(old)
+        }) {
+            self.project = before;
+            self.status = "Selection contains locked elements".into();
+            return;
+        }
         if before != self.project {
             self.revision = self.revision.wrapping_add(1);
             let delta = ProjectDelta::between(&before, &self.project);
@@ -169,6 +186,38 @@ impl Editor {
     /// change. Returns the affected element ids; an empty list means the
     /// command was a no-op. Invalid commands leave the project untouched.
     pub fn apply(&mut self, command: ModelCommand) -> Result<Vec<u64>, String> {
+        // AC29 Layer status: locked layers reject edits, deletions and new
+        // element placement (help 025_Attributes-5).
+        match &command {
+            ModelCommand::AddElement { element } => {
+                if self.project.layers.is_locked(element.layer.0) {
+                    return Err(format!(
+                        "Layer {} is locked",
+                        self.project
+                            .layers
+                            .layer(element.layer.0)
+                            .map(|layer| layer.name.clone())
+                            .unwrap_or_else(|| "unknown".into())
+                    ));
+                }
+            }
+            ModelCommand::RemoveElements { ids } => {
+                if let Some(id) = ids.iter().find(|id| self.locked_element(**id)) {
+                    return Err(format!("Element {id} is on a locked layer"));
+                }
+            }
+            ModelCommand::UpdateElement { element } => {
+                if self.locked_element(element.id) {
+                    return Err(format!("Element {} is on a locked layer", element.id));
+                }
+            }
+            ModelCommand::MoveElements { ids, .. } => {
+                if let Some(id) = ids.iter().find(|id| self.locked_element(**id)) {
+                    return Err(format!("Element {id} is on a locked layer"));
+                }
+            }
+            _ => {}
+        }
         let record_command = command.clone();
         let mut delta = ProjectDelta::default();
         let inverse;
@@ -212,6 +261,9 @@ impl Editor {
                     {
                         requested.insert(element.id);
                     }
+                }
+                if requested.iter().any(|id| self.locked_element(*id)) {
+                    return Err("Selection contains locked elements".into());
                 }
                 let mut removed: Vec<(usize, Element)> = self
                     .project
@@ -598,6 +650,23 @@ impl Editor {
         (self.wall_points.len() >= minimum).then_some(first)
     }
 
+    /// Change the pending construction without committing or discarding nodes.
+    pub fn set_wall_geometry_method(&mut self, method: WallGeometryMethod) {
+        if self.wall_settings.geometry.geometry_method == method {
+            return;
+        }
+        if self.wall_draft_active()
+            && self.wall_points.is_empty()
+            && let Some(anchor) = self.anchor
+        {
+            self.wall_points.push(anchor);
+        }
+        self.wall_settings.geometry.geometry_method = method;
+        if self.tool == Tool::Wall {
+            self.status = method.status_key().into();
+        }
+    }
+
     pub fn cancel_wall_draft(&mut self) {
         self.anchor = None;
         self.wall_points.clear();
@@ -765,9 +834,11 @@ impl Editor {
             name: String::new(),
             story: self.story,
             material: host.material,
-            layer: Layer::Architectural,
+            layer: ElementLayer(ARCHICAD_LAYER),
             renovation: self.wall_renovation,
             design_option: None,
+            wall_contour: None,
+            slab_contour: None,
             wall_settings: None,
             shape: Shape::Opening {
                 host_wall: host.id,
@@ -833,7 +904,13 @@ impl Editor {
                     self.status = "Wall must be at least 10 mm".into();
                     return Err(self.status.clone());
                 }
-                let ids = self.create_wall_segments(vec![(start, end)])?;
+                let mut segments: Vec<_> = self
+                    .wall_points
+                    .windows(2)
+                    .map(|pair| (pair[0], pair[1]))
+                    .collect();
+                segments.push((start, end));
+                let ids = self.create_wall_segments(segments)?;
                 self.status = format!("Created element {:03}", ids[0]);
                 Ok(ids)
             }
@@ -851,8 +928,11 @@ impl Editor {
                     return Err(self.status.clone());
                 }
                 let corners = [min, Point::new(max.x, min.y), max, Point::new(min.x, max.y)];
-                let segments = (0..4)
-                    .map(|index| (corners[index], corners[(index + 1) % 4]))
+                let segments = self
+                    .wall_points
+                    .windows(2)
+                    .map(|pair| (pair[0], pair[1]))
+                    .chain((0..4).map(|index| (corners[index], corners[(index + 1) % 4])))
                     .collect();
                 let ids = self.create_wall_segments(segments)?;
                 self.status = format!("Created {} rectangular wall segments", ids.len());
@@ -965,6 +1045,18 @@ impl Editor {
     }
 
     fn create_wall_segments(&mut self, segments: Vec<(Point, Point)>) -> Result<Vec<u64>, String> {
+        // AC29 Layer status: no new elements on locked layers. Wall creation
+        // bypasses `apply`, so guard here too.
+        if self.project.layers.is_locked(self.wall_layer.0) {
+            let name = self
+                .project
+                .layers
+                .layer(self.wall_layer.0)
+                .map(|layer| layer.name.clone())
+                .unwrap_or_else(|| "unknown".into());
+            self.status = format!("Layer {name} is locked");
+            return Err(self.status.clone());
+        }
         let before = self.project.clone();
         let mut ids = Vec::with_capacity(segments.len());
         for (start, end) in segments {
@@ -1001,6 +1093,9 @@ impl Editor {
             self.status = error.clone();
             return Err(error);
         }
+        if self.project.edit_state.autogroup && ids.len() > 1 {
+            self.project.edit_state.groups.insert(0, ids.clone());
+        }
         self.commit(before);
         self.anchor = None;
         self.wall_points.clear();
@@ -1008,13 +1103,168 @@ impl Editor {
         self.selected_ids = self.selected.into_iter().collect();
         Ok(ids)
     }
+    /// Pick up the transferable parameters of one element: remember a full
+    /// snapshot per element type and apply the active transfer set onto the
+    /// tool creation defaults, like the AC29 eyedropper. Not a model change,
+    /// so no undo record is written.
+    pub fn pick_up_from(
+        &mut self,
+        id: u64,
+        set: &crate::transfer::TransferSettings,
+    ) -> Result<crate::transfer::TransferType, String> {
+        let Some(source) = self
+            .project
+            .elements
+            .iter()
+            .find(|element| element.id == id)
+            .cloned()
+        else {
+            return Err("No element under the cursor".into());
+        };
+        let Some(transfer_type) = crate::transfer::TransferType::of(&source) else {
+            return Err("Unsupported element type".into());
+        };
+        let picked = crate::transfer::apply_pick_up_defaults(&source, set);
+        if let Some(material) = picked.material {
+            self.material = material;
+        }
+        if let Some(layer) = picked.layer
+            && transfer_type == crate::transfer::TransferType::Wall
+        {
+            self.wall_layer = layer;
+        }
+        if let Some(thickness) = picked.thickness {
+            self.thickness = thickness;
+        }
+        if let Some(height) = picked.height {
+            self.height = height;
+        }
+        if let Some(settings) = picked.wall_settings {
+            self.wall_settings = settings;
+        }
+        if let Some(spec) = picked.stair_spec {
+            self.stair_spec = spec;
+        }
+        if let Some((kind, defaults)) = picked.opening_defaults {
+            match kind {
+                crate::model::OpeningKind::Door => self.door_defaults = defaults,
+                crate::model::OpeningKind::Window => self.window_defaults = defaults,
+            }
+        }
+        self.pick_up_buffer.store(&source);
+        // AC29 semantics: a pick-up arms the matching tool with the picked
+        // defaults, ready to draw. The caller reports the pick-up in the
+        // status bar; the toolbox shows the activated tool.
+        self.set_tool(match transfer_type {
+            crate::transfer::TransferType::Wall => Tool::Wall,
+            crate::transfer::TransferType::Slab => Tool::Slab,
+            crate::transfer::TransferType::Stair => Tool::Stair,
+            crate::transfer::TransferType::Polyline => Tool::Polyline,
+            crate::transfer::TransferType::Door => Tool::Door,
+            crate::transfer::TransferType::Window => Tool::Window,
+        });
+        Ok(transfer_type)
+    }
+
+    /// Inject the picked-up parameters of each matching element type into the
+    /// given elements. The whole injection is validated and committed as one
+    /// undo record; a validation failure leaves the project untouched.
+    pub fn inject_into(
+        &mut self,
+        ids: &[u64],
+        set: &crate::transfer::TransferSettings,
+    ) -> Result<usize, String> {
+        let mut updated: Vec<Element> = Vec::new();
+        for id in ids {
+            let Some(target) = self.project.elements.iter().find(|e| e.id == *id) else {
+                continue;
+            };
+            let Some(transfer_type) = crate::transfer::TransferType::of(target) else {
+                continue;
+            };
+            let Some(source) = self.pick_up_buffer.get(transfer_type).cloned() else {
+                continue;
+            };
+            let mut candidate = target.clone();
+            crate::transfer::apply_transfer(&source, &mut candidate, set)?;
+            if candidate != *target {
+                updated.push(candidate);
+            }
+        }
+        if updated.is_empty() {
+            return Err("No picked-up parameters for the selected element type".into());
+        }
+        let before = self.project.clone();
+        for element in &updated {
+            if let Some(target) = self
+                .project
+                .elements
+                .iter_mut()
+                .find(|e| e.id == element.id)
+            {
+                *target = element.clone();
+            }
+        }
+        if let Err(error) = self.project.validate() {
+            self.project = before;
+            return Err(error);
+        }
+        self.commit(before);
+        Ok(updated.len())
+    }
+
+    /// Replace the named transfer sets with one reversible project change.
+    pub fn set_transfer_settings(&mut self, settings: crate::transfer::TransferSettings) {
+        if self.project.transfer_settings == settings {
+            return;
+        }
+        let before = self.project.clone();
+        self.project.transfer_settings = settings;
+        self.commit(before);
+    }
+
+    /// True when the element exists and its layer is locked.
+    pub fn locked_element(&self, id: u64) -> bool {
+        self.project
+            .elements
+            .iter()
+            .find(|element| element.id == id)
+            .is_some_and(|element| {
+                self.project.layers.is_locked(element.layer.0)
+                    || self.project.edit_state.locked.contains(&id)
+            })
+    }
+
+    /// Replaces the layer document and remaps listed elements in one
+    /// reversible project change (Layer Settings OK).
+    pub fn set_layer_document(&mut self, layers: LayerDocument, remap: &[(u64, ElementLayer)]) {
+        let before = self.project.clone();
+        self.project.layers = layers;
+        for (id, layer) in remap {
+            if let Some(element) = self
+                .project
+                .elements
+                .iter_mut()
+                .find(|element| element.id == *id)
+            {
+                element.layer = *layer;
+            }
+        }
+        self.commit(before);
+    }
+
     pub fn undo(&mut self) {
         if let Some(record) = self.undo.pop() {
+            let selected = self.selection_ids();
             record.delta.revert(&mut self.project);
             self.redo.push(record);
             self.revision = self.revision.wrapping_add(1);
-            self.selected = None;
-            self.selected_ids.clear();
+            self.set_selection(
+                selected
+                    .into_iter()
+                    .filter(|id| self.project.elements.iter().any(|e| e.id == *id))
+                    .collect(),
+            );
             self.anchor = None;
             self.wall_points.clear();
             self.status = "Undo".into();
@@ -1048,12 +1298,13 @@ impl Editor {
     }
     pub fn selection_ids(&self) -> Vec<u64> {
         if self.selected_ids.is_empty() {
-            self.selected.into_iter().collect()
+            self.expanded_selection(self.selected.into_iter().collect())
         } else {
-            self.selected_ids.clone()
+            self.expanded_selection(self.selected_ids.clone())
         }
     }
-    pub fn set_selection(&mut self, mut ids: Vec<u64>) {
+    pub fn set_selection(&mut self, ids: Vec<u64>) {
+        let mut ids = self.expanded_selection(ids);
         ids.sort_unstable();
         ids.dedup();
         ids.retain(|id| self.project.elements.iter().any(|e| e.id == *id));
@@ -1112,6 +1363,22 @@ impl Editor {
         if !delta.finite() {
             return Err("Stretch vector must be finite".into());
         }
+        // A partial endpoint stretch needs an explicit contour-editing policy.
+        // Reject it before mutating any element; whole-wall moves are exact.
+        for e in self
+            .project
+            .elements
+            .iter()
+            .filter(|e| area.includes_story(e.story))
+        {
+            if e.wall_contour.is_some()
+                && let Shape::Wall { start, end, .. } = e.shape
+                && geometry::point_in_polygon(start, &area.vertices)
+                    != geometry::point_in_polygon(end, &area.vertices)
+            {
+                return Err("Partial stretch requires a straight wall".into());
+            }
+        }
         let before = self.project.clone();
         let mut changed = 0;
         for e in self
@@ -1120,6 +1387,37 @@ impl Editor {
             .iter_mut()
             .filter(|e| area.includes_story(e.story))
         {
+            if e.slab_contour.is_some() {
+                if crate::slab_geometry::rings(e)
+                    .iter()
+                    .flat_map(|r| r.points.iter())
+                    .any(|p| geometry::point_in_polygon(*p, &area.vertices))
+                {
+                    crate::slab_geometry::transform(
+                        e,
+                        |p| {
+                            if geometry::point_in_polygon(p, &area.vertices) {
+                                Point::new(p.x + delta.x, p.y + delta.y)
+                            } else {
+                                p
+                            }
+                        },
+                        1.,
+                        false,
+                    );
+                    changed += 1;
+                }
+                continue;
+            }
+            if e.wall_contour.is_some()
+                && let Shape::Wall { start, end, .. } = e.shape
+                && geometry::point_in_polygon(start, &area.vertices)
+                && geometry::point_in_polygon(end, &area.vertices)
+            {
+                e.translate(delta);
+                changed += 1;
+                continue;
+            }
             match &mut e.shape {
                 Shape::Wall { start, end, .. } => {
                     let a = geometry::point_in_polygon(*start, &area.vertices);
@@ -1216,7 +1514,12 @@ impl Editor {
         self.paste(Point::new(0.5, 0.5));
     }
     pub fn copy_selection(&mut self) -> usize {
-        let ids = self.selection_ids();
+        let mut ids = self.selection_ids();
+        let hosts = ids.clone();
+        ids.extend(self.project.elements.iter().filter_map(|e| match e.shape {
+            Shape::Opening { host_wall, .. } if hosts.contains(&host_wall) => Some(e.id),
+            _ => None,
+        }));
         self.clipboard = self
             .project
             .elements
@@ -1224,6 +1527,7 @@ impl Editor {
             .filter(|e| ids.contains(&e.id))
             .cloned()
             .collect();
+        self.clipboard_groups = self.project.edit_state.groups.clone();
         self.clipboard.len()
     }
     pub fn cut_selection(&mut self) -> usize {
@@ -1238,177 +1542,83 @@ impl Editor {
             return 0;
         }
         let before = self.project.clone();
-        let mut id_map = std::collections::HashMap::new();
-        let mut copies = Vec::with_capacity(self.clipboard.len());
-        let mut deferred = Vec::new();
-        for mut copy in self.clipboard.clone() {
-            if matches!(copy.shape, Shape::Opening { .. }) {
-                deferred.push(copy);
-                continue;
+        let mut candidate = self.project.clone();
+        let mut map = std::collections::BTreeMap::new();
+        for e in &self.clipboard {
+            if candidate.layers.is_locked(e.layer.0) {
+                self.status = "Selection contains locked elements".into();
+                return 0;
             }
-            copy.translate(offset);
-            let original_id = copy.id;
-            let new_id = self.project.add_with_status(
-                copy.story,
-                copy.material,
-                copy.shape,
-                copy.renovation,
-            );
-            id_map.insert(original_id, new_id);
-            copies.push(new_id);
+            map.insert(e.id, candidate.next_id);
+            candidate.next_id += 1;
         }
-        for mut opening in deferred {
-            let Shape::Opening { host_wall, .. } = &mut opening.shape else {
-                continue;
-            };
-            let Some(&new_host) = id_map.get(host_wall) else {
-                continue;
-            };
-            *host_wall = new_host;
-            let new_id = self.project.add_with_status(
-                opening.story,
-                opening.material,
-                opening.shape,
-                opening.renovation,
-            );
-            copies.push(new_id);
+        let mut copies = Vec::new();
+        for mut e in self.clipboard.clone() {
+            e.id = map[&e.id];
+            if let Shape::Opening { host_wall, .. } = &mut e.shape {
+                let Some(new_host) = map.get(host_wall) else {
+                    self.status = "Select the host wall with its openings".into();
+                    return 0;
+                };
+                *host_wall = *new_host;
+            } else {
+                e.translate(offset);
+            }
+            copies.push(e.id);
+            candidate.elements.push(e);
         }
-        if self.project.validate().is_err() {
-            self.project = before;
-            self.status = "Paste exceeds the valid modeling range".into();
+        for group in &self.clipboard_groups {
+            let group: Vec<_> = group.iter().filter_map(|id| map.get(id).copied()).collect();
+            if group.len() > 1 {
+                candidate.edit_state.groups.push(group);
+            }
+        }
+        if let Err(error) = candidate.validate() {
+            self.status = error;
             return 0;
         }
+        self.project = candidate;
         self.set_selection(copies);
         self.commit(before);
         self.selection_ids().len()
     }
     pub fn mirror_selection(&mut self, mirror_x: bool) {
-        let ids = self.selection_ids();
-        let bounds: Vec<Point> = self
-            .project
-            .elements
-            .iter()
-            .filter(|e| ids.contains(&e.id))
-            .flat_map(|e| geometry::element_footprint(&self.project, e))
-            .collect();
-        if bounds.is_empty() {
-            return;
-        }
-        let center = bounds.iter().fold(Point::default(), |a, p| {
-            Point::new(
-                a.x + p.x / bounds.len() as f32,
-                a.y + p.y / bounds.len() as f32,
-            )
-        });
-        let before = self.project.clone();
-        for e in self
-            .project
-            .elements
-            .iter_mut()
-            .filter(|e| ids.contains(&e.id))
-        {
-            Self::transform_element(e, center, |p| {
-                if mirror_x {
-                    Point::new(2. * center.x - p.x, p.y)
-                } else {
-                    Point::new(p.x, 2. * center.y - p.y)
-                }
-            });
-            if let Shape::Polyline { arcs, .. } = &mut e.shape {
-                for arc in arcs.iter_mut().flatten() {
-                    arc.clockwise = !arc.clockwise;
-                }
-            }
-        }
-        if self.project.validate().is_err() {
-            self.project = before;
-            return;
-        }
-        self.commit(before);
-        self.status = if mirror_x {
-            "Mirrored selection across X"
-        } else {
-            "Mirrored selection across Y"
-        }
-        .into();
+        self.transform_selection_around_center(if mirror_x { 0. } else { 180. }, true);
     }
     pub fn rotate_selection_quarter_turn(&mut self, clockwise: bool) {
+        self.transform_selection_around_center(if clockwise { -90. } else { 90. }, false);
+    }
+    fn transform_selection_around_center(&mut self, angle: f32, mirror: bool) {
         let ids = self.selection_ids();
-        let bounds: Vec<Point> = self
+        let points: Vec<_> = self
             .project
             .elements
             .iter()
             .filter(|e| ids.contains(&e.id))
-            .flat_map(|e| geometry::element_footprint(&self.project, e))
+            .flat_map(|e| geometry::element_plan_outline(&self.project, e))
             .collect();
-        if bounds.is_empty() {
+        if points.is_empty() {
             return;
         }
-        let center = bounds.iter().fold(Point::default(), |a, p| {
-            Point::new(
-                a.x + p.x / bounds.len() as f32,
-                a.y + p.y / bounds.len() as f32,
-            )
-        });
-        let before = self.project.clone();
-        for e in self
-            .project
-            .elements
-            .iter_mut()
-            .filter(|e| ids.contains(&e.id))
-        {
-            Self::transform_element(e, center, |p| {
-                let x = p.x - center.x;
-                let y = p.y - center.y;
-                if clockwise {
-                    Point::new(center.x + y, center.y - x)
-                } else {
-                    Point::new(center.x - y, center.y + x)
-                }
+        let lo = points
+            .iter()
+            .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
+                Point::new(a.x.min(p.x), a.y.min(p.y))
             });
-        }
-        if self.project.validate().is_err() {
-            self.project = before;
-            return;
-        }
-        self.commit(before);
-        self.status = "Rotated selection 90°".into();
-    }
-    fn transform_element(e: &mut Element, _center: Point, transform: impl Fn(Point) -> Point) {
-        match &mut e.shape {
-            Shape::Wall { start, end, .. } => {
-                *start = transform(*start);
-                *end = transform(*end);
-            }
-            Shape::Slab { min, max, .. } => {
-                let points = [
-                    *min,
-                    Point::new(max.x, min.y),
-                    *max,
-                    Point::new(min.x, max.y),
-                ]
-                .map(transform);
-                *min = points
-                    .iter()
-                    .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
-                        Point::new(a.x.min(p.x), a.y.min(p.y))
-                    });
-                *max = points
-                    .iter()
-                    .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
-                        Point::new(a.x.max(p.x), a.y.max(p.y))
-                    });
-            }
-            Shape::Stair { spec } => {
-                spec.start = transform(spec.start);
-                spec.end = transform(spec.end);
-            }
-            Shape::Polyline { points, .. } => {
-                for point in points {
-                    *point = transform(*point);
-                }
-            }
-            Shape::Opening { .. } => {}
+        let hi = points
+            .iter()
+            .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
+                Point::new(a.x.max(p.x), a.y.max(p.y))
+            });
+        if let Err(error) = self.edit(crate::editing::EditCommand::Transform {
+            offset: Point::default(),
+            origin: Point::new((lo.x + hi.x) / 2., (lo.y + hi.y) / 2.),
+            angle,
+            scale: 1.,
+            mirror,
+            copies: 0,
+        }) {
+            self.status = error;
         }
     }
     pub fn move_selection_to_story(&mut self, direction: i32) {
@@ -1449,6 +1659,9 @@ impl Editor {
         }
     }
     pub fn replace_element(&mut self, e: Element) -> Result<(), String> {
+        if self.locked_element(e.id) {
+            return Err("Selection contains locked elements".into());
+        }
         let before = self.project.clone();
         if let Some(slot) = self.project.elements.iter_mut().find(|v| v.id == e.id) {
             *slot = e;
@@ -1471,6 +1684,14 @@ impl Editor {
         start: Point,
         end: Point,
     ) -> Result<(), String> {
+        if self
+            .project
+            .elements
+            .iter()
+            .any(|e| e.id == id && e.wall_contour.is_some())
+        {
+            return Err("Reference line changes require a straight wall".into());
+        }
         self.project.validate_wall_reference_line(id, start, end)?;
         let Some(element) = self
             .project
@@ -1498,15 +1719,73 @@ impl Editor {
 mod command_tests {
     use super::*;
 
+    #[test]
+    fn custom_wall_marquee_moves_complete_contour_but_rejects_partial_stretch() {
+        let mut p = Project::default();
+        let mut e = wall(1, 0.);
+        e.wall_contour = Some(crate::model::WallContour::Trapezoid {
+            outer_start: Point::new(0., 0.3),
+            outer_end: Point::new(2., 0.6),
+            outer_nodes: vec![],
+            outer_positive: true,
+        });
+        p.next_id = 2;
+        p.elements.push(e);
+        let before = p.clone();
+        let mut editor = Editor::new(p);
+        let marquee = |right| {
+            MarqueeArea::new(
+                vec![
+                    Point::new(-1., -1.),
+                    Point::new(right, -1.),
+                    Point::new(right, 2.),
+                    Point::new(-1., 2.),
+                ],
+                MarqueeScope::CurrentStory,
+                0,
+            )
+        };
+        editor.marquee = marquee(1.);
+        assert!(editor.stretch_nodes_in_marquee(Point::new(1., 1.)).is_err());
+        assert_eq!(editor.project, before);
+        assert!(editor.undo.is_empty());
+        assert!(
+            editor
+                .set_wall_reference_line(1, Point::new(1., 0.), Point::new(3., 0.))
+                .is_err()
+        );
+        assert_eq!(editor.project, before);
+        editor.marquee = marquee(3.);
+        assert_eq!(
+            editor.stretch_nodes_in_marquee(Point::new(1., 1.)).unwrap(),
+            1
+        );
+        let expected: Vec<_> = crate::wall_geometry::outline(&before.elements[0])
+            .into_iter()
+            .map(|p| Point::new(p.x + 1., p.y + 1.))
+            .collect();
+        assert_eq!(
+            crate::wall_geometry::outline(&editor.project.elements[0]),
+            expected
+        );
+        let after = editor.project.clone();
+        editor.undo();
+        assert_eq!(editor.project, before);
+        editor.redo();
+        assert_eq!(editor.project, after);
+    }
+
     fn wall(id: u64, x: f32) -> Element {
         Element {
             id,
             name: format!("Wall {id}"),
             story: 0,
             material: Material::Plaster,
-            layer: Layer::Architectural,
+            layer: ElementLayer(ARCHICAD_LAYER),
             renovation: RenovationStatus::New,
             design_option: None,
+            wall_contour: None,
+            slab_contour: None,
             wall_settings: None,
             shape: Shape::Wall {
                 start: Point::new(x, 0.),

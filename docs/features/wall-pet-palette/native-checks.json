@@ -1,0 +1,52 @@
+{
+  "outer": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-outer-result.json"
+  },
+  "rotate": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-rotate-result.json"
+  },
+  "mirror": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-mirror-result.json"
+  },
+  "insert": {
+    "elements": 2,
+    "model_changed": true,
+    "evidence": "final-insert-result.json"
+  },
+  "tangent": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-tangent-result.json"
+  },
+  "trapezoid": {
+    "elements": 2,
+    "model_changed": true,
+    "evidence": "final-trapezoid-result.json"
+  },
+  "drag": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-drag-result.json"
+  },
+  "multiply": {
+    "elements": 4,
+    "model_changed": true,
+    "evidence": "final-multiply-result.json"
+  },
+  "elevate": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-elevate-result.json"
+  },
+  "curve": {
+    "elements": 1,
+    "model_changed": true,
+    "evidence": "final-curve-result.json"
+  }
+}

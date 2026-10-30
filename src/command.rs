@@ -8,6 +8,7 @@
 use crate::{
     grids::GridSettings,
     guides::{GuideSettings, PersistentGuide},
+    layers::LayerDocument,
     model::{Element, Point, Project, Story},
     view_settings::{DesignOptions, PlanOptions},
 };
@@ -29,6 +30,7 @@ pub struct ElementEdit {
 /// Project fields outside `elements`, captured only when they change.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectHeader {
+    pub edit_state: crate::editing::EditState,
     pub schema_version: u32,
     pub name: String,
     pub next_id: u64,
@@ -38,11 +40,14 @@ pub struct ProjectHeader {
     pub guide_settings: GuideSettings,
     pub plan_options: PlanOptions,
     pub design_options: DesignOptions,
+    pub layers: LayerDocument,
+    pub transfer_settings: crate::transfer::TransferSettings,
 }
 
 impl ProjectHeader {
     pub(crate) fn capture(project: &Project) -> Self {
         Self {
+            edit_state: project.edit_state.clone(),
             schema_version: project.schema_version,
             name: project.name.clone(),
             next_id: project.next_id,
@@ -52,10 +57,13 @@ impl ProjectHeader {
             guide_settings: project.guide_settings.clone(),
             plan_options: project.plan_options.clone(),
             design_options: project.design_options.clone(),
+            layers: project.layers.clone(),
+            transfer_settings: project.transfer_settings.clone(),
         }
     }
 
     fn restore(&self, project: &mut Project) {
+        project.edit_state = self.edit_state.clone();
         project.schema_version = self.schema_version;
         project.name.clone_from(&self.name);
         project.next_id = self.next_id;
@@ -65,6 +73,10 @@ impl ProjectHeader {
         project.guide_settings.clone_from(&self.guide_settings);
         project.plan_options.clone_from(&self.plan_options);
         project.design_options.clone_from(&self.design_options);
+        project.layers.clone_from(&self.layers);
+        project
+            .transfer_settings
+            .clone_from(&self.transfer_settings);
     }
 }
 
@@ -83,7 +95,8 @@ pub struct ProjectDelta {
 impl ProjectDelta {
     pub fn between(before: &Project, after: &Project) -> Self {
         let mut delta = Self::default();
-        if before.schema_version != after.schema_version
+        if before.edit_state != after.edit_state
+            || before.schema_version != after.schema_version
             || before.name != after.name
             || before.next_id != after.next_id
             || before.stories != after.stories
@@ -92,6 +105,8 @@ impl ProjectDelta {
             || before.guide_settings != after.guide_settings
             || before.plan_options != after.plan_options
             || before.design_options != after.design_options
+            || before.layers != after.layers
+            || before.transfer_settings != after.transfer_settings
         {
             delta.before_header = Some(Box::new(ProjectHeader::capture(before)));
             delta.after_header = Some(Box::new(ProjectHeader::capture(after)));

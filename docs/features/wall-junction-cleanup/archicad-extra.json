@@ -1,0 +1,1374 @@
+{
+  "cases": [
+    {
+      "name": "Y_unequal",
+      "origin": [
+        200,
+        100
+      ],
+      "angles": [
+        0,
+        120,
+        240
+      ],
+      "thickness": [
+        0.6,
+        0.2,
+        0.4
+      ]
+    },
+    {
+      "name": "Narrow3",
+      "origin": [
+        220,
+        100
+      ],
+      "angles": [
+        0,
+        10,
+        20
+      ],
+      "thickness": [
+        0.3,
+        0.3,
+        0.3
+      ]
+    },
+    {
+      "name": "Y_inside",
+      "origin": [
+        240,
+        100
+      ],
+      "angles": [
+        0,
+        120,
+        240
+      ],
+      "thickness": [
+        0.3,
+        0.3,
+        0.3
+      ],
+      "reference": "Inside"
+    }
+  ],
+  "request": {
+    "wallsData": [
+      {
+        "begCoordinate": {
+          "x": 200,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 204,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.6,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 200,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 198,
+          "y": 103.46410161513775
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.2,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 200,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 198,
+          "y": 96.53589838486225
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.4,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 220,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 224,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 220,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 223.93923101204882,
+          "y": 100.69459271066772
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 220,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 223.75877048314362,
+          "y": 101.36808057330268
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 240,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 244,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Inside",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 240,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 238,
+          "y": 103.46410161513775
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Inside",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 240,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 238,
+          "y": 96.53589838486225
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Inside",
+        "structureType": "Basic"
+      }
+    ]
+  },
+  "elements": [
+    {
+      "elementId": {
+        "guid": "ADB80A13-91D3-5640-B8AE-886EE260636D"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "65C3537D-19F5-7A4C-B7EB-6C117C217481"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "3F339D9D-F617-064A-BF2A-B37AB380F284"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "FCD9F1B7-64ED-294B-8386-EF7699D2520A"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "D5B76E2E-FBE4-E34A-A70C-0735A918E73F"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "148EF2AF-203C-9248-8216-54436C6769EB"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "0B0ED833-3310-2149-A956-99566324BB36"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "05996943-8BBE-BA48-A7E7-B958100941C2"
+      }
+    },
+    {
+      "elementId": {
+        "guid": "C94F666C-0EAA-4744-AEAB-8E3060A7FEA0"
+      }
+    }
+  ],
+  "result": {
+    "detailsOfElements": [
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 200,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 204,
+            "y": 100
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.6,
+          "endThickness": 0.6,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Center",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.3,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 199.595854812,
+                "y": 99.7
+              },
+              {
+                "x": 200.057735024,
+                "y": 99.7
+              },
+              {
+                "x": 199.942264975,
+                "y": 100.3
+              },
+              {
+                "x": 199.595854812,
+                "y": 99.7
+              }
+            ]
+          },
+          {
+            "coordinates": [
+              {
+                "x": 200.404145186,
+                "y": 100.3
+              },
+              {
+                "x": 199.942264973,
+                "y": 100.3
+              },
+              {
+                "x": 200.057735031,
+                "y": 99.7
+              },
+              {
+                "x": 200.404145186,
+                "y": 100.3
+              }
+            ]
+          },
+          {
+            "coordinates": [
+              {
+                "x": 200.057735027,
+                "y": 99.7
+              },
+              {
+                "x": 204,
+                "y": 99.7
+              },
+              {
+                "x": 204,
+                "y": 100.3
+              },
+              {
+                "x": 200.404145188,
+                "y": 100.3
+              },
+              {
+                "x": 200.057735027,
+                "y": 99.7
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 200,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 198,
+            "y": 103.464101615
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.2,
+          "endThickness": 0.2,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Center",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.1,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 199.942264973,
+                "y": 100.3
+              },
+              {
+                "x": 198.08660254,
+                "y": 103.514101615
+              },
+              {
+                "x": 197.91339746,
+                "y": 103.414101615
+              },
+              {
+                "x": 199.826794919,
+                "y": 100.1
+              },
+              {
+                "x": 199.942264973,
+                "y": 100.3
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 200,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 198,
+            "y": 96.535898385
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.4,
+          "endThickness": 0.4,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Center",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.2,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 199.595854812,
+                "y": 99.7
+              },
+              {
+                "x": 197.826794919,
+                "y": 96.635898385
+              },
+              {
+                "x": 198.173205081,
+                "y": 96.435898385
+              },
+              {
+                "x": 200.057735027,
+                "y": 99.7
+              },
+              {
+                "x": 199.595854812,
+                "y": 99.7
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 220,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 224,
+            "y": 100
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.3,
+          "endThickness": 0.3,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Center",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.15,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 219.986876716,
+                "y": 100.149999989
+              },
+              {
+                "x": 218.285492155,
+                "y": 99.85
+              },
+              {
+                "x": 221.714507845,
+                "y": 100.149999989
+              },
+              {
+                "x": 219.986876716,
+                "y": 100.149999989
+              }
+            ]
+          },
+          {
+            "coordinates": [
+              {
+                "x": 221.714507845,
+                "y": 100.149999989
+              },
+              {
+                "x": 218.285492155,
+                "y": 99.85
+              },
+              {
+                "x": 220.013123284,
+                "y": 99.85
+              },
+              {
+                "x": 221.714507845,
+                "y": 100.149999989
+              }
+            ]
+          },
+          {
+            "coordinates": [
+              {
+                "x": 220.0131233,
+                "y": 99.85
+              },
+              {
+                "x": 224,
+                "y": 99.85
+              },
+              {
+                "x": 224,
+                "y": 100.15
+              },
+              {
+                "x": 221.714507845,
+                "y": 100.15
+              },
+              {
+                "x": 220.0131233,
+                "y": 99.85
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 220,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 223.939231012,
+            "y": 100.694592711
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.3,
+          "endThickness": 0.3,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Center",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.15,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 221.714507845,
+                "y": 100.15
+              },
+              {
+                "x": 223.965278239,
+                "y": 100.546871548
+              },
+              {
+                "x": 223.913183785,
+                "y": 100.842313874
+              },
+              {
+                "x": 219.9868767,
+                "y": 100.15
+              },
+              {
+                "x": 221.714507845,
+                "y": 100.15
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 220,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 223.758770483,
+            "y": 101.368080573
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.3,
+          "endThickness": 0.3,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Center",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.15,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 221.662413392,
+                "y": 100.445442326
+              },
+              {
+                "x": 223.810073505,
+                "y": 101.22712668
+              },
+              {
+                "x": 223.707467462,
+                "y": 101.509034466
+              },
+              {
+                "x": 219.961028846,
+                "y": 100.145442326
+              },
+              {
+                "x": 221.662413392,
+                "y": 100.445442326
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 240,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 244,
+            "y": 100
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.3,
+          "endThickness": 0.3,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Inside",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.3,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 240,
+                "y": 100.000000002
+              },
+              {
+                "x": 240.173205081,
+                "y": 99.7
+              },
+              {
+                "x": 240.346410162,
+                "y": 100.000000002
+              },
+              {
+                "x": 240,
+                "y": 100.000000002
+              }
+            ]
+          },
+          {
+            "coordinates": [
+              {
+                "x": 240.346410162,
+                "y": 100.000000002
+              },
+              {
+                "x": 240.173205081,
+                "y": 99.7
+              },
+              {
+                "x": 240.519615242,
+                "y": 99.7
+              },
+              {
+                "x": 240.346410162,
+                "y": 100.000000002
+              }
+            ]
+          },
+          {
+            "coordinates": [
+              {
+                "x": 240.519615242,
+                "y": 99.7
+              },
+              {
+                "x": 244,
+                "y": 99.7
+              },
+              {
+                "x": 244,
+                "y": 100
+              },
+              {
+                "x": 240.346410162,
+                "y": 100
+              },
+              {
+                "x": 240.519615242,
+                "y": 99.7
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 240,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 238,
+            "y": 103.464101615
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.3,
+          "endThickness": 0.3,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Inside",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.3,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 240.346410162,
+                "y": 100
+              },
+              {
+                "x": 238.259807621,
+                "y": 103.614101615
+              },
+              {
+                "x": 238,
+                "y": 103.464101615
+              },
+              {
+                "x": 240,
+                "y": 100
+              },
+              {
+                "x": 240.346410162,
+                "y": 100
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "geometryType": "Straight",
+          "arcAngle": 0,
+          "structureType": "Basic",
+          "zCoordinate": 0,
+          "begCoordinate": {
+            "x": 240,
+            "y": 100
+          },
+          "endCoordinate": {
+            "x": 238,
+            "y": 96.535898385
+          },
+          "height": 3,
+          "bottomOffset": 0,
+          "offset": 0,
+          "flipped": true,
+          "begThickness": 0.3,
+          "endThickness": 0.3,
+          "buildingMaterialId": {
+            "guid": "922C639B-9875-48DF-A3FC-E0A8AC5F2839"
+          },
+          "referenceLineLocation": "Inside",
+          "profileType": "Normal",
+          "slantAlpha": 1.570796327,
+          "slantBeta": 1.570796327,
+          "topOffset": 0,
+          "relativeTopStory": 0,
+          "zoneRel": "Boundary",
+          "visibility": {
+            "showOnHome": false,
+            "showAllAbove": false,
+            "showAllBelow": false,
+            "showRelAbove": 0,
+            "showRelBelow": 0
+          },
+          "isAutoOnStoryVisibility": false,
+          "referenceMaterial": {
+            "overridden": false
+          },
+          "oppositeMaterial": {
+            "overridden": false
+          },
+          "sideMaterial": {
+            "overridden": false
+          },
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "contourPen": 27,
+          "contourPen3D": 87,
+          "contourLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "belowViewLineTypeId": {
+            "guid": "28A7C677-9234-418F-9E4D-D10C22581DF6"
+          },
+          "aboveViewLinePen": 87,
+          "aboveViewLineTypeId": {
+            "guid": "21F1AC0F-A2B5-4D43-863E-7EECE3A2A119"
+          },
+          "displayOption": "Standard",
+          "viewDepthLimitation": "ToFloorPlanRange",
+          "connectionPriority": 0,
+          "useCompositePriority": false,
+          "junctionSequence": 5000,
+          "linkToSettings": {
+            "homeStoryDifference": 0,
+            "newCreationMode": false
+          },
+          "inheritEndSurface": false,
+          "alignTexture": false,
+          "offsetFromOutside": 0.3,
+          "polyCanChange": false,
+          "materialsChained": false,
+          "logHeight": 0,
+          "hasWindow": false,
+          "hasDoor": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 239.826794919,
+                "y": 100.3
+              },
+              {
+                "x": 237.740192379,
+                "y": 96.685898385
+              },
+              {
+                "x": 238,
+                "y": 96.535898385
+              },
+              {
+                "x": 240,
+                "y": 100
+              },
+              {
+                "x": 239.826794919,
+                "y": 100.3
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "date": "2026-10-31",
+  "target": "Archicad 29 INT 5101",
+  "project": "/private/tmp/ac29-slab-probe-20261031.pln",
+  "tool": "Tapir GetDetailsOfElements/Get3DBoundingBoxes, port 19723; identity checked GetProjectInfo/API.GetProductInfo",
+  "elementGuid": "6B8DD24F-F74D-404D-B6CC-551FAF25497E",
+  "edgeAngleBounds": {
+    "90": {"xMin":28.559501648,"xMax":43.022132874,"yMin":50.014266968,"yMax":57.645332336,"zMin":-0.200000003,"zMax":0.100000001},
+    "45": {"xMin":28.559501648,"xMax":43.022132874,"yMin":50.014266968,"yMax":57.645332336,"zMin":-0.200000003,"zMax":0.100000001},
+    "135": {"xMin":28.559501648,"xMax":43.322212219,"yMin":50.014266968,"yMax":57.885387421,"zMin":-0.200000003,"zMax":0.100000001}
+  },
+  "arcSplit": {
+    "action":"CUA click fourth curved-edge palette item; immediate commit at original hit",
+    "beforeVertexCount":5,"afterVertexCount":6,
+    "beforeSweeps":[2.934152603],"afterSweeps":[1.489451836,1.444700767],
+    "newPoint":{"x":43.020159433,"y":53.915627334}
+  },
+  "limits":["Transcribed returned values; not raw complete tool transcript","Bounding boxes do not reveal individual bottom vertices","No REA Evidence ID assigned to CUA or Tapir actions"]
+}

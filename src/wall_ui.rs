@@ -1,6 +1,7 @@
+use crate::layers::ElementLayer;
 use crate::localization::UiLanguage;
 use crate::model::{Element, Point, Shape, Story};
-use crate::view_settings::{Layer, RenovationStatus};
+use crate::view_settings::RenovationStatus;
 use crate::wall::*;
 use eframe::egui::{
     self, Align, Align2, Button, Color32, ComboBox, Context, DragValue, FontId, Grid, Id, Layout,
@@ -37,7 +38,7 @@ pub struct WallSettingsDraft {
     pub settings: WallSettings,
     pub name: String,
     pub story: u32,
-    pub layer: Layer,
+    pub layer: ElementLayer,
     pub renovation: RenovationStatus,
     pub thickness: f32,
     pub height: f32,
@@ -72,7 +73,7 @@ impl WallSettingsDraft {
         thickness: f32,
         height: f32,
         story: u32,
-        layer: Layer,
+        layer: ElementLayer,
         renovation: RenovationStatus,
     ) -> Self {
         Self {
@@ -218,7 +219,7 @@ impl WallSettingsDialog {
         thickness: f32,
         height: f32,
         story: u32,
-        layer: Layer,
+        layer: ElementLayer,
         renovation: RenovationStatus,
     ) -> Self {
         Self {
@@ -236,6 +237,7 @@ impl WallSettingsDialog {
         context: &Context,
         language: UiLanguage,
         stories: &[Story],
+        layers: &crate::layers::LayerDocument,
     ) -> WallDialogAction {
         let mut action = WallDialogAction::None;
         let title = match self.mode {
@@ -357,14 +359,14 @@ impl WallSettingsDialog {
             ui.horizontal(|ui| {
                 ui.label(language.translate("Layer:"));
                 ComboBox::from_id_salt("wall_settings_layer")
-                    .selected_text(layer_label(language, draft.layer))
+                    .selected_text(wall_layer_label(language, layers, draft.layer.0))
                     .width(190.)
                     .show_ui(ui, |ui| {
-                        for layer in Layer::ALL {
+                        for layer in &layers.layers {
                             ui.selectable_value(
                                 &mut draft.layer,
-                                layer,
-                                layer_label(language, layer),
+                                ElementLayer(layer.id),
+                                wall_layer_label(language, layers, layer.id),
                             );
                         }
                     });
@@ -426,13 +428,26 @@ pub fn localized_error(language: UiLanguage, error: &str) -> String {
         "Wall top link is out of range" => "墙顶部链接超出范围",
         "Wall must stay at least 0.01 m long" => "墙参考线长度至少为 0.01 米",
         "Wall reference line must use finite points" => "墙参考线坐标必须是有限数值",
-        _ => return error.to_owned(),
+        _ => return language.translate(error).to_owned(),
     };
     known.to_owned()
 }
 
-pub(crate) fn layer_label(language: UiLanguage, layer: Layer) -> String {
-    language.translate(layer.name()).to_owned()
+pub(crate) fn wall_layer_label(
+    language: UiLanguage,
+    layers: &crate::layers::LayerDocument,
+    id: crate::layers::LayerId,
+) -> String {
+    match layers.layer(id) {
+        Some(layer) => {
+            let name = language.translate(&layer.name).to_owned();
+            match layer.category {
+                Some(category) => format!("{} · {}", layers.category_name(Some(category)), name),
+                None => name,
+            }
+        }
+        None => language.translate("Archicad Layer").to_owned(),
+    }
 }
 
 fn renovation_label(language: UiLanguage, status: RenovationStatus) -> String {

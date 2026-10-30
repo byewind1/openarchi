@@ -15,6 +15,10 @@ pub fn wall_reference_line(e: &Element) -> Option<(Point, Point)> {
 
 /// Project a point onto a wall's reference segment, clamped to its ends.
 pub fn wall_reference_projection(e: &Element, point: Point) -> Option<Point> {
+    if e.wall_contour.is_some() {
+        let (station, _) = crate::wall_geometry::project_station(e, point);
+        return crate::wall_geometry::point_tangent_at(e, station).map(|(point, _)| point);
+    }
     let (start, end) = wall_reference_line(e)?;
     let dx = end.x - start.x;
     let dy = end.y - start.y;
@@ -57,7 +61,9 @@ pub fn wall_reference_snap(
         element.id != exclude_id
             && element.story == story
             && matches!(element.shape, Shape::Wall { .. })
-            && project.plan_options.element_visible(element)
+            && project
+                .plan_options
+                .element_visible(element, &project.layers)
     }) {
         let Some((start, end)) = wall_reference_line(wall) else {
             continue;
@@ -68,22 +74,10 @@ pub fn wall_reference_snap(
         if !length_squared.is_finite() || length_squared < 1e-8 {
             continue;
         }
-        let Some(body) = wall_body(wall) else {
-            continue;
-        };
-        let body_polygon = body_polygon(&body);
+        let body_polygon = crate::wall_geometry::outline(wall);
         let on_body = contains(point, &body_polygon);
-        let body_distance = (0..body_polygon.len() as u32)
-            .map(|edge| {
-                let a = body_polygon[edge as usize];
-                let b = body_polygon[(edge as usize + 1) % body_polygon.len()];
-                segment_distance(point, a, b)
-            })
-            .fold(f32::INFINITY, f32::min);
-        // The editable target is the reference line itself. A wall body can be
-        // shifted far from that line by its reference offset, so accepting only
-        // body proximity would silently disable the primary baseline snap.
-        let baseline_distance = segment_distance(point, start, end);
+        let body_distance = polygon_edge_distance(point, &body_polygon);
+        let baseline_distance = crate::wall_geometry::project_station(wall, point).1;
         if !on_body && body_distance > tolerance && baseline_distance > tolerance {
             continue;
         }
@@ -107,6 +101,9 @@ pub fn wall_reference_snap(
 }
 
 pub fn footprint(e: &Element) -> [Point; 4] {
+    if e.wall_contour.is_some() {
+        return contour_bounds(e, 0., crate::wall_geometry::reference_length(e));
+    }
     match e.shape {
         Shape::Wall {
             start: a,
@@ -160,24 +157,10 @@ pub fn opening_span(project: &Project, opening: &Element) -> Option<(Point, Poin
         .elements
         .iter()
         .find(|element| element.id == host_wall)?;
-    let Shape::Wall { start, end, .. } = host.shape else {
-        return None;
-    };
-    let length = start.distance(end);
-    if length < 1e-6 {
-        return None;
-    }
-    let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
     let half = width * 0.5;
     Some((
-        Point::new(
-            start.x + direction.x * (offset - half),
-            start.y + direction.y * (offset - half),
-        ),
-        Point::new(
-            start.x + direction.x * (offset + half),
-            start.y + direction.y * (offset + half),
-        ),
+        crate::wall_geometry::point_tangent_at(host, offset - half)?.0,
+        crate::wall_geometry::point_tangent_at(host, offset + half)?.0,
     ))
 }
 
@@ -199,6 +182,16 @@ pub fn opening_footprint(project: &Project, opening: &Element) -> Option<[Point;
     else {
         return None;
     };
+    if host.wall_contour.is_some() {
+        let Shape::Opening { offset, width, .. } = opening.shape else {
+            return None;
+        };
+        let strips =
+            crate::wall_geometry::strips_between(host, offset - width * 0.5, offset + width * 0.5);
+        let first = strips.first()?;
+        let last = strips.last()?;
+        return Some([first[0], last[1], last[2], first[3]]);
+    }
     let (a, b) = opening_span(project, opening)?;
     let length = start.distance(end).max(1e-6);
     let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
@@ -226,21 +219,254 @@ pub fn wall_offset_of(project: &Project, host_wall: u64, point: Point) -> Option
         .elements
         .iter()
         .find(|element| element.id == host_wall)?;
-    let Shape::Wall { start, end, .. } = host.shape else {
-        return None;
-    };
-    let length = start.distance(end);
-    if length < 1e-6 {
-        return None;
-    }
-    let direction = Point::new((end.x - start.x) / length, (end.y - start.y) / length);
-    Some(((point.x - start.x) * direction.x + (point.y - start.y) * direction.y).clamp(0., length))
+    matches!(host.shape, Shape::Wall { .. })
+        .then(|| crate::wall_geometry::project_station(host, point).0)
 }
 
 /// Footprint used by selection, bounds and visibility. Openings resolve through
 /// their host wall; every other shape uses its own geometry.
 pub fn element_footprint(project: &Project, element: &Element) -> [Point; 4] {
+    if let Shape::Opening {
+        host_wall,
+        offset,
+        width,
+        ..
+    } = element.shape
+        && let Some(host) = project.elements.iter().find(|host| host.id == host_wall)
+        && host.wall_contour.is_some()
+    {
+        return contour_bounds(host, offset - width * 0.5, offset + width * 0.5);
+    }
     opening_footprint(project, element).unwrap_or_else(|| footprint(element))
+}
+
+fn contour_bounds(wall: &Element, from: f32, to: f32) -> [Point; 4] {
+    let mut points: Vec<_> = crate::wall_geometry::strips_between(wall, from, to)
+        .into_iter()
+        .flatten()
+        .collect();
+    if let Some(WallContour::Arc { arc }) = wall.wall_contour
+        && let Some((a, b)) = wall_reference_line(wall)
+        && let Some((center, _)) = arc_center_sweep(a, b, arc)
+    {
+        // Cardinal extrema make the bounding box conservative independently
+        // of the rendering tessellation and its chord error.
+        for angle in [
+            0.,
+            std::f32::consts::FRAC_PI_2,
+            std::f32::consts::PI,
+            std::f32::consts::PI * 1.5,
+        ] {
+            let p = Point::new(
+                center.x + arc.radius * angle.cos(),
+                center.y + arc.radius * angle.sin(),
+            );
+            let station = crate::wall_geometry::project_station(wall, p).0;
+            if station >= from
+                && station <= to
+                && let Some((hi, lo)) = crate::wall_geometry::section_at(wall, station)
+            {
+                points.extend([hi, lo]);
+            }
+        }
+    }
+    let min = points
+        .iter()
+        .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
+            Point::new(a.x.min(p.x), a.y.min(p.y))
+        });
+    let max = points
+        .iter()
+        .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
+            Point::new(a.x.max(p.x), a.y.max(p.y))
+        });
+    [min, Point::new(max.x, min.y), max, Point::new(min.x, max.y)]
+}
+
+/// Editable endpoints and explicitly inserted trapezoid nodes; tessellation
+/// vertices are display samples, never snap/edit nodes.
+pub fn wall_edit_nodes(element: &Element) -> Vec<Point> {
+    let Some((start, end)) = wall_reference_line(element) else {
+        return Vec::new();
+    };
+    let mut nodes = vec![start, end];
+    if let Some(WallContour::Trapezoid {
+        outer_start,
+        outer_end,
+        ref outer_nodes,
+        ..
+    }) = element.wall_contour
+    {
+        nodes.extend([outer_start, outer_end]);
+        nodes.extend(outer_nodes.iter().copied());
+    }
+    nodes
+}
+
+fn polygon_edge_distance(point: Point, polygon: &[Point]) -> f32 {
+    (0..polygon.len())
+        .map(|i| segment_distance(point, polygon[i], polygon[(i + 1) % polygon.len()]))
+        .fold(f32::INFINITY, f32::min)
+}
+
+/// Ordered editable slab vertices, excluding curve display samples.
+pub fn slab_edit_nodes(element: &Element) -> Vec<Point> {
+    crate::slab_geometry::rings(element)
+        .into_iter()
+        .flat_map(|r| r.points)
+        .collect()
+}
+
+pub fn slab_contains(element: &Element, point: Point) -> bool {
+    let paths = crate::slab_geometry::outlines(element);
+    paths.first().is_some_and(|outer| contains(point, outer))
+        && !paths.iter().skip(1).any(|hole| contains(point, hole))
+}
+
+fn slab_snap_points(element: &Element) -> Vec<(Point, SnapKind)> {
+    let mut result = Vec::new();
+    for ring in crate::slab_geometry::rings(element) {
+        for i in 0..ring.points.len() {
+            let a = ring.points[i];
+            let b = ring.points[(i + 1) % ring.points.len()];
+            result.push((a, SnapKind::Endpoint));
+            let midpoint = ring
+                .arcs
+                .get(i)
+                .copied()
+                .flatten()
+                .and_then(|arc| {
+                    let (center, sweep) = arc_center_sweep(a, b, arc)?;
+                    let angle = (a.y - center.y).atan2(a.x - center.x) + sweep * 0.5;
+                    Some(Point::new(
+                        center.x + arc.radius * angle.cos(),
+                        center.y + arc.radius * angle.sin(),
+                    ))
+                })
+                .unwrap_or(Point::new((a.x + b.x) * 0.5, (a.y + b.y) * 0.5));
+            result.push((midpoint, SnapKind::Midpoint));
+        }
+    }
+    result
+}
+
+/// Actual plan boundary. The four-corner API remains a conservative box for
+/// bounds only; picking and marquee geometry use the curved boundary.
+pub fn element_plan_outline(project: &Project, element: &Element) -> Vec<Point> {
+    if matches!(element.shape, Shape::Slab { .. }) {
+        return crate::slab_geometry::outline(element);
+    }
+    if matches!(element.shape, Shape::Wall { .. }) {
+        return crate::wall_geometry::outline(element);
+    }
+    if let Shape::Opening {
+        host_wall,
+        offset,
+        width,
+        ..
+    } = element.shape
+        && let Some(host) = project.elements.iter().find(|e| e.id == host_wall)
+        && host.wall_contour.is_some()
+    {
+        let strips =
+            crate::wall_geometry::strips_between(host, offset - width * 0.5, offset + width * 0.5);
+        if let Some(first) = strips.first() {
+            let mut result = vec![first[0]];
+            result.extend(strips.iter().map(|strip| strip[1]));
+            result.extend(strips.iter().rev().map(|strip| strip[2]));
+            result.push(first[3]);
+            return result;
+        }
+    }
+    element_footprint(project, element).to_vec()
+}
+
+pub fn prism_corners(outline: [Point; 4], bottom: f32, top: f32) -> [Vec3; 8] {
+    std::array::from_fn(|index| {
+        let p = outline[index % 4];
+        Vec3::new(p.x, p.y, if index < 4 { bottom } else { top })
+    })
+}
+
+/// Exact station boundaries split the tessellated solid around hosted holes.
+/// Both 3D rendering and ray picking consume these same blocks.
+pub fn wall_solid_prisms(project: &Project, wall: &Element) -> Vec<[Vec3; 8]> {
+    let Shape::Wall { height, .. } = wall.shape else {
+        return Vec::new();
+    };
+    let length = crate::wall_geometry::reference_length(wall);
+    let base = project.elevation(wall.story);
+    let (bottom_offset, top_offset) = wall
+        .wall_settings
+        .as_ref()
+        .map_or((0., 0.), |settings| settings.vertical_offsets());
+    let bottom = base + bottom_offset;
+    let top = base + height + top_offset;
+    if top <= bottom || length <= 1e-6 {
+        return Vec::new();
+    }
+    let mut cuts = vec![0., length];
+    let holes: Vec<_> = project
+        .elements
+        .iter()
+        .filter_map(|opening| {
+            let Shape::Opening {
+                host_wall,
+                offset,
+                width,
+                sill,
+                height,
+                ..
+            } = opening.shape
+            else {
+                return None;
+            };
+            if host_wall != wall.id {
+                return None;
+            }
+            let from = (offset - width * 0.5).clamp(0., length);
+            let to = (offset + width * 0.5).clamp(0., length);
+            cuts.extend([from, to]);
+            Some((
+                from,
+                to,
+                (base + sill).clamp(bottom, top),
+                (base + sill + height).clamp(bottom, top),
+            ))
+        })
+        .collect();
+    cuts.sort_by(f32::total_cmp);
+    cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
+    let mut prisms = Vec::new();
+    for span in cuts.windows(2) {
+        if span[1] - span[0] < 1e-5 {
+            continue;
+        }
+        let midpoint = (span[0] + span[1]) * 0.5;
+        let mut intervals = vec![(bottom, top)];
+        for &(from, to, low, high) in &holes {
+            if midpoint < from || midpoint > to || high <= low {
+                continue;
+            }
+            intervals = intervals
+                .into_iter()
+                .flat_map(|(a, b)| {
+                    if high <= a || low >= b {
+                        vec![(a, b)]
+                    } else {
+                        vec![(a, low.min(b)), (high.max(a), b)]
+                    }
+                })
+                .filter(|(a, b)| b - a > 1e-5)
+                .collect();
+        }
+        for strip in crate::wall_geometry::strips_between(wall, span[0], span[1]) {
+            for &(low, high) in &intervals {
+                prisms.push(prism_corners(strip, low, high));
+            }
+        }
+    }
+    prisms
 }
 
 fn wall_footprint(a: Point, b: Point, thickness: f32, reference_offset: f32) -> [Point; 4] {
@@ -746,7 +972,7 @@ fn orientation(a: Point, b: Point, c: Point) -> f32 {
     (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
 }
 
-fn segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool {
+pub(crate) fn segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool {
     let ab_c = orientation(a, b, c);
     let ab_d = orientation(a, b, d);
     let cd_a = orientation(c, d, a);
@@ -772,8 +998,8 @@ fn segments_intersect(a: Point, b: Point, c: Point, d: Point) -> bool {
 /// operated on by group commands.
 pub fn element_has_node_in_polygon(project: &Project, e: &Element, polygon: &[Point]) -> bool {
     let nodes: Vec<Point> = match e.shape {
-        Shape::Wall { start, end, .. } => vec![start, end],
-        Shape::Slab { .. } => footprint(e).into_iter().collect(),
+        Shape::Wall { .. } => wall_edit_nodes(e),
+        Shape::Slab { .. } => slab_edit_nodes(e),
         Shape::Stair { .. } => footprint(e).into_iter().collect(),
         Shape::Polyline { ref points, .. } => points.clone(),
         Shape::Opening { .. } => element_footprint(project, e).into_iter().collect(),
@@ -804,7 +1030,23 @@ pub fn element_intersects_polygon(project: &Project, e: &Element, polygon: &[Poi
                 })
             });
     }
-    let shape = element_footprint(project, e);
+    if matches!(e.shape, Shape::Slab { .. }) {
+        return crate::slab_geometry::triangles(e).iter().any(|triangle| {
+            triangle.iter().any(|p| contains(*p, polygon))
+                || polygon.iter().any(|p| contains(*p, triangle))
+                || (0..3).any(|i| {
+                    (0..polygon.len()).any(|j| {
+                        segments_intersect(
+                            triangle[i],
+                            triangle[(i + 1) % 3],
+                            polygon[j],
+                            polygon[(j + 1) % polygon.len()],
+                        )
+                    })
+                })
+        });
+    }
+    let shape = element_plan_outline(project, e);
     if shape.iter().any(|p| contains(*p, polygon)) || polygon.iter().any(|p| contains(*p, &shape)) {
         return true;
     }
@@ -820,7 +1062,7 @@ pub fn element_fully_inside_polygon(project: &Project, e: &Element, polygon: &[P
     if let Shape::Polyline { ref points, .. } = e.shape {
         return points.iter().all(|point| contains(*point, polygon));
     }
-    element_footprint(project, e)
+    element_plan_outline(project, e)
         .iter()
         .all(|p| contains(*p, polygon))
 }
@@ -991,6 +1233,9 @@ fn dot(a: Point, b: Point) -> f32 {
 }
 
 fn wall_body(wall: &Element) -> Option<WallBody> {
+    if wall.wall_contour.is_some() {
+        return None;
+    }
     let Shape::Wall {
         start,
         end,
@@ -1086,6 +1331,8 @@ fn is_convex_quad(poly: &[Point; 4]) -> bool {
 /// `None` when the end is free or no usable intersection exists.
 fn joined_end_corners(
     bodies: &[Option<WallBody>],
+    groups: &[u8],
+    stories: &[u32],
     index: usize,
     at_start: bool,
 ) -> Option<(Point, Point)> {
@@ -1099,12 +1346,20 @@ fn joined_end_corners(
     let mut best_left: Option<(f32, Point)> = None;
     let mut best_right: Option<(f32, Point)> = None;
     for (other_index, other) in bodies.iter().enumerate() {
-        if other_index == index {
+        if other_index == index || stories[other_index] != stories[index] {
             continue;
         }
         let Some(other) = other else {
             continue;
         };
+        // AC29 layer intersection groups: only same non-zero groups join.
+        if !groups
+            .get(index)
+            .zip(groups.get(other_index))
+            .is_some_and(|(a, b)| *a != 0 && *a == *b)
+        {
+            continue;
+        }
         let tolerance = (body.thickness() + other.thickness()) * 0.5 + 0.02;
         let along = dot(
             Point::new(point.x - other.start.x, point.y - other.start.y),
@@ -1256,8 +1511,9 @@ fn joined_end_corners(
 /// the reference lines and body sides of every connected wall. The same
 /// footprints drive the 2D outline and the ordinary 3D view; project elements
 /// themselves remain unchanged.
-pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
+pub fn plan_wall_footprints(walls: &[&Element], groups: &[u8]) -> Vec<[Point; 4]> {
     let bodies: Vec<Option<WallBody>> = walls.iter().map(|wall| wall_body(wall)).collect();
+    let stories: Vec<_> = walls.iter().map(|wall| wall.story).collect();
     walls
         .iter()
         .enumerate()
@@ -1266,11 +1522,13 @@ pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
                 return footprint(wall);
             };
             let mut polygon = body_polygon(body);
-            if let Some((left, right)) = joined_end_corners(&bodies, index, true) {
+            if let Some((left, right)) = joined_end_corners(&bodies, groups, &stories, index, true)
+            {
                 polygon[0] = right;
                 polygon[3] = left;
             }
-            if let Some((left, right)) = joined_end_corners(&bodies, index, false) {
+            if let Some((left, right)) = joined_end_corners(&bodies, groups, &stories, index, false)
+            {
                 polygon[1] = left;
                 polygon[2] = right;
             }
@@ -1283,11 +1541,302 @@ pub fn plan_wall_footprints(walls: &[&Element]) -> Vec<[Point; 4]> {
         .collect()
 }
 
+/// Story-wide display polygons. Three or more coincident endpoint rays use
+/// angular neighbours, rather than the furthest of unrelated pairwise mitres.
+/// The hub belongs to the derived display only; reference lines stay editable.
+/// Two-wall and face/through-wall connections retain the established join rules.
+pub fn plan_wall_polygons(walls: &[&Element], groups: &[u8]) -> Vec<Vec<Point>> {
+    let bodies: Vec<_> = walls.iter().map(|wall| wall_body(wall)).collect();
+    let old = plan_wall_footprints(walls, groups);
+    // Caps travel from the right face to the left face when looking away from
+    // the node. This convention also handles reversed reference lines.
+    let mut caps: Vec<[Vec<Point>; 2]> = old
+        .iter()
+        .map(|p| [vec![p[3], p[0]], vec![p[1], p[2]]])
+        .collect();
+    let mut multi_end = vec![[false; 2]; walls.len()];
+    let mut endpoints = Vec::new();
+    for (i, body) in bodies.iter().enumerate() {
+        if let Some(body) = body {
+            for (end, p) in [(0, body.start), (1, body.end)] {
+                endpoints.push((i, end, p));
+            }
+        }
+    }
+    endpoints.sort_by(|a, b| {
+        a.2.x
+            .total_cmp(&b.2.x)
+            .then(a.2.y.total_cmp(&b.2.y))
+            .then(walls[a.0].id.cmp(&walls[b.0].id))
+            .then(a.1.cmp(&b.1))
+    });
+    let mut assigned = vec![false; endpoints.len()];
+    for seed in 0..endpoints.len() {
+        if assigned[seed] {
+            continue;
+        }
+        let (seed_wall, _, node) = endpoints[seed];
+        let group = groups.get(seed_wall).copied().unwrap_or(0);
+        if group == 0 {
+            continue;
+        }
+        let mut incident = Vec::new();
+        for (k, &(i, end, p)) in endpoints.iter().enumerate() {
+            if !assigned[k]
+                && walls[i].story == walls[seed_wall].story
+                && groups.get(i) == Some(&group)
+                && p.distance(node) <= 1e-3
+            {
+                incident.push((i, end));
+                assigned[k] = true;
+            }
+        }
+        if incident.len() < 3 {
+            continue;
+        }
+        for &(i, end) in &incident {
+            multi_end[i][end] = true;
+        }
+        let frame = |i: usize, end: usize| {
+            let b = bodies[i].unwrap();
+            if end == 0 {
+                (b.dir, b.left, b.lo, b.hi, b.length)
+            } else {
+                (
+                    Point::new(-b.dir.x, -b.dir.y),
+                    Point::new(-b.left.x, -b.left.y),
+                    -b.hi,
+                    -b.lo,
+                    b.length,
+                )
+            }
+        };
+        incident.sort_by(|&(i, e), &(j, f)| {
+            let a = frame(i, e).0;
+            let b = frame(j, f).0;
+            a.y.atan2(a.x)
+                .total_cmp(&b.y.atan2(b.x))
+                .then(walls[i].id.cmp(&walls[j].id))
+        });
+        let count = incident.len();
+        let anchor =
+            |n: Point, offset: f32| Point::new(node.x + n.x * offset, node.y + n.y * offset);
+        // Reference lines completely outside the body require a material /
+        // priority solver. Do not invent a bridge across the offset gap. The
+        // conservative fallback is the original body cap, not the old spike.
+        let outside = incident.iter().any(|&(i, e)| {
+            let (_, _, lo, hi, _) = frame(i, e);
+            lo > 1e-5 || hi < -1e-5
+        });
+        let duplicate_ray = (0..count).any(|k| {
+            let (i, e) = incident[k];
+            let (j, f) = incident[(k + 1) % count];
+            dot(frame(i, e).0, frame(j, f).0) > 1.0 - 1e-6
+        });
+        if outside || duplicate_ray {
+            for &(i, e) in &incident {
+                let b = bodies[i].unwrap();
+                let p = body_polygon(&b);
+                caps[i][e] = if e == 0 {
+                    vec![p[3], p[0]]
+                } else {
+                    vec![p[1], p[2]]
+                };
+            }
+            continue;
+        }
+        let mut left = vec![node; count];
+        let mut right = vec![node; count];
+        let mut left_bevel = vec![None; count];
+        let mut right_bevel = vec![None; count];
+        for k in 0..count {
+            let next = (k + 1) % count;
+            let (i, e) = incident[k];
+            let (j, f) = incident[next];
+            let (d, n, lo, hi, len) = frame(i, e);
+            let (od, on, olo, ohi, olen) = frame(j, f);
+            let a = anchor(n, hi);
+            let b = anchor(on, olo);
+            let limit = 8.0 * ((hi - lo) + (ohi - olo)).max(0.05);
+            let valid = intersect_lines(a, d, b, od).filter(|p| {
+                let delta = Point::new(p.x - node.x, p.y - node.y);
+                // Reserve room for the other endpoint's join too. Reject a
+                // sector as a pair; dropping only one side opens a crack.
+                dot(delta, d).abs() <= (len * 0.45).min(limit)
+                    && dot(delta, od).abs() <= (olen * 0.45).min(limit)
+            });
+            if let Some(p) = valid {
+                left[k] = p;
+                right[next] = p;
+            } else {
+                left[k] = a;
+                right[next] = b;
+                // Shared bevel midpoint splits the sector's hub triangle
+                // between its two walls, with no arbitrary ownership order.
+                let midpoint = interpolate(a, b, 0.5);
+                let delta = Point::new(midpoint.x - node.x, midpoint.y - node.y);
+                let scale = 1.0_f32
+                    .min((len * 0.45) / dot(delta, d).abs().max(1e-8))
+                    .min((olen * 0.45) / dot(delta, od).abs().max(1e-8));
+                let mid = interpolate(node, midpoint, scale);
+                left_bevel[k] = Some(mid);
+                right_bevel[next] = Some(mid);
+            }
+        }
+        for (k, &(i, e)) in incident.iter().enumerate() {
+            let mut cap = vec![right[k]];
+            if let Some(p) = right_bevel[k] {
+                cap.push(p);
+            }
+            cap.push(node);
+            if let Some(p) = left_bevel[k] {
+                cap.push(p);
+            }
+            cap.push(left[k]);
+            caps[i][e] = cap;
+        }
+    }
+    // The broad face-join tolerance can otherwise attach the free far end of
+    // a very short wall back to the same junction. Bound both legacy caps
+    // only on walls participating in a true multi-way node.
+    for (i, body) in bodies.iter().enumerate() {
+        if let Some(body) = body {
+            if !multi_end[i].iter().any(|flag| *flag) {
+                continue;
+            }
+            let raw = body_polygon(body);
+            for (end, node) in [(0, body.start), (1, body.end)] {
+                if !multi_end[i][end]
+                    && caps[i][end].iter().any(|p| {
+                        dot(Point::new(p.x - node.x, p.y - node.y), body.dir).abs()
+                            > body.length * 0.45
+                    })
+                {
+                    caps[i][end] = if end == 0 {
+                        vec![raw[3], raw[0]]
+                    } else {
+                        vec![raw[1], raw[2]]
+                    };
+                }
+            }
+        }
+    }
+    walls
+        .iter()
+        .enumerate()
+        .map(|(i, wall)| {
+            let Some(body) = bodies[i] else {
+                return footprint(wall).to_vec();
+            };
+            let mut p = vec![*caps[i][0].last().unwrap()];
+            p.extend(caps[i][1].iter().copied());
+            p.extend(caps[i][0][..caps[i][0].len() - 1].iter().copied());
+            simplify_join_polygon(&mut p);
+            if p.len() < 3 || triangulate_polygon(&p).is_empty() {
+                body_polygon(&body).to_vec()
+            } else {
+                p
+            }
+        })
+        .collect()
+}
+
+fn simplify_join_polygon(p: &mut Vec<Point>) {
+    loop {
+        let removable = (0..p.len()).find(|&i| {
+            let a = p[(i + p.len() - 1) % p.len()];
+            let b = p[i];
+            let c = p[(i + 1) % p.len()];
+            a.distance(b) <= 1e-6
+                || (orientation(a, b, c).abs() <= 1e-7 && point_on_segment(b, a, c, 1e-6))
+        });
+        if p.len() <= 3 {
+            break;
+        }
+        if let Some(i) = removable {
+            p.remove(i);
+        } else {
+            break;
+        }
+    }
+}
+
+pub fn plan_wall_polygons_by_id(walls: &[&Element], groups: &[u8]) -> Vec<(u64, Vec<Point>)> {
+    walls
+        .iter()
+        .zip(plan_wall_polygons(walls, groups))
+        .map(|(wall, p)| (wall.id, p))
+        .collect()
+}
+
+pub fn plan_wall_polygon_attached_ends(
+    walls: &[&Element],
+    polygons: &[Vec<Point>],
+    groups: &[u8],
+) -> Vec<(u64, bool)> {
+    let legacy = plan_wall_footprints(walls, groups);
+    let mut attached = Vec::new();
+    for (i, wall) in walls.iter().enumerate() {
+        let Shape::Wall {
+            start, end, height, ..
+        } = wall.shape
+        else {
+            continue;
+        };
+        for (p, at_start, cap) in [
+            (start, true, interpolate(legacy[i][0], legacy[i][3], 0.5)),
+            (end, false, interpolate(legacy[i][1], legacy[i][2], 0.5)),
+        ] {
+            if walls.iter().enumerate().any(|(j, other)| {
+                if i == j
+                    || wall.story != other.story
+                    || !groups
+                        .get(i)
+                        .zip(groups.get(j))
+                        .is_some_and(|(a, b)| *a != 0 && a == b)
+                {
+                    return false;
+                }
+                let Shape::Wall {
+                    start: os,
+                    end: oe,
+                    height: oh,
+                    ..
+                } = other.shape
+                else {
+                    return false;
+                };
+                (height - oh).abs() <= 1e-4
+                    && (contains(cap, &polygons[j])
+                        || ((p.distance(os) <= 1e-3 || p.distance(oe) <= 1e-3)
+                            && (contains(p, &polygons[j])
+                                || polygons[j].iter().any(|q| p.distance(*q) <= 1e-3))))
+            }) {
+                attached.push((wall.id, at_start));
+            }
+        }
+    }
+    attached
+}
+
+pub fn wall_polygon_outline_segments(polygons: &[Vec<Point>]) -> Vec<(Point, Point)> {
+    wall_polygon_outline_segments_by_wall(polygons)
+        .into_iter()
+        .map(|(_, a, b)| (a, b))
+        .collect()
+}
+
+pub fn wall_polygon_outline_segments_by_wall(
+    polygons: &[Vec<Point>],
+) -> Vec<(usize, Point, Point)> {
+    wall_outline_segments_by_wall_for_polygons(polygons)
+}
+
 /// Footprints keyed by element id. All render paths use this one story-wide
 /// join pass so wall junctions do not depend on material or renovation
 /// grouping used for fills, pens or 3D surfaces.
-pub fn plan_wall_footprints_by_id(walls: &[&Element]) -> Vec<(u64, [Point; 4])> {
-    plan_wall_footprints(walls)
+pub fn plan_wall_footprints_by_id(walls: &[&Element], groups: &[u8]) -> Vec<(u64, [Point; 4])> {
+    plan_wall_footprints(walls, groups)
         .into_iter()
         .zip(walls.iter().copied())
         .map(|(footprint, wall)| (wall.id, footprint))
@@ -1296,7 +1845,11 @@ pub fn plan_wall_footprints_by_id(walls: &[&Element]) -> Vec<(u64, [Point; 4])> 
 
 /// Returns endpoints whose extended wall footprints reach another wall. The
 /// renderer uses these to hide overlapping end faces in the 3D display.
-pub fn plan_wall_attached_ends(walls: &[&Element], footprints: &[[Point; 4]]) -> Vec<(u64, bool)> {
+pub fn plan_wall_attached_ends(
+    walls: &[&Element],
+    footprints: &[[Point; 4]],
+    groups: &[u8],
+) -> Vec<(u64, bool)> {
     let mut attached = Vec::new();
     for (index, wall) in walls.iter().enumerate() {
         for (endpoint, at_start) in [
@@ -1317,6 +1870,15 @@ pub fn plan_wall_attached_ends(walls: &[&Element], footprints: &[[Point; 4]]) ->
         ] {
             let joined = walls.iter().enumerate().any(|(other_index, other)| {
                 if other.id == wall.id || other.story != wall.story {
+                    return false;
+                }
+                // Layers with different intersection groups (or group 0) do
+                // not join, so their end faces stay visible.
+                if !groups
+                    .get(index)
+                    .zip(groups.get(other_index))
+                    .is_some_and(|(a, b)| *a != 0 && *a == *b)
+                {
                     return false;
                 }
                 let Shape::Wall { height, .. } = wall.shape else {
@@ -1363,6 +1925,10 @@ pub fn wall_outline_segments_by_wall(wall_footprints: &[[Point; 4]]) -> Vec<(usi
 fn wall_outline_segments_by_wall_for_polygons(
     wall_footprints: &[Vec<Point>],
 ) -> Vec<(usize, Point, Point)> {
+    let triangles: Vec<_> = wall_footprints
+        .iter()
+        .map(|p| triangulate_polygon(p))
+        .collect();
     let mut outline = Vec::new();
     for (wall_index, polygon) in wall_footprints.iter().enumerate() {
         for edge_index in 0..polygon.len() {
@@ -1373,28 +1939,39 @@ fn wall_outline_segments_by_wall_for_polygons(
                 if wall_index == other_index {
                     continue;
                 }
-                if let Some(interval) = segment_inside_convex_polygon(a, b, other) {
-                    if interval.1 - interval.0 <= 1e-5 {
-                        continue;
-                    }
-                    let midpoint = interpolate(a, b, (interval.0 + interval.1) * 0.5);
-                    let lies_on_other_boundary = (0..other.len()).any(|edge| {
-                        segment_distance(midpoint, other[edge], other[(edge + 1) % other.len()])
-                            <= 1e-5
-                    });
-                    let other_center = other.iter().fold(Point::default(), |sum, point| {
-                        Point::new(
-                            sum.x + point.x / other.len() as f32,
-                            sum.y + point.y / other.len() as f32,
-                        )
-                    });
-                    let same_interior_side =
-                        orientation(a, b, other_center).signum() == polygon_area(polygon).signum();
-                    // A boundary shared from opposite sides is internal and
-                    // disappears. Coincident outer edges with interiors on
-                    // the same side are retained once.
-                    if !lies_on_other_boundary || !same_interior_side || other_index < wall_index {
-                        covered.push(interval);
+                for triangle in &triangles[other_index] {
+                    if let Some(interval) = segment_inside_convex_polygon(a, b, triangle) {
+                        if interval.1 - interval.0 <= 1e-5 {
+                            continue;
+                        }
+                        let midpoint = interpolate(a, b, (interval.0 + interval.1) * 0.5);
+                        let boundary_edge = (0..other.len()).find(|&edge| {
+                            segment_distance(midpoint, other[edge], other[(edge + 1) % other.len()])
+                                <= 1e-5
+                        });
+                        let lies_on_other_boundary = boundary_edge.is_some();
+                        // A concave polygon's centroid can be outside the polygon.
+                        // Its boundary winding, rather than its centroid, gives
+                        // the interior side of a coincident edge reliably.
+                        let same_interior_side = boundary_edge.is_some_and(|edge| {
+                            let c = other[edge];
+                            let d = other[(edge + 1) % other.len()];
+                            let aligned = dot(
+                                Point::new(b.x - a.x, b.y - a.y),
+                                Point::new(d.x - c.x, d.y - c.y),
+                            )
+                            .signum();
+                            polygon_area(other).signum() * aligned == polygon_area(polygon).signum()
+                        });
+                        // A boundary shared from opposite sides is internal and
+                        // disappears. Coincident outer edges with interiors on
+                        // the same side are retained once.
+                        if !lies_on_other_boundary
+                            || !same_interior_side
+                            || other_index < wall_index
+                        {
+                            covered.push(interval);
+                        }
                     }
                 }
             }
@@ -1520,7 +2097,15 @@ pub fn hit_plan(project: &Project, story: u32, p: Point, tolerance: f32) -> Opti
         .rev()
         .find(|e| {
             e.story == story
-                && opening_footprint(project, e).is_some_and(|outline| contains(p, &outline))
+                && matches!(e.shape, Shape::Opening { .. })
+                && if matches!(e.shape, Shape::Slab { .. }) {
+                    slab_contains(e, p)
+                        || crate::slab_geometry::outlines(e)
+                            .iter()
+                            .any(|outline| polygon_edge_distance(p, outline) <= tolerance)
+                } else {
+                    contains(p, &element_plan_outline(project, e))
+                }
         })
         .map(|e| e.id)
         .or_else(|| {
@@ -1530,17 +2115,10 @@ pub fn hit_plan(project: &Project, story: u32, p: Point, tolerance: f32) -> Opti
                 .rev()
                 .filter(|e| e.story == story && matches!(e.shape, Shape::Wall { .. }))
                 .find(|e| {
-                    if let Shape::Wall {
-                        start,
-                        end,
-                        thickness,
-                        ..
-                    } = e.shape
-                    {
-                        segment_distance(p, start, end) <= thickness / 2. + tolerance
-                    } else {
-                        false
-                    }
+                    let outline = crate::wall_geometry::outline(e);
+                    contains(p, &outline)
+                        || polygon_edge_distance(p, &outline) <= tolerance
+                        || crate::wall_geometry::project_station(e, p).1 <= tolerance
                 })
                 .map(|e| e.id)
         })
@@ -1575,8 +2153,15 @@ pub fn hit_plan(project: &Project, story: u32, p: Point, tolerance: f32) -> Opti
                 .find(|e| {
                     e.story == story
                         && !matches!(e.shape, Shape::Polyline { .. })
-                        && !matches!(e.shape, Shape::Opening { .. })
-                        && contains(p, &footprint(e))
+                        && !matches!(e.shape, Shape::Opening { .. } | Shape::Wall { .. })
+                        && if matches!(e.shape, Shape::Slab { .. }) {
+                            slab_contains(e, p)
+                                || crate::slab_geometry::outlines(e)
+                                    .iter()
+                                    .any(|outline| polygon_edge_distance(p, outline) <= tolerance)
+                        } else {
+                            contains(p, &element_plan_outline(project, e))
+                        }
                 })
                 .map(|e| e.id)
         })
@@ -1607,8 +2192,8 @@ pub fn plan_hover_kind(
     let mut nearest_node = f32::INFINITY;
     for element in &elements {
         let nodes: Vec<Point> = match element.shape {
-            Shape::Wall { start, end, .. } => vec![start, end],
-            Shape::Slab { .. } => footprint(element).into_iter().collect(),
+            Shape::Wall { .. } => wall_edit_nodes(element),
+            Shape::Slab { .. } => slab_edit_nodes(element),
             Shape::Stair { .. } => Vec::new(),
             Shape::Polyline { ref points, .. } => points.clone(),
             Shape::Opening { .. } => element_footprint(project, element).into_iter().collect(),
@@ -1625,8 +2210,10 @@ pub fn plan_hover_kind(
     for element in &elements {
         match element.shape {
             Shape::Wall { start, end, .. } => {
-                nearest_edge = nearest_edge.min(segment_distance(p, start, end));
-                let corners = footprint(element);
+                let _ = (start, end);
+                nearest_edge =
+                    nearest_edge.min(crate::wall_geometry::project_station(element, p).1);
+                let corners = crate::wall_geometry::outline(element);
                 for index in 0..corners.len() {
                     nearest_edge = nearest_edge.min(segment_distance(
                         p,
@@ -1635,8 +2222,13 @@ pub fn plan_hover_kind(
                     ));
                 }
             }
-            Shape::Slab { .. } | Shape::Stair { .. } => {
-                let corners = footprint(element);
+            Shape::Slab { .. } => {
+                for outline in crate::slab_geometry::outlines(element) {
+                    nearest_edge = nearest_edge.min(polygon_edge_distance(p, &outline));
+                }
+            }
+            Shape::Stair { .. } => {
+                let corners = element_plan_outline(project, element);
                 for index in 0..corners.len() {
                     nearest_edge = nearest_edge.min(segment_distance(
                         p,
@@ -1654,7 +2246,7 @@ pub fn plan_hover_kind(
                 }
             }
             Shape::Opening { .. } => {
-                let corners = element_footprint(project, element);
+                let corners = element_plan_outline(project, element);
                 for index in 0..corners.len() {
                     nearest_edge = nearest_edge.min(segment_distance(
                         p,
@@ -1700,12 +2292,17 @@ pub fn snap(
             continue;
         }
         let mut pts: Vec<(Point, SnapKind)> = match &e.shape {
+            Shape::Slab { .. } => slab_snap_points(e),
             Shape::Polyline { points, .. } => points
                 .iter()
                 .copied()
                 .map(|point| (point, SnapKind::Endpoint))
                 .collect(),
-            _ => footprint(e)
+            Shape::Wall { .. } if e.wall_contour.is_some() => wall_edit_nodes(e)
+                .into_iter()
+                .map(|point| (point, SnapKind::Endpoint))
+                .collect(),
+            _ => element_plan_outline(project, e)
                 .into_iter()
                 .map(|point| (point, SnapKind::Endpoint))
                 .collect(),
@@ -1715,7 +2312,11 @@ pub fn snap(
                 (start, SnapKind::Endpoint),
                 (end, SnapKind::Endpoint),
                 (
-                    Point::new((start.x + end.x) / 2., (start.y + end.y) / 2.),
+                    crate::wall_geometry::point_tangent_at(
+                        e,
+                        crate::wall_geometry::reference_length(e) * 0.5,
+                    )
+                    .map_or(start, |(point, _)| point),
                     SnapKind::Midpoint,
                 ),
             ]);
@@ -1808,8 +2409,9 @@ pub fn polyline_snap_target(
     {
         let (nodes, segments): (Vec<Point>, Vec<(Point, Point)>) = match &element.shape {
             Shape::Wall { start, end, .. } => {
-                let outline = footprint(element);
-                let mut segments = vec![(*start, *end)];
+                let outline = crate::wall_geometry::outline(element);
+                let path = crate::wall_geometry::reference_path(element);
+                let mut segments: Vec<_> = path.windows(2).map(|pair| (pair[0], pair[1])).collect();
                 segments.extend(
                     (0..outline.len()).map(|i| (outline[i], outline[(i + 1) % outline.len()])),
                 );
@@ -1817,7 +2419,11 @@ pub fn polyline_snap_target(
                     vec![
                         *start,
                         *end,
-                        Point::new((start.x + end.x) * 0.5, (start.y + end.y) * 0.5),
+                        crate::wall_geometry::point_tangent_at(
+                            element,
+                            crate::wall_geometry::reference_length(element) * 0.5,
+                        )
+                        .map_or(*start, |(point, _)| point),
                     ],
                     segments,
                 )
@@ -1826,8 +2432,21 @@ pub fn polyline_snap_target(
                 points.clone(),
                 points.windows(2).map(|pair| (pair[0], pair[1])).collect(),
             ),
-            Shape::Slab { .. } | Shape::Stair { .. } => {
-                let outline = footprint(element);
+            Shape::Slab { .. } => {
+                let nodes = slab_edit_nodes(element);
+                let segments = crate::slab_geometry::rings(element)
+                    .into_iter()
+                    .flat_map(|ring| {
+                        (0..ring.points.len())
+                            .filter(|i| ring.arcs.get(*i).copied().flatten().is_none())
+                            .map(|i| (ring.points[i], ring.points[(i + 1) % ring.points.len()]))
+                            .collect::<Vec<_>>()
+                    })
+                    .collect();
+                (nodes, segments)
+            }
+            Shape::Stair { .. } => {
+                let outline = element_plan_outline(project, element);
                 (
                     outline.to_vec(),
                     (0..outline.len())
@@ -1896,7 +2515,10 @@ pub fn corners(project: &Project, e: &Element) -> [Vec3; 8] {
                 .map_or((0., 0.), |settings| settings.vertical_offsets());
             (base + bottom_offset, base + height + top_offset)
         }
-        Shape::Slab { thickness, .. } => (base - thickness, base),
+        Shape::Slab { thickness, .. } => {
+            let top = base + e.slab_contour.as_ref().map_or(0., |c| c.elevation);
+            (top - thickness, top)
+        }
         Shape::Stair { ref spec } => (base, base + spec.total_rise),
         Shape::Polyline { .. } => (base, base),
         Shape::Opening { sill, height, .. } => (base + sill, base + sill + height),
@@ -1967,14 +2589,61 @@ impl Camera {
             .iter()
             .filter(|e| story.is_none_or(|s| s == e.story))
         {
-            let c = corners(project, e);
-            for f in FACES {
-                for tri in [[f[0], f[1], f[2]], [f[0], f[2], f[3]]] {
-                    if let Some(t) = ray_triangle(origin, dir, c[tri[0]], c[tri[1]], c[tri[2]])
-                        && t < nearest
-                    {
-                        nearest = t;
-                        hit = Some(e.id)
+            if matches!(e.shape, Shape::Slab { .. }) {
+                if let Ok(triangles) =
+                    crate::slab_geometry::solid_triangles(e, project.elevation(e.story))
+                {
+                    for [a, b, c] in triangles {
+                        if let Some(t) = ray_triangle(origin, dir, a, b, c)
+                            && t < nearest
+                        {
+                            nearest = t;
+                            hit = Some(e.id);
+                        }
+                    }
+                }
+                continue;
+            }
+            let solids = if e.wall_contour.is_some() && matches!(e.shape, Shape::Wall { .. }) {
+                wall_solid_prisms(project, e)
+            } else if let Shape::Opening {
+                host_wall,
+                offset,
+                width,
+                sill,
+                height,
+                ..
+            } = e.shape
+                && let Some(host) = project.elements.iter().find(|wall| wall.id == host_wall)
+                && host.wall_contour.is_some()
+            {
+                let bottom = project.elevation(e.story) + sill;
+                crate::wall_geometry::strips_between(
+                    host,
+                    offset - width * 0.5,
+                    offset + width * 0.5,
+                )
+                .into_iter()
+                .map(|strip| prism_corners(strip, bottom, bottom + height))
+                .collect()
+            } else if matches!(e.shape, Shape::Slab { .. }) && e.slab_contour.is_some() {
+                let bounds = corners(project, e);
+                crate::slab_geometry::triangles(e)
+                    .into_iter()
+                    .map(|[a, b, c]| prism_corners([a, b, c, c], bounds[0].z, bounds[4].z))
+                    .collect()
+            } else {
+                vec![corners(project, e)]
+            };
+            for c in solids {
+                for f in FACES {
+                    for tri in [[f[0], f[1], f[2]], [f[0], f[2], f[3]]] {
+                        if let Some(t) = ray_triangle(origin, dir, c[tri[0]], c[tri[1]], c[tri[2]])
+                            && t < nearest
+                        {
+                            nearest = t;
+                            hit = Some(e.id)
+                        }
                     }
                 }
             }
@@ -2451,8 +3120,9 @@ mod marquee_tests {
                 height: 3.,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let outline = wall_outline_segments(&footprints);
         assert!(
             !outline.iter().any(|(a, b)| (a.x - 2.).abs() < 1e-4
@@ -2490,11 +3160,12 @@ mod marquee_tests {
                 height: 3.,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let outline = wall_outline_segments(&footprints);
         assert!(
-            plan_wall_attached_ends(&walls, &footprints).contains(&(walls[1].id, true)),
+            plan_wall_attached_ends(&walls, &footprints, &groups).contains(&(walls[1].id, true)),
             "the T branch's buried 3D end cap must be hidden"
         );
         assert!(
@@ -2537,8 +3208,9 @@ mod marquee_tests {
             },
             crate::view_settings::RenovationStatus::New,
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let outline = wall_outline_segments(&footprints);
         assert_eq!(walls[0].id, main);
         assert_eq!(walls[1].id, branch);
@@ -2548,7 +3220,7 @@ mod marquee_tests {
             footprints[1]
         );
         assert!(
-            plan_wall_attached_ends(&walls, &footprints).contains(&(branch, true)),
+            plan_wall_attached_ends(&walls, &footprints, &groups).contains(&(branch, true)),
             "3D must hide a buried end cap even when materials and renovation differ"
         );
         assert!(
@@ -2590,8 +3262,9 @@ mod marquee_tests {
                 height: 3.,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let outline = wall_outline_segments(&footprints);
         let paths = wall_outline_paths(&footprints);
         let Shape::Wall {
@@ -2669,8 +3342,9 @@ mod marquee_tests {
                 height: 3.0,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let outline = wall_outline_segments(&footprints);
         let paths = wall_outline_paths(&footprints);
         assert!(contains(Point::new(7.55, 4.05), &footprints[0]));
@@ -2680,8 +3354,12 @@ mod marquee_tests {
                 || contains(Point::new(7.45, 3.95), &footprints[1]),
             "extended rectangular wall bodies should fill the outside corner without a bevel"
         );
-        assert!(plan_wall_attached_ends(&walls, &footprints).contains(&(walls[0].id, true)));
-        assert!(plan_wall_attached_ends(&walls, &footprints).contains(&(walls[1].id, true)));
+        assert!(
+            plan_wall_attached_ends(&walls, &footprints, &groups).contains(&(walls[0].id, true))
+        );
+        assert!(
+            plan_wall_attached_ends(&walls, &footprints, &groups).contains(&(walls[1].id, true))
+        );
         assert!(
             !outline.iter().any(|(a, b)| (a.x - 7.5).abs() < 1e-4
                 && (b.x - 7.5).abs() < 1e-4
@@ -2725,8 +3403,9 @@ mod marquee_tests {
                 height: 3.,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let left = footprints[0][1];
         let right = footprints[0][2];
         assert!(
@@ -2753,6 +3432,69 @@ mod marquee_tests {
         );
     }
 
+    /// AC29 layer intersection groups: only same non-zero groups join, so a
+    /// wall pair on different groups keeps its own end caps.
+    #[test]
+    fn collinear_walls_on_different_intersection_groups_keep_end_caps() {
+        fn corner_pair() -> Project {
+            let mut project = Project::default();
+            project.add(
+                0,
+                Material::Plaster,
+                Shape::Wall {
+                    start: Point::new(0., 0.),
+                    end: Point::new(4., 0.),
+                    thickness: 0.2,
+                    height: 3.,
+                },
+            );
+            project.add(
+                0,
+                Material::Plaster,
+                Shape::Wall {
+                    start: Point::new(4., 0.),
+                    end: Point::new(4., 3.),
+                    thickness: 0.2,
+                    height: 3.,
+                },
+            );
+            project
+        }
+
+        /// True when the first wall's end corners reach the second wall's
+        /// faces (x 3.9 / 4.1) — the sign of a processed corner join.
+        fn first_wall_joins(footprints: &[[Point; 4]]) -> bool {
+            footprints[0]
+                .iter()
+                .any(|p| (p.x - 3.9).abs() <= 1e-4 || (p.x - 4.1).abs() <= 1e-4)
+        }
+
+        let mut project = corner_pair();
+        let walls: Vec<_> = project.elements.iter().collect();
+        let joined_groups = vec![1u8; walls.len()];
+        let joined = plan_wall_footprints(&walls, &joined_groups);
+        assert!(
+            first_wall_joins(&joined),
+            "same group processes the corner join: {joined:?}"
+        );
+
+        let project = corner_pair();
+        let walls: Vec<_> = project.elements.iter().collect();
+        let split_groups = vec![1u8, 2u8];
+        let split = plan_wall_footprints(&walls, &split_groups);
+        assert!(
+            !first_wall_joins(&split),
+            "different groups keep the square end caps: {split:?}"
+        );
+
+        let zero_groups = vec![0u8, 0u8];
+        let zero = plan_wall_footprints(&walls, &zero_groups);
+        assert!(
+            !first_wall_joins(&zero),
+            "group 0 never intersects: {zero:?}"
+        );
+    }
+
     #[test]
     fn l_corner_with_different_thickness_meets_on_matching_faces() {
         let mut project = Project::default();
@@ -2776,8 +3518,9 @@ mod marquee_tests {
                 height: 3.,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         let expected = [Point::new(3.9, 0.15), Point::new(4.1, -0.15)];
         for point in expected {
             assert!(footprints[0].iter().any(|p| p.distance(point) <= 1e-4));
@@ -2825,8 +3568,9 @@ mod marquee_tests {
                 height: 3.,
             },
         );
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         assert!(
             (footprints[1][1].y + 0.2).abs() <= 1e-4,
             "{:?}",
@@ -2869,8 +3613,9 @@ mod marquee_tests {
                 },
             );
         }
+        let groups = vec![1u8; project.elements.len()];
         let walls: Vec<_> = project.elements.iter().collect();
-        let footprints = plan_wall_footprints(&walls);
+        let footprints = plan_wall_footprints(&walls, &groups);
         for x in [-0.05, 0., 0.05] {
             for y in [-0.05, 0., 0.05] {
                 assert!(
@@ -2950,8 +3695,9 @@ mod marquee_tests {
                 settings.geometry.reference_line = line;
                 settings.geometry.reference_offset = offset;
             }
+            let groups = vec![1u8; project.elements.len()];
             let walls: Vec<_> = project.elements.iter().collect();
-            let footprints = plan_wall_footprints(&walls);
+            let footprints = plan_wall_footprints(&walls, &groups);
             for point in expected {
                 assert!(
                     footprints[0].iter().any(|p| p.distance(point) <= 1e-4),
@@ -3057,6 +3803,629 @@ mod marquee_tests {
         assert!(
             close_width > distant_width * 1.8,
             "close={close_width}, distant={distant_width}"
+        );
+    }
+}
+
+#[cfg(test)]
+mod contour_geometry_tests {
+    use super::*;
+
+    fn curved_project() -> (Project, u64) {
+        let mut project = Project::default();
+        let id = project.add(
+            0,
+            Material::Concrete,
+            Shape::Wall {
+                start: Point::new(0., 0.),
+                end: Point::new(4., 0.),
+                thickness: 0.3,
+                height: 3.,
+            },
+        );
+        project.elements[0].wall_contour = Some(WallContour::Arc {
+            arc: arc_segment_through(Point::new(0., 0.), Point::new(4., 0.), Point::new(2., 2.))
+                .unwrap(),
+        });
+        (project, id)
+    }
+
+    #[test]
+    fn contour_plan_hit_and_hover_follow_arc_not_chord_or_bounds() {
+        let (project, id) = curved_project();
+        assert_eq!(hit_plan(&project, 0, Point::new(2., 2.), 0.01), Some(id));
+        assert_eq!(hit_plan(&project, 0, Point::new(2., 0.), 0.01), None);
+        assert_eq!(hit_plan(&project, 0, Point::new(2., 1.), 0.01), None);
+        assert_eq!(
+            plan_hover_kind(&project, 0, Point::new(2., 2.), 0.02, 0.02),
+            Some(PlanHoverKind::Edge)
+        );
+        assert_eq!(
+            plan_hover_kind(&project, 0, Point::new(2., 0.), 0.02, 0.02),
+            None
+        );
+        let (point, kind) = snap(&project, 0, Point::new(2.001, 2.001), 0.02, true);
+        assert_eq!(kind, SnapKind::Midpoint);
+        assert!(point.distance(Point::new(2., 2.)) < 1e-5);
+        let projected =
+            wall_reference_projection(&project.elements[0], Point::new(2., 3.)).unwrap();
+        assert!(projected.distance(Point::new(2., 2.)) < 1e-5);
+    }
+
+    #[test]
+    fn contour_opening_stations_and_solid_hole_use_arc_length() {
+        let (mut project, host) = curved_project();
+        let length = crate::wall_geometry::reference_length(&project.elements[0]);
+        assert!((length - std::f32::consts::TAU).abs() < 1e-4);
+        let opening = project.add(
+            0,
+            Material::Concrete,
+            Shape::Opening {
+                host_wall: host,
+                kind: OpeningKind::Window,
+                offset: length * 0.5,
+                width: 1.,
+                sill: 1.,
+                height: 1.,
+            },
+        );
+        let wall = &project.elements[0];
+        let open = project.elements.iter().find(|e| e.id == opening).unwrap();
+        let (a, b) = opening_span(&project, open).unwrap();
+        assert!((wall_offset_of(&project, host, a).unwrap() - (length * 0.5 - 0.5)).abs() < 1e-4);
+        assert!((wall_offset_of(&project, host, b).unwrap() - (length * 0.5 + 0.5)).abs() < 1e-4);
+        let point = Point::new(2., 2.);
+        assert_eq!(hit_plan(&project, 0, point, 0.01), Some(opening));
+        let solids = wall_solid_prisms(&project, wall);
+        let contains_at = |z: f32| {
+            solids.iter().any(|s| {
+                z > s[0].z + 1e-4
+                    && z < s[4].z - 1e-4
+                    && contains(
+                        point,
+                        &s[..4]
+                            .iter()
+                            .map(|v| Point::new(v.x, v.y))
+                            .collect::<Vec<_>>(),
+                    )
+            })
+        };
+        assert!(contains_at(0.5));
+        assert!(
+            !contains_at(1.5),
+            "window hole must remain empty across the curved strip"
+        );
+        assert!(contains_at(2.5));
+    }
+
+    #[test]
+    fn contour_camera_picks_visible_arc_and_rejects_empty_box_interior() {
+        let (project, id) = curved_project();
+        let camera = Camera {
+            target: Vec3::new(2., 1., 0.),
+            yaw: 0.,
+            pitch: 1.5,
+            span: 10.,
+        };
+        let project_point = |p: Vec3| {
+            let n = camera.matrix(1.).project_point3(p);
+            [n.x, n.y]
+        };
+        assert_eq!(
+            camera.pick(&project, project_point(Vec3::new(2., 2., 3.)), 1., Some(0)),
+            Some(id)
+        );
+        assert_eq!(
+            camera.pick(&project, project_point(Vec3::new(2., 1., 3.)), 1., Some(0)),
+            None
+        );
+    }
+
+    #[test]
+    fn contour_trapezoid_hit_snap_and_marquee_use_outer_nodes() {
+        let (mut project, id) = curved_project();
+        project.elements[0].wall_contour = Some(WallContour::Trapezoid {
+            outer_start: Point::new(0., 0.5),
+            outer_end: Point::new(4., 1.),
+            outer_nodes: vec![Point::new(2., 1.5)],
+            outer_positive: true,
+        });
+        let wall = &project.elements[0];
+        assert_eq!(hit_plan(&project, 0, Point::new(2., 1.2), 0.01), Some(id));
+        assert_eq!(
+            plan_hover_kind(&project, 0, Point::new(2., 1.5), 0.02, 0.02),
+            Some(PlanHoverKind::Node)
+        );
+        let polygon = [
+            Point::new(1.9, 1.4),
+            Point::new(2.1, 1.4),
+            Point::new(2.1, 1.6),
+            Point::new(1.9, 1.6),
+        ];
+        assert!(element_has_node_in_polygon(&project, wall, &polygon));
+        assert!(element_intersects_polygon(&project, wall, &polygon));
+        let empty = [
+            Point::new(0.1, 1.2),
+            Point::new(0.3, 1.2),
+            Point::new(0.3, 1.4),
+            Point::new(0.1, 1.4),
+        ];
+        assert!(!element_intersects_polygon(&project, wall, &empty));
+    }
+    fn junction_project(angles: &[f32], lengths: &[f32], widths: &[f32]) -> Project {
+        let mut p = Project::default();
+        for (i, angle) in angles.iter().enumerate() {
+            let r = angle.to_radians();
+            p.add(
+                0,
+                Material::Concrete,
+                Shape::Wall {
+                    start: Point::default(),
+                    end: Point::new(r.cos() * lengths[i], r.sin() * lengths[i]),
+                    thickness: widths[i],
+                    height: 3.,
+                },
+            );
+        }
+        p
+    }
+    fn junction_polygons(p: &Project) -> Vec<Vec<Point>> {
+        plan_wall_polygons(
+            &p.elements.iter().collect::<Vec<_>>(),
+            &vec![1; p.elements.len()],
+        )
+    }
+    fn junction_union_area(polys: &[Vec<Point>]) -> f32 {
+        wall_polygon_outline_segments(polys)
+            .iter()
+            .map(|(a, b)| a.x * b.y - b.x * a.y)
+            .sum::<f32>()
+            .abs()
+            * 0.5
+    }
+    fn assert_valid_junction(polys: &[Vec<Point>]) {
+        for poly in polys {
+            assert!(poly.iter().all(|p| p.finite()), "{poly:?}");
+            for i in 0..poly.len() {
+                for j in i + 1..poly.len() {
+                    if j == i + 1 || (i == 0 && j == poly.len() - 1) {
+                        continue;
+                    }
+                    let (a, b, c, d) = (
+                        poly[i],
+                        poly[(i + 1) % poly.len()],
+                        poly[j],
+                        poly[(j + 1) % poly.len()],
+                    );
+                    let proper_cross = orientation(a, b, c) * orientation(a, b, d) < -1e-10
+                        && orientation(c, d, a) * orientation(c, d, b) < -1e-10;
+                    assert!(!proper_cross, "self crossing {poly:?}");
+                }
+            }
+            let triangles = triangulate_polygon(poly);
+            assert!(!triangles.is_empty(), "{poly:?}");
+            let area: f32 = triangles.iter().map(|t| polygon_area(t).abs()).sum();
+            assert!((area - polygon_area(poly).abs()).abs() < 1e-4, "{poly:?}");
+        }
+    }
+    #[test]
+    fn junction_polygons_y_t_x_match_observed_union_and_have_no_hub_cracks() {
+        for (angles, area) in [
+            (vec![0., 120., 240.], 3.5610289),
+            (vec![0., 90., 180.], 3.555),
+            (vec![0., 90., 180., 270.], 4.71),
+        ] {
+            let count = angles.len();
+            let project = junction_project(&angles, &vec![4.; count], &vec![0.3; count]);
+            let polygons = junction_polygons(&project);
+            assert_valid_junction(&polygons);
+            assert!(
+                (junction_union_area(&polygons) - area).abs() < 1e-4,
+                "{angles:?}: {}",
+                junction_union_area(&polygons)
+            );
+            for x in -4..=4 {
+                for y in -4..=4 {
+                    let p = Point::new(x as f32 * 0.01 + 0.00013, y as f32 * 0.01 + 0.00017);
+                    assert!(
+                        polygons.iter().any(|poly| contains(p, poly)),
+                        "hub gap {p:?}"
+                    );
+                }
+            }
+            assert!(
+                wall_polygon_outline_segments(&polygons)
+                    .iter()
+                    .all(|(a, b)| segment_distance(Point::default(), *a, *b) > 0.09)
+            );
+            let walls: Vec<_> = project.elements.iter().collect();
+            let attached = plan_wall_polygon_attached_ends(&walls, &polygons, &vec![1; count]);
+            assert!(walls.iter().all(|w| attached.contains(&(w.id, true))));
+        }
+    }
+    #[test]
+    fn junction_polygons_fan_keeps_neighbour_mitre_and_removes_backwards_spike() {
+        let project = junction_project(&[0., 20., 150., 250.], &[4.; 4], &[0.3; 4]);
+        let polys = junction_polygons(&project);
+        assert_valid_junction(&polys);
+        assert!(
+            polys
+                .iter()
+                .flatten()
+                .any(|p| p.distance(Point::new(0.8506923, 0.15)) < 1e-5)
+        );
+        assert!(!polys.iter().any(|p| contains(Point::new(-0.75, -0.1), p)));
+        assert!((junction_union_area(&polys) - 4.6272697).abs() < 1e-4);
+    }
+    #[test]
+    fn junction_polygons_moved_t_matches_adjacent_sector_boundary() {
+        let mut project = junction_project(&[0.; 3], &[4.; 3], &[0.3; 3]);
+        for (wall, end) in project.elements.iter_mut().zip([
+            Point::new(-2.5714285, -2.3154762),
+            Point::new(5.4285715, -2.3154762),
+            Point::new(1.4285715, 1.6845238),
+        ]) {
+            if let Shape::Wall { end: e, .. } = &mut wall.shape {
+                *e = end;
+            }
+        }
+        let polys = junction_polygons(&project);
+        assert_valid_junction(&polys);
+        assert!((junction_union_area(&polys) - 3.4248404).abs() < 1e-4);
+        assert!(
+            polys
+                .iter()
+                .flatten()
+                .any(|p| p.distance(Point::new(-0.107873, 0.104715)) < 1e-5)
+        );
+    }
+    #[test]
+    fn junction_polygons_are_order_and_reference_direction_independent() {
+        let project = junction_project(&[0., 20., 150., 250.], &[4.; 4], &[0.2, 0.3, 0.4, 0.25]);
+        let expected = junction_polygons(&project);
+        for a in 0..4 {
+            for b in 0..4 {
+                for c in 0..4 {
+                    for d in 0..4 {
+                        let order = [a, b, c, d];
+                        if (0..4).any(|i| (i + 1..4).any(|j| order[i] == order[j])) {
+                            continue;
+                        }
+                        let walls: Vec<_> = order.iter().map(|&i| &project.elements[i]).collect();
+                        let actual = plan_wall_polygons(&walls, &[1; 4]);
+                        for (k, &i) in order.iter().enumerate() {
+                            assert_eq!(actual[k], expected[i]);
+                        }
+                    }
+                }
+            }
+        }
+        let mut reversed = project.clone();
+        for wall in &mut reversed.elements {
+            if let Shape::Wall { start, end, .. } = &mut wall.shape {
+                std::mem::swap(start, end);
+            }
+        }
+        let actual = junction_polygons(&reversed);
+        assert_valid_junction(&actual);
+        assert!((junction_union_area(&actual) - junction_union_area(&expected)).abs() < 1e-5);
+        for (a, b) in actual.iter().zip(&expected) {
+            assert!(a.iter().all(|p| b.iter().any(|q| p.distance(*q) < 1e-5)));
+        }
+    }
+    #[test]
+    fn junction_polygons_width_reference_offsets_and_short_bevels_stay_valid() {
+        use crate::wall::WallReferenceLine;
+        for mode in [
+            WallReferenceLine::Center,
+            WallReferenceLine::Inside,
+            WallReferenceLine::Outside,
+        ] {
+            let mut project = junction_project(&[0., 120., 240.], &[4.; 3], &[0.2, 0.4, 0.6]);
+            for wall in &mut project.elements {
+                wall.wall_settings.as_mut().unwrap().geometry.reference_line = mode;
+            }
+            assert_valid_junction(&junction_polygons(&project));
+        }
+        let mut project = junction_project(&[0., 120., 240.], &[4.; 3], &[0.2, 0.4, 0.6]);
+        for wall in &mut project.elements {
+            wall.wall_settings
+                .as_mut()
+                .unwrap()
+                .geometry
+                .reference_offset = 0.04;
+        }
+        let expected = junction_polygons(&project);
+        assert_valid_junction(&expected);
+        for wall in &mut project.elements {
+            if let Shape::Wall { start, end, .. } = &mut wall.shape {
+                std::mem::swap(start, end);
+            }
+            wall.wall_settings
+                .as_mut()
+                .unwrap()
+                .geometry
+                .reference_offset = -0.04;
+        }
+        assert!(
+            (junction_union_area(&junction_polygons(&project)) - junction_union_area(&expected))
+                .abs()
+                < 1e-4
+        );
+        // Entirely external reference lines conservatively retain body caps.
+        for wall in &mut project.elements {
+            wall.wall_settings
+                .as_mut()
+                .unwrap()
+                .geometry
+                .reference_offset = 0.8;
+        }
+        let raw = junction_polygons(&project);
+        for (poly, wall) in raw.iter().zip(&project.elements) {
+            assert_eq!(*poly, body_polygon(&wall_body(wall).unwrap()).to_vec());
+        }
+        let short = junction_project(&[0., 1., 120., 240.], &[0.1, 0.1, 4., 4.], &[0.3; 4]);
+        let polys = junction_polygons(&short);
+        assert_valid_junction(&polys);
+        for (poly, wall) in polys.iter().zip(&short.elements) {
+            let b = wall_body(wall).unwrap();
+            assert!(poly.iter().all(
+                |p| dot(Point::new(p.x - b.start.x, p.y - b.start.y), b.dir) <= b.length + 1e-5
+            ));
+        }
+    }
+    #[test]
+    fn junction_polygons_require_matching_story_group_and_strict_node() {
+        let mut project = junction_project(&[0., 120., 240.], &[4.; 3], &[0.3; 3]);
+        let walls: Vec<_> = project.elements.iter().collect();
+        for groups in [[0, 0, 0], [1, 2, 3]] {
+            let polys = plan_wall_polygons(&walls, &groups);
+            for (p, w) in polys.iter().zip(&walls) {
+                assert_eq!(*p, body_polygon(&wall_body(w).unwrap()).to_vec());
+            }
+        }
+        for (i, w) in project.elements.iter_mut().enumerate() {
+            w.story = i as u32;
+        }
+        let polys = junction_polygons(&project);
+        for (p, w) in polys.iter().zip(&project.elements) {
+            assert_eq!(*p, body_polygon(&wall_body(w).unwrap()).to_vec());
+        }
+        for (i, w) in project.elements.iter_mut().enumerate() {
+            w.story = 0;
+            if let Shape::Wall { start, .. } = &mut w.shape {
+                start.x += i as f32 * 0.01;
+            }
+        }
+        // Nearby face joins retain their established pairwise workflow.
+        assert!(junction_polygons(&project).iter().all(|p| p.len() == 4));
+    }
+    #[test]
+    fn junction_concave_outline_clips_against_actual_interior() {
+        let concave = vec![
+            Point::new(0., 0.),
+            Point::new(3., 0.),
+            Point::new(3., 1.),
+            Point::new(1., 1.),
+            Point::new(1., 3.),
+            Point::new(0., 3.),
+        ];
+        let square = vec![
+            Point::new(0.5, 0.5),
+            Point::new(2., 0.5),
+            Point::new(2., 2.),
+            Point::new(0.5, 2.),
+        ];
+        let polys = vec![concave, square];
+        assert!((junction_union_area(&polys) - 6.).abs() < 1e-4);
+        assert!(
+            !wall_polygon_outline_segments(&polys)
+                .iter()
+                .any(|(a, b)| point_on_segment(Point::new(0.75, 0.5), *a, *b, 1e-5))
+        );
+    }
+    #[test]
+    fn junction_polygon_pipeline_preserves_ordinary_l_t_and_shifted_faces() {
+        use crate::wall::WallReferenceLine;
+        for (mode, offset) in [
+            (WallReferenceLine::Center, 0.),
+            (WallReferenceLine::Inside, 0.),
+            (WallReferenceLine::Outside, 0.),
+            (WallReferenceLine::Center, 0.2),
+        ] {
+            for fixture in 0..4 {
+                let mut project = junction_project(&[0., 90.], &[4.; 2], &[0.3, 0.2]);
+                if let Shape::Wall { start, end, .. } = &mut project.elements[0].shape {
+                    if fixture == 1 {
+                        *start = Point::new(-4., 0.);
+                        *end = Point::new(4., 0.);
+                    }
+                    if fixture == 2 {
+                        *start = Point::new(-4., 0.);
+                        *end = Point::default();
+                    }
+                }
+                if let Shape::Wall { start, end, .. } = &mut project.elements[1].shape {
+                    if fixture == 2 {
+                        start.y = 0.15;
+                        end.y = 4.15;
+                    }
+                    if fixture == 3 {
+                        *end = Point::new(3., 2.);
+                    }
+                }
+                for wall in &mut project.elements {
+                    let g = &mut wall.wall_settings.as_mut().unwrap().geometry;
+                    g.reference_line = mode;
+                    g.reference_offset = offset;
+                }
+                let walls: Vec<_> = project.elements.iter().collect();
+                let old = plan_wall_footprints(&walls, &[1, 1]);
+                let new = plan_wall_polygons(&walls, &[1, 1]);
+                for (a, b) in old.iter().zip(&new) {
+                    assert_eq!(
+                        a.as_slice(),
+                        b.as_slice(),
+                        "fixture {fixture}, offset {offset}"
+                    );
+                }
+            }
+        }
+    }
+    #[test]
+    fn junction_polygons_support_both_ends_without_crossing_caps() {
+        for length in [0.1, 1.] {
+            let mut project = junction_project(&[0., 120., 240.], &[length, 4., 4.], &[0.3; 3]);
+            for angle in [60_f32, 300.] {
+                let r = angle.to_radians();
+                project.add(
+                    0,
+                    Material::Concrete,
+                    Shape::Wall {
+                        start: Point::new(length, 0.),
+                        end: Point::new(length + 4. * r.cos(), 4. * r.sin()),
+                        thickness: 0.3,
+                        height: 3.,
+                    },
+                );
+            }
+            let polygons = junction_polygons(&project);
+            assert_valid_junction(&polygons);
+            assert!(polygons[0].len() >= 6);
+            assert!(
+                polygons[0]
+                    .iter()
+                    .all(|p| p.x >= -1e-5 && p.x <= length + 1e-5)
+            );
+            for x in 0..100 {
+                assert!(
+                    polygons.iter().any(|p| contains(
+                        Point::new(x as f32 * length / 100. + 0.0001, 0.0002),
+                        p
+                    ))
+                );
+            }
+            let angle = 42.3_f32.to_radians();
+            let rotate = |p: Point| {
+                Point::new(
+                    p.x * angle.cos() - p.y * angle.sin(),
+                    p.x * angle.sin() + p.y * angle.cos(),
+                )
+            };
+            for wall in &mut project.elements {
+                if let Shape::Wall { start, end, .. } = &mut wall.shape {
+                    *start = rotate(*start);
+                    *end = rotate(*end);
+                }
+            }
+            let rotated = junction_polygons(&project);
+            assert_valid_junction(&rotated);
+            for (a, b) in polygons.iter().zip(&rotated) {
+                assert_eq!(a.len(), b.len());
+                assert!(
+                    a.iter()
+                        .all(|p| b.iter().any(|q| rotate(*p).distance(*q) < 1e-5)),
+                    "{a:?} vs {b:?}"
+                );
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod slab_perimeter_regressions {
+    use super::*;
+    use crate::slab_geometry::{self, SlabChange};
+
+    fn rectangle() -> (Project, u64) {
+        let mut p = Project::default();
+        let id = p.add(
+            0,
+            Material::Concrete,
+            Shape::Slab {
+                min: Point::new(0., 0.),
+                max: Point::new(4., 3.),
+                thickness: 0.3,
+            },
+        );
+        (p, id)
+    }
+    #[test]
+    fn slab_arc_samples_are_edges_not_editable_nodes_and_midpoint_is_exact() {
+        let (mut p, _) = rectangle();
+        let c = slab_geometry::changed(
+            &p.elements[0],
+            0,
+            &SlabChange::Curve,
+            Point::new(2., 0.),
+            Point::new(2., -1.),
+        )
+        .unwrap()
+        .remove(0);
+        slab_geometry::sync(&mut p.elements[0], c).unwrap();
+        let sample = slab_geometry::outline(&p.elements[0])[4];
+        assert_eq!(
+            plan_hover_kind(&p, 0, sample, 0.0001, 0.0001),
+            Some(PlanHoverKind::Edge)
+        );
+        let box_at_sample = rectangle_polygon(
+            Point::new(sample.x - 0.0001, sample.y - 0.0001),
+            Point::new(sample.x + 0.0001, sample.y + 0.0001),
+        );
+        assert!(!element_has_node_in_polygon(
+            &p,
+            &p.elements[0],
+            &box_at_sample
+        ));
+        let (mid, kind) = snap(&p, 0, Point::new(2., -1.0001), 0.001, true);
+        assert_eq!(kind, SnapKind::Midpoint);
+        assert!(mid.distance(Point::new(2., -1.)) < 1e-5);
+        let (_, sample_kind) = snap(&p, 0, sample, 0.0001, true);
+        assert_ne!(sample_kind, SnapKind::Endpoint);
+    }
+    #[test]
+    fn slab_hole_is_empty_for_body_marquee_and_3d_pick_and_elevation_is_shared() {
+        let (mut p, id) = rectangle();
+        let cutter = vec![
+            Point::new(1., 1.),
+            Point::new(3., 1.),
+            Point::new(3., 2.),
+            Point::new(1., 2.),
+        ];
+        let mut c = slab_geometry::changed(
+            &p.elements[0],
+            0,
+            &SlabChange::SubtractPolygon(cutter),
+            Point::default(),
+            Point::default(),
+        )
+        .unwrap()
+        .remove(0);
+        c.elevation = 2.5;
+        slab_geometry::sync(&mut p.elements[0], c).unwrap();
+        let inside_hole = Point::new(2., 1.5);
+        assert_eq!(hit_plan(&p, 0, inside_hole, 0.01), None);
+        assert_eq!(plan_hover_kind(&p, 0, inside_hole, 0.01, 0.01), None);
+        let hole_box = rectangle_polygon(Point::new(1.5, 1.25), Point::new(2.5, 1.75));
+        assert!(!element_intersects_polygon(&p, &p.elements[0], &hole_box));
+        assert_eq!(hit_plan(&p, 0, Point::new(0.5, 1.5), 0.01), Some(id));
+        assert_eq!(
+            plan_hover_kind(&p, 0, Point::new(1., 1.5), 0.01, 0.01),
+            Some(PlanHoverKind::Edge)
+        );
+        let corners = corners(&p, &p.elements[0]);
+        assert!((corners[0].z - 2.2).abs() < 1e-6);
+        assert!((corners[4].z - 2.5).abs() < 1e-6);
+        let camera = Camera {
+            yaw: 0.,
+            pitch: std::f32::consts::FRAC_PI_2 - 0.001,
+            span: 10.,
+            target: Vec3::new(2., 1.5, 2.5),
+        };
+        let projected = camera.matrix(1.).project_point3(Vec3::new(2., 1.5, 2.5));
+        assert_eq!(
+            camera.pick(&p, [projected.x, projected.y], 1., Some(0)),
+            None
         );
     }
 }

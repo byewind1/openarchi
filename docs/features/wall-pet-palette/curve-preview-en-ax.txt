@@ -1,0 +1,676 @@
+AXApplication | OpenArchi
+AXWindow | Untitled
+AXButton | Guides
+AXButton | Grids
+AXCheckBox | Trace
+AXButton | ▾
+AXButton | Measure
+AXCheckBox | Groups
+AXCheckBox | 3D Cutaway
+AXButton | Trim
+AXButton | Magic Wand
+AXButton | Adjust
+AXButton | Intersect
+AXButton | Fillet/Chamfer…
+AXButton | Resize…
+AXButton | Trim Elements to Roof/Shell
+AXCheckBox | Floor plan · F2
+AXCheckBox | Perspective 3D · F3
+AXStaticText | EDIT
+AXStaticText | Workspace controls · viewport context
+AXStaticText | INFO BOX
+AXStaticText | Arrow
+AXStaticText | Wall 001
+AXStaticText | All Selected: 1
+AXStaticText | Layer:
+AXPopUpButton | Archicad Layer
+AXStaticText | Structural:
+AXPopUpButton | Undefined
+AXStaticText | Geometry Method:
+AXCheckBox | Single
+AXCheckBox | Continuous
+AXCheckBox | Polygonal
+AXCheckBox | Rectangular
+AXStaticText | Reference Line:
+AXCheckBox | Center
+AXCheckBox | Inside
+AXCheckBox | Outside
+AXStaticText | Reference Offset
+AXIncrementor | 0.000 m
+AXStaticText | Thickness
+AXIncrementor | 0.300 m
+AXStaticText | Height
+AXIncrementor | 3.000 m
+AXStaticText | Top Offset
+AXIncrementor | 0.000 m
+AXStaticText | Bottom Offset
+AXIncrementor | 0.000 m
+AXStaticText | Top Link:
+AXPopUpButton | 1. First floor (Home Story + 1)
+AXStaticText | Structure:
+AXTextField | Generic Wall/Shell
+AXButton | Floor Plan and Section…
+AXButton | Settings…
+AXButton | Apply
+AXStaticText | READY
+AXStaticText | Wall reference-line edit · drag the line to move the wall
+AXStaticText | X 0.000 m   Y 0.000 m   |   1 element
+AXStaticText | TOOLBOX
+AXButton | ⋯
+AXStaticText | Selection & Region
+AXCheckBox | Arrow
+AXCheckBox | Marquee
+AXButton | Design
+AXCheckBox | Wall
+AXCheckBox | Slab
+AXCheckBox | Stair
+AXCheckBox | Door
+AXCheckBox | Window
+AXCheckBox | Column
+AXCheckBox | Beam
+AXCheckBox | Object
+AXCheckBox | Lamp
+AXCheckBox | Roof
+AXCheckBox | Shell
+AXCheckBox | Railing
+AXCheckBox | Curtain Wall
+AXCheckBox | Skylight
+AXCheckBox | Corner Window
+AXCheckBox | Opening
+AXCheckBox | Wall End
+AXCheckBox | Mesh
+AXCheckBox | Morph
+AXCheckBox | Zone
+AXButton | Viewpoint
+AXButton | Document
+AXButton | Structural Engineering
+AXButton | MEP Engineering
+AXStaticText | OPENARCHI
+Metres · Z up
+Apple Silicon / Metal
+AXStaticText | NAVIGATOR
+AXStaticText | Rotated wall node
+AXButton | Stories
+AXCheckBox | 00  Ground floor     +0.00 m
+AXCheckBox | 01  First floor     +3.20 m
+AXCheckBox | 02  Roof level     +6.40 m
+AXButton | Sections
+AXButton | Elevations
+AXButton | Interior Elevations
+AXButton | Worksheets
+AXButton | Details
+AXButton | 3D Documents
+AXButton | 3D
+AXButton | Schedules
+AXButton | Project Indexes
+AXButton | Lists
+AXButton | Info
+AXButton | Help
+AXCheckBox | Show all stories in 3D
+AXCheckBox | Properties
+AXCheckBox | Library
+AXCheckBox | AI Assistant
+AXStaticText | ELEMENT SETTINGS
+AXStaticText | Wall 001
+AXStaticText | Warm plaster · 18.97 m²
+AXStaticText | Element name
+AXTextField | Rotated wall
+AXStaticText | Home Story
+AXPopUpButton | Ground floor
+AXStaticText | Surface
+AXPopUpButton | Warm plaster
+AXStaticText | Start X
+AXIncrementor | -3.000 m
+AXStaticText | Start Y
+AXIncrementor | -1.000 m
+AXStaticText | End X
+AXIncrementor | 3.000 m
+AXStaticText | End Y
+AXIncrementor | 1.000 m
+AXStaticText | Thickness
+AXIncrementor | 0.300 m
+AXStaticText | Height
+AXIncrementor | 3.000 m
+AXStaticText | WALL SETTINGS
+AXStaticText | Thickness
+AXStaticText | 0.300 m
+AXStaticText | Height
+AXStaticText | 3.000 m
+AXStaticText | Reference Line
+AXStaticText | Center
+AXStaticText | Reference Offset
+AXStaticText | 0.000 m
+AXStaticText | Top / Bottom Offset
+AXStaticText | 0.000 / 0.000 m
+AXStaticText | Structure
+AXStaticText | Generic Wall/Shell
+AXStaticText | Floor Plan Display
+AXStaticText | Projected
+AXStaticText | Uncut Lines
+AXStaticText | Solid
+AXStaticText | Left Surface
+AXStaticText | Stucco - Yellow Rough
+AXStaticText | Right Surface
+AXStaticText | Stucco - Yellow Rough
+AXStaticText | End Surface
+AXStaticText | Stucco - White Rough
+AXStaticText | Structural Function
+AXStaticText | Undefined
+AXStaticText | Property ID
+AXStaticText | SW - 014
+AXButton | Edit Wall Settings  ⌘T
+AXButton | Apply changes
+AXButton | Duplicate
+AXButton | Delete
+AXButton | Elements on current story
+AXStaticText | 1 element
+AXUnknown | Floor plan canvas
+AXButton | Insert node
+AXButton | Curve edge
+AXButton | Edit segment using tangent
+AXButton | Change outer side of trapezoid wall
+AXButton | Insert new point in trapezoid wall
+AXButton | Drag
+AXButton | Rotate
+AXButton | Mirror
+AXButton | Elevate
+AXButton | Multiply…
+AXStaticText | Curve edge
+AXStaticText | Move the pointer to preview · Click or Enter to apply · Escape cancels
+AXStaticText | Distance
+AXIncrementor | 2.2099 m
+AXStaticText | Angle
+AXIncrementor | 119.57°
+AXButton | Apply
+AXButton | Cancel
+AXStaticText | Untitled
+AXMenuBarItem | OpenArchi
+AXMenuItem | About OpenArchi
+AXMenuItem | Project Preferences
+AXMenuItem | Working Units…
+AXMenuItem | Dimensions…
+AXMenuItem | Calculation Units…
+AXMenuItem | Zones…
+AXMenuItem | Reference Levels…
+AXMenuItem | Location Settings…
+AXMenuItem | Project North…
+AXMenuItem | Survey Point…
+AXMenuItem | Work Environment
+AXMenuItem | Appearance…
+AXMenuItem | Keyboard Shortcuts…
+AXMenuItem | Dialog Boxes and Palettes…
+AXMenuItem | Toolbox…
+AXMenuItem | Info Box…
+AXMenuItem | Toolbars…
+AXMenuItem | Menus…
+AXMenuItem | Services
+AXMenuItem | No Services Apply
+AXMenuItem | Services Settings…
+AXMenuItem | Hide OpenArchi
+AXMenuItem | Hide Others
+AXMenuItem | Show All
+AXMenuItem | Quit OpenArchi
+AXMenuBarItem | File
+AXMenuItem | New
+AXMenuItem | New Empty Project…
+AXMenuItem | New & Reset All…
+AXMenuItem | Share as Teamwork Project…
+AXMenuItem | Open JSON…     ⌘O
+AXMenuItem | Save JSON…     ⌘S
+AXMenuItem | Save As…
+AXMenuItem | Save as Template…
+AXMenuItem | Save Selection as Module…
+AXMenuItem | Save to BIMcloud…
+AXMenuItem | Publish…
+AXMenuItem | Recent Projects
+AXMenuItem | Rotated wall node
+AXMenuItem | Interoperability
+AXMenuItem | Merge…
+AXMenuItem | IFC Project Manager…
+AXMenuItem | IFC Translators…
+AXMenuItem | Import / Export IFC…
+AXMenuItem | SAF Translators…
+AXMenuItem | DXF-DWG Translation Setup…
+AXMenuItem | Classifications & Properties…
+AXMenuItem | Import Point Cloud…
+AXMenuItem | Place Mesh from Survey Data…
+AXMenuItem | Grasshopper Connection…
+AXMenuItem | Bimplus Connection…
+AXMenuItem | External Content
+AXMenuItem | Hotlink Manager…
+AXMenuItem | Place External Drawing…
+AXMenuItem | Drawing Manager…
+AXMenuItem | Xref Manager…
+AXMenuItem | Libraries and Objects
+AXMenuItem | Library Manager…
+AXMenuItem | BIMcloud Libraries…
+AXMenuItem | New Object…
+AXMenuItem | Open Object…
+AXMenuItem | Save Selection as Object…
+AXMenuItem | Import Blocks…
+AXMenuItem | Import RFA…
+AXMenuItem | Import Rhino / OBJ / FBX…
+AXMenuItem | Info
+AXMenuItem | Project Info…
+AXMenuItem | Action Center…
+AXMenuItem | Project Notes…
+AXMenuItem | Preview and Credits…
+AXMenuItem | Session Report…
+AXMenuItem | Plot and Print
+AXMenuItem | Plot Setup…
+AXMenuItem | Plot…
+AXMenuItem | Page Setup…
+AXMenuItem | Print…
+AXMenuItem | About OpenArchi
+AXMenuBarItem | Edit
+AXMenuItem | Undo  ⌘Z
+AXMenuItem | Redo  ⌥⌘Z / ⇧⌘Z
+AXMenuItem | Repeat Last Command  ⌘B
+AXMenuItem | Cut  ⌘X
+AXMenuItem | Copy  ⌘C
+AXMenuItem | Paste  ⌘V
+AXMenuItem | Delete  ⌫ / Delete
+AXMenuItem | Select All  ⌘A
+AXMenuItem | Find & Select…  ⌘F
+AXMenuItem | Search & Replace Text…
+AXMenuItem | Groups
+AXMenuItem | Group  ⌘G
+AXMenuItem | Ungroup  ⌥⌘G
+AXMenuItem | Suspend Groups  ⌥G
+AXMenuItem | Autogroup
+AXMenuItem | Display Order
+AXMenuItem | Bring to Front
+AXMenuItem | Bring Forward
+AXMenuItem | Send Backward
+AXMenuItem | Send to Back
+AXMenuItem | Reset Default Order
+AXMenuItem | Locking
+AXMenuItem | Lock
+AXMenuItem | Unlock
+AXMenuItem | Unlock All
+AXMenuItem | Move
+AXMenuItem | Drag  ⌘D
+AXMenuItem | Rotate  ⌘E
+AXMenuItem | Quick Rotate Clockwise  ⇧⌘R
+AXMenuItem | Quick Rotate Counter-Clockwise  ⌘R
+AXMenuItem | Mirror  ⌘M
+AXMenuItem | Elevate…  ⌘9
+AXMenuItem | Drag a Copy  ⌥⌘D
+AXMenuItem | Rotate a Copy  ⌥⌘E / ⌥⌘R
+AXMenuItem | Mirror a Copy  ⌥⌘M
+AXMenuItem | Drag Multiple Copies
+AXMenuItem | Rotate Multiple Copies
+AXMenuItem | Multiply…  ⌘U
+AXMenuItem | Edit Elements by Stories…
+AXMenuItem | Align
+AXMenuItem | Horizontal Left
+AXMenuItem | Horizontal Center
+AXMenuItem | Horizontal Right
+AXMenuItem | Vertical Top
+AXMenuItem | Vertical Center
+AXMenuItem | Vertical Bottom
+AXMenuItem | Special Align
+AXMenuItem | Distribute
+AXMenuItem | Along X
+AXMenuItem | Along Y
+AXMenuItem | Along XY
+AXMenuItem | Special Distribute
+AXMenuItem | Reshape
+AXMenuItem | Trim
+AXMenuItem | Magic Wand
+AXMenuItem | Trim Elements to Roof/Shell
+AXMenuItem | Stretch
+AXMenuItem | Resize…  ⌘K
+AXMenuItem | Split
+AXMenuItem | Fillet/Chamfer…
+AXMenuItem | Intersect
+AXMenuItem | Adjust  ⌘−
+AXMenuItem | Offset
+AXMenuItem | Explode into Current View  ⌘=
+AXMenuItem | Unify
+AXMenuItem | Linework Consolidation…
+AXMenuItem | Fill Consolidation…
+AXMenuItem | Split into Single-plane Roofs
+AXMenuItem | Adjust Elements to Slabs…
+AXMenuItem | Merge Beams
+AXMenuItem | Merge Columns
+AXMenuItem | Merge Walls
+AXMenuItem | Element Settings
+AXMenuItem | Tool Settings  ⌘T
+AXMenuItem | Edit Selection Set…  ⌥⌘T
+AXMenuItem | Pick Up Parameters  ⌥C
+AXMenuItem | Inject Parameters  ⌥⌘C
+AXMenuItem | Element Transfer Settings…
+AXMenuItem | Relink Home Story…
+AXMenuItem | Reference Line and Plane
+AXMenuItem | Modify Wall Reference Line…
+AXMenuItem | Invert Wall Direction
+AXMenuItem | Modify Slab Reference Plane…
+AXMenuItem | AutoFill
+AXMenuItem | Contact…
+AXMenuItem | Passwords…
+AXMenuItem | Start Dictation…
+AXMenuItem | Emoji & Symbols
+AXMenuBarItem | View
+AXMenuItem | Show Tab Bar
+AXMenuItem | Show All Tabs
+AXMenuItem | Floor Plan  F2
+AXMenuItem | Split view
+AXMenuItem | 3D Perspective  F3
+AXMenuItem | Show selection / Marquee in 3D  F5
+AXMenuItem | Show Marquee in 3D
+AXMenuItem | Trace
+AXMenuItem | Trace Options
+AXMenuItem | Guides
+AXMenuItem | Snap Guides and Points
+AXMenuItem | Guide Lines
+AXMenuItem | Set Snap Point Values…
+AXMenuItem | Guide Lines
+AXMenuItem | Construction Grid Display
+AXMenuItem | Element Snap
+AXMenuItem | Snap Options
+AXMenuItem | Element Snap
+AXMenuItem | Grid Snap
+AXMenuItem | Snap Guides and Points
+AXMenuItem | Grid & Editing Plane Options
+AXMenuItem | Elements in 3D View
+AXMenuItem | Show all stories in 3D
+AXMenuItem | 3D Cutaway
+AXMenuItem | Filter and Cut Elements in 3D
+AXMenuItem | Show Selection / Marquee
+AXMenuItem | Hide Selection
+AXMenuItem | Show All
+AXMenuItem | 3D View Options
+AXMenuItem | Projection Settings…
+AXMenuItem | Perspective
+AXMenuItem | Axonometry
+AXMenuItem | Basic
+AXMenuItem | Vectorial
+AXMenuItem | Simple Shading
+AXMenuItem | Technical
+AXMenuItem | Detailed
+AXMenuItem | Shadows
+AXMenuItem | White Model
+AXMenuItem | Wireframe
+AXMenuItem | Orbit
+AXMenuItem | Explore Model
+AXMenuItem | Zoom and Rebuild
+AXMenuItem | Fit in Window · F
+AXMenuItem | Rebuild
+AXMenuItem | Refresh
+AXMenuItem | Rebuild & Regenerate
+AXMenuItem | Language
+AXMenuItem | English
+AXMenuItem | 简体中文
+AXMenuItem | Enter Full Screen
+AXMenuBarItem | Design
+AXMenuItem | Architectural Tools
+AXMenuItem | Arrow
+AXMenuItem | Marquee
+AXMenuItem | Wall
+AXMenuItem | Wall End
+AXMenuItem | Column
+AXMenuItem | Beam
+AXMenuItem | Slab
+AXMenuItem | Roof
+AXMenuItem | Shell
+AXMenuItem | Stair
+AXMenuItem | Railing
+AXMenuItem | Curtain Wall
+AXMenuItem | Door
+AXMenuItem | Window
+AXMenuItem | Corner Window
+AXMenuItem | Skylight
+AXMenuItem | Opening
+AXMenuItem | Zone
+AXMenuItem | Mesh
+AXMenuItem | Morph
+AXMenuItem | Object
+AXMenuItem | Lamp
+AXMenuItem | Structural Engineering Tools
+AXMenuItem | Support
+AXMenuItem | Link
+AXMenuItem | Point Load
+AXMenuItem | Line Load
+AXMenuItem | Surface Load
+AXMenuItem | MEP Tools
+AXMenuItem | Duct Route
+AXMenuItem | Pipe Route
+AXMenuItem | Cable Route
+AXMenuItem | Branch
+AXMenuItem | Fitting
+AXMenuItem | Terminal
+AXMenuItem | Accessory
+AXMenuItem | Equipment
+AXMenuItem | Stories and Connections
+AXMenuItem | Story Settings…
+AXMenuItem | Edit Elements by Stories…
+AXMenuItem | Trim Elements
+AXMenuItem | Merge Elements
+AXMenuItem | Join Wall to Curtain Wall
+AXMenuItem | Create Opening
+AXMenuItem | Clear Connections
+AXMenuItem | Model Operations
+AXMenuItem | Solid Element Operations…
+AXMenuItem | Magic Wand
+AXMenuItem | Modify Morph
+AXMenuItem | Modify Railing
+AXMenuItem | Modify Curtain Wall
+AXMenuItem | Design Extras
+AXMenuItem | RoofMaker…
+AXMenuItem | TrussMaker…
+AXMenuItem | Grid System…
+AXMenuItem | Update Zones
+AXMenuItem | Model Check
+AXMenuItem | Collision Detection…
+AXMenuItem | Physical Quality…
+AXMenuItem | Model Compare…
+AXMenuItem | Structural Analytical Model…
+AXMenuItem | Energy Evaluation…
+AXMenuBarItem | Document
+AXMenuItem | Documenting Tools
+AXMenuItem | Section
+AXMenuItem | Elevation
+AXMenuItem | Interior Elevation
+AXMenuItem | Detail
+AXMenuItem | Worksheet
+AXMenuItem | Camera
+AXMenuItem | Dimension
+AXMenuItem | Level Dimension
+AXMenuItem | Radial Dimension
+AXMenuItem | Angle Dimension
+AXMenuItem | Text
+AXMenuItem | Label
+AXMenuItem | Grid Element
+AXMenuItem | Fill
+AXMenuItem | Line
+AXMenuItem | Arc / Circle
+AXMenuItem | Polyline
+AXMenuItem | Spline
+AXMenuItem | Hotspot
+AXMenuItem | Figure
+AXMenuItem | Drawing
+AXMenuItem | Layers…
+AXMenuItem | Floor Plan Scale…
+AXMenuItem | Partial Structure Display…
+AXMenuItem | Pen Sets
+AXMenuItem | Model View
+AXMenuItem | Graphic Overrides
+AXMenuItem | Design Options
+AXMenuItem | Renovation
+AXMenuItem | Annotation
+AXMenuItem | Automatic Dimensioning…
+AXMenuItem | Label Selected Elements
+AXMenuItem | Create Patch…
+AXMenuItem | Spell Checker
+AXMenuItem | Schedules and Lists
+AXMenuItem | Scheme Settings…
+AXMenuItem | Wall Schedule
+AXMenuItem | Door Schedule
+AXMenuItem | Window Schedule
+AXMenuItem | Object Inventory
+AXMenuItem | Element Lists
+AXMenuItem | Component Lists
+AXMenuItem | Zone Lists
+AXMenuItem | Project Indexes
+AXMenuItem | Issues and Changes
+AXMenuItem | Issue Manager
+AXMenuItem | Issue Organizer
+AXMenuItem | Change Manager
+AXMenuItem | Keynotes
+AXMenuItem | Creative Imaging
+AXMenuItem | PhotoRender Projection
+AXMenuItem | Render Marquee Region
+AXMenuItem | PhotoRendering Settings…
+AXMenuItem | Surface Painter
+AXMenuItem | Create Fly-Through…
+AXMenuItem | Create Sun Study…
+AXMenuBarItem | Options
+AXMenuItem | Snap to geometry and grid
+AXMenuItem | Orthogonal drawing
+AXMenuItem | Element Attributes
+AXMenuItem | Layers…
+AXMenuItem | Lines…
+AXMenuItem | Pens & Color…
+AXMenuItem | Fills…
+AXMenuItem | Surfaces…
+AXMenuItem | Building Materials…
+AXMenuItem | Composites…
+AXMenuItem | Profile Manager…
+AXMenuItem | Zone Categories…
+AXMenuItem | Attributes…
+AXMenuItem | Attribute Manager…
+AXMenuItem | Properties and Classification
+AXMenuItem | Property Manager…
+AXMenuItem | Classification Manager…
+AXMenuItem | Operation Profiles…
+AXMenuItem | Structural Attributes
+AXMenuItem | Load Manager…
+AXMenuItem | Load Combinations…
+AXMenuItem | Load Mapping…
+AXMenuItem | Load Categories…
+AXMenuItem | Project Preferences
+AXMenuItem | Working Units…
+AXMenuItem | Dimensions…
+AXMenuItem | Calculation Units…
+AXMenuItem | Calculation Rules…
+AXMenuItem | Zones…
+AXMenuItem | Reference Levels…
+AXMenuItem | Legacy…
+AXMenuItem | Stair Rules and Standards…
+AXMenuItem | Structural Analytical Model Units…
+AXMenuItem | Location Settings…
+AXMenuItem | Project North…
+AXMenuItem | Survey Point…
+AXMenuItem | Work Environment
+AXMenuItem | Dialog Boxes and Palettes…
+AXMenuItem | Selection and Element Information…
+AXMenuItem | Tracker and Coordinate Input…
+AXMenuItem | Input Constraints and Guides…
+AXMenuItem | Model Rebuild Options…
+AXMenuItem | Appearance…
+AXMenuItem | Data Safety and Integrity…
+AXMenuItem | Keyboard Shortcuts…
+AXMenuItem | Toolbox…
+AXMenuItem | Tool Settings Dialog Boxes…
+AXMenuItem | Info Box…
+AXMenuItem | Toolbars…
+AXMenuItem | Menus…
+AXMenuItem | Add-On Manager…
+AXMenuBarItem | Teamwork
+AXMenuItem | Project
+AXMenuItem | Share…
+AXMenuItem | Migrate Teamwork Project…
+AXMenuItem | Open / Join Teamwork Project…
+AXMenuItem | Local Data Manager…
+AXMenuItem | Traveling
+AXMenuItem | Create Travel Pack
+AXMenuItem | Import Travel Pack
+AXMenuItem | Leave Teamwork Project
+AXMenuItem | Send & Receive
+AXMenuItem | Send & Receive
+AXMenuItem | Send Changes
+AXMenuItem | Receive Changes
+AXMenuItem | Send & Receive, then Compare
+AXMenuItem | Reserve Elements…
+AXMenuItem | Release All
+AXMenuItem | Messages and Review
+AXMenuItem | Assign Selected Elements
+AXMenuItem | New Message…
+AXMenuItem | Review Selected Elements…
+AXMenuItem | Change Tracking
+AXMenuItem | Teamwork Palette
+AXMenuBarItem | Window
+AXMenuItem | Fill
+AXMenuItem | Center
+AXMenuItem | Move & Resize
+AXMenuItem | Halves
+AXMenuItem | Left
+AXMenuItem | Right
+AXMenuItem | Top
+AXMenuItem | Bottom
+AXMenuItem | Quarters
+AXMenuItem | Top Left
+AXMenuItem | Top Right
+AXMenuItem | Bottom Left
+AXMenuItem | Bottom Right
+AXMenuItem | Arrange
+AXMenuItem | Left & Right
+AXMenuItem | Left & Quarters
+AXMenuItem | Right & Left
+AXMenuItem | Right & Quarters
+AXMenuItem | Top & Bottom
+AXMenuItem | Top & Quarters
+AXMenuItem | Bottom & Top
+AXMenuItem | Bottom & Quarters
+AXMenuItem | Quarters
+AXMenuItem | Return to Previous Size
+AXMenuItem | Full Screen Tile
+AXMenuItem | Left of Screen
+AXMenuItem | Right of Screen
+AXMenuItem | Remove Window from Set
+AXMenuItem | Hide Quick Options Bar
+AXMenuItem | Minimize
+AXMenuItem | Toolbox
+AXMenuItem | Navigator & Properties
+AXMenuItem | Palettes
+AXMenuItem | Info Box
+AXMenuItem | Status Bar
+AXMenuItem | Quick Options
+AXMenuItem | Organizer
+AXMenuItem | Navigator Preview
+AXMenuItem | Drawing Manager
+AXMenuItem | Model Check Report
+AXMenuItem | Issue Manager
+AXMenuItem | Change Manager
+AXMenuItem | Design Options
+AXMenuItem | Renovation
+AXMenuItem | Trace & Reference
+AXMenuItem | Favorites
+AXMenuItem | Attributes
+AXMenuItem | Profile Manager
+AXMenuItem | Element Information
+AXMenuItem | Selections
+AXMenuItem | Coordinates
+AXMenuItem | Control Box
+AXMenuItem | Quick Layers
+AXMenuItem | Teamwork Palette
+AXMenuItem | Toolbars
+AXMenuItem | Standard
+AXMenuItem | Standard for Low-Res Screens
+AXMenuItem | Tools - Architectural
+AXMenuItem | Arrange Elements
+AXMenuItem | Attributes
+AXMenuItem | Drafting Aids
+AXMenuItem | Drag Elements
+AXMenuItem | Edit Elements
+AXMenuItem | 3D Visualization
+AXMenuItem | Classic 3D Navigation
+AXMenuItem | MEP Toolbar
+AXMenuItem | Model Check
+AXMenuItem | Structural Engineering
+AXMenuItem | Teamwork
+AXMenuItem | Reset workspace layout
+AXMenuItem | Untitled
+AXMenuBarItem | Help
+AXMenuItem | About OpenArchi

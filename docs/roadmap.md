@@ -1,5 +1,7 @@
 # OpenArchi roadmap
 
+> 2026-10-31 路线更新：用户明确目标为从方案到施工图的原生全能建筑工作台，AI 可调用为底层能力。当前执行顺序改为 P0 现有功能受控 → P1 文档/事务/AI 底座 → P2 方案闭环 → P3 深化 BIM/自由 3D → P4 施工图 → P5 格式/平台/生态。详见 [详细架构、现状与任务计划](features/ai-native-workbench/plan-2026-10-31.md)；以下保留历史路线作背景，不再作为当前阶段排程。
+
 ## Vision
 
 Build a lightweight BIM workbench for the AI era: fast to iterate on, native on the desktop, and familiar to architects through workflows benchmarked against Archicad. Architects should be able to work directly in the model; AI should accelerate deliberate work rather than hide how the model changed.

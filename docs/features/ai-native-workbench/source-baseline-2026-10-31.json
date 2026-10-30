@@ -1,0 +1,110 @@
+{
+  "captured_at": "2026-10-30T19:17:28.468495+00:00",
+  "head": "13101c5caf665afa7a2ae44f8ac5545bb09c7dee",
+  "limits": "Read-only source/document audit; no Rust tests or native runtime performed; dirty working tree, not represented by HEAD alone.",
+  "git_status": " M .gitignore\n M AGENTS.md\n M Cargo.lock\n M Cargo.toml\n M README.md\n M docs/architecture.md\n M docs/features/polyline-editing.md\n M docs/features/ui-language.md\n M docs/features/wall-editing.md\n M docs/features/wall-geometry-methods.md\n M docs/features/wall-selection.md\n M docs/research.md\n M docs/validation.md\n M locales/en.json\n M locales/zh-CN.json\n M skills/openarchi-ac29/SKILL.md\n M skills/openarchi-ac29/references/implementation.md\n M src/app/dialogs.rs\n M src/app/file_io.rs\n M src/app/info_box.rs\n M src/app/mod.rs\n M src/app/model_view.rs\n M src/app/plan.rs\n M src/app/quick_options.rs\n M src/app/shell.rs\n M src/app/ui_tests.rs\n M src/command.rs\n M src/editor.rs\n M src/geometry.rs\n M src/guides_ui.rs\n M src/lib.rs\n M src/localization.rs\n M src/model.rs\n M src/render.rs\n M src/trace_ui.rs\n M src/view_settings.rs\n M src/wall_ui.rs\n M tests/performance_baseline.rs\n?? .smoke-crop.png\n?? .smoke-crop3.png\n?? .smoke-desktop.png\n?? .smoke-desktop2.png\n?? .smoke-desktop3.png\n?? docs/features/3d-orbit/\n?? docs/features/ai-native-workbench/\n?? docs/features/edit-menu/\n?? docs/features/layer-settings/\n?? docs/features/native-menu-title/\n?? docs/features/parameter-transfer-acceptance.md\n?? docs/features/parameter-transfer-evidence/\n?? docs/features/parameter-transfer.md\n?? docs/features/pln-interop/\n?? docs/features/polyline-editing-evidence/\n?? docs/features/reshape-toolbar/\n?? docs/features/slab-edge-editing/\n?? docs/features/wall-junction-cleanup/\n?? docs/features/wall-junction-edit/\n?? docs/features/wall-method-evidence/\n?? docs/features/wall-method-switch.md\n?? docs/features/wall-node-evidence/\n?? docs/features/wall-pet-palette-research.md\n?? docs/features/wall-pet-palette/\n?? docs/features/wall-selection-evidence/\n?? skills/openarchi-ac29/references/operation-research.md\n?? src/app/drag_tracker.rs\n?? src/app/edit_menu.rs\n?? src/app/edit_shortcuts.rs\n?? src/app/layers_ui.rs\n?? src/app/native_menu.rs\n?? src/app/reshape_ui.rs\n?? src/app/wall_node_ui.rs\n?? src/editing.rs\n?? src/layers.rs\n?? src/polyline_edit.rs\n?? src/reshape.rs\n?? src/slab_geometry.rs\n?? src/transfer.rs\n?? src/transfer_cursor.rs\n?? src/transfer_ui.rs\n?? src/wall_geometry.rs\n",
+  "files": {
+    "Cargo.toml": {
+      "sha256": "5de17c14cfe98859b627074aa6a1a93a7d70d8ae579a964dd4bf4dafef7d32ff",
+      "lines": 47
+    },
+    "Cargo.lock": {
+      "sha256": "092400e3991ed2fd77914a9fdca3f121e70d8120f54173bad31233830a1fddf0",
+      "lines": 4570
+    },
+    "README.md": {
+      "sha256": "85d8fd5e7d8654b7c7274b1f9d0373ac746534c1b8f7425b2509a213bf13a402",
+      "lines": 145
+    },
+    "docs/architecture.md": {
+      "sha256": "a87fe5f737196e1df8fdd03117be935cdc11349eeef0a832cf901c08116738ee",
+      "lines": 44
+    },
+    "docs/roadmap.md": {
+      "sha256": "c0a1451789d342121eea219c093f1cfbdf5f080b0e34d1c44e99a4a59714f5d0",
+      "lines": 50
+    },
+    "docs/validation.md": {
+      "sha256": "ccdbd63af4274bcf1c40e452b20ace39de2f375e630a2f6c0085e65d0adfa3b8",
+      "lines": 858
+    },
+    "src/model.rs": {
+      "sha256": "90ba0dab25a956da764d3dc4e02d9dedb0fa4af3958bb21d7495bc23bd48bbd5",
+      "lines": 806
+    },
+    "src/command.rs": {
+      "sha256": "511d75b33095af189aac3a7447fa3cfc71575186b7c51af2d97e2cc1161ddfe5",
+      "lines": 424
+    },
+    "src/editor.rs": {
+      "sha256": "1c16bc66dfe58d5e7b03fb8b7862bc826d0b60858f267c70dd37bf5afa1ddd40",
+      "lines": 1939
+    },
+    "src/storage.rs": {
+      "sha256": "a4a862dbba8ded53623c6adfb36aebb653b45de832b4ced71d9edfcf9a53dd55",
+      "lines": 30
+    },
+    "src/recovery.rs": {
+      "sha256": "39c08a9ef1a3ea1de79457b393845902d5b31cc3b47e1001c5d49733482f12a4",
+      "lines": 79
+    },
+    "src/geometry.rs": {
+      "sha256": "cbefbd2f65999c8b541c9fb4c8335f566953dd27a0ca7eb51c047def48073f48",
+      "lines": 4431
+    },
+    "src/wall_geometry.rs": {
+      "sha256": "f4108fca158525efa0504879efc85db348dffcb85754167d78aa4dc393fe73b7",
+      "lines": 458
+    },
+    "src/slab_geometry.rs": {
+      "sha256": "3498dbc35b1dcfd67f32df6c2024f391606694e6aabb60760e14ce5177eb39c3",
+      "lines": 1574
+    },
+    "src/render.rs": {
+      "sha256": "16983910e1ee5f8add32683b16e25a629af52bf02a3886a27105b42594d679fb",
+      "lines": 1690
+    },
+    "src/editing.rs": {
+      "sha256": "c619b1a371bd5bfff775c02c4d033780ad98ffdbc7f14060506890fd3c452411",
+      "lines": 1492
+    },
+    "src/reshape.rs": {
+      "sha256": "4e195f93e221af3ccc27886dbe3e1eec5f1cc44338033b54fb353ccf4aae694f",
+      "lines": 2066
+    },
+    "src/polyline_edit.rs": {
+      "sha256": "363485832222352943ca5508ce045bdc8c75a7d75cdef2b143a1e0d78a59608a",
+      "lines": 451
+    },
+    "src/app/inspector.rs": {
+      "sha256": "5e060fd3a5b72e2ac36bdcbba6667886fc8b44329543fbc6ce1dab286b1c4e06",
+      "lines": 802
+    },
+    "src/app/plan.rs": {
+      "sha256": "3aa44f21a738d3a517d709668df6d522af7fac7c47e12a3814858a86c9e92b03",
+      "lines": 2463
+    },
+    "src/app/wall_node_ui.rs": {
+      "sha256": "c3b265c89f0d988d5587a4587703e11ca4165dbb6abd62c39eee94dd66018d16",
+      "lines": 1930
+    },
+    "docs/features/slab-edge-editing/contract.md": {
+      "sha256": "aeac3b0107b4fad413d60ba1899427cb0d97cd4e2f43388ede19bc7a2d2477b1",
+      "lines": 172
+    },
+    "docs/features/ai-native-workbench/assessment-2026-10-26.md": {
+      "sha256": "3f0742275d2611028026f038d1a332453a833c52707897d24ceec97e1ded4498",
+      "lines": 288
+    },
+    "target/ac29-workflow/latest.json": {
+      "sha256": "fad79809ea2102ba55bb121ce50f8162f20c29ce27faccb2cc52d728d8737ae4",
+      "lines": 25
+    }
+  },
+  "end_audit_observation": {
+    "at": "2026-10-30T19:23:20.764432+00:00",
+    "path": "src/render.rs",
+    "sha256": "23eaf2085dc03b683a0570c8f6bdc6d757cc08862c77959422269b99df701c8a",
+    "status": "Externally changed during audit; not edited by this planning task. Retain initial snapshot; re-audit in P0."
+  }
+}

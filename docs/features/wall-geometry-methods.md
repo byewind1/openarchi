@@ -39,9 +39,8 @@ Shared behavior:
 
 - The plan preview shows the actual method result: one segment, the current
   chain, four rectangle sides, or the closed polygon ring.
-- Changing the method in the Wall-tool Info Box cancels an unfinished draft and
-  resets the status hint before the next click. This prevents vertices from one
-  state machine leaking into another.
+- Changing the method preserves the active anchor and accepted draft nodes.
+  See [active method switching](wall-method-switch.md) for mixed-method completion rules (updated 2026-10-29).
 - A method still needs valid geometry: walls must be at least 10 mm, a
   rectangle needs non-zero width and depth, and a polygon needs at least three
   non-collinear nodes with non-zero area.
@@ -106,8 +105,8 @@ Explicit exclusions:
    from that operation.
 3. Press Backspace during a chain; only the last input node disappears. Press
    Delete or Escape; the entire draft disappears without a model change.
-4. Change the method in the Info Box while a draft is open; the draft must be
-   cleared and the new method must start from its own first click.
+4. Change the method in the Info Box while a draft is open; retain the anchor
+   and accepted nodes, update the preview, and create no model/undo entry until finishing.
 5. Check that Rectangle sides remain world-axis aligned while Ortho is off and
    on, and that the Tracker shows ΔX / ΔY for that method.
 6. Verify the status bar and Info Box in English and Simplified Chinese.

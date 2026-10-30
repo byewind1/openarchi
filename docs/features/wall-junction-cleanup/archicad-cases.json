@@ -1,0 +1,510 @@
+{
+  "port": 19724,
+  "version": "29 INT 5101",
+  "cases": [
+    {
+      "name": "Y120",
+      "origin": [
+        100,
+        100
+      ],
+      "ends": [
+        [
+          104,
+          100
+        ],
+        [
+          98,
+          103.46410161513775
+        ],
+        [
+          98,
+          96.53589838486225
+        ]
+      ]
+    },
+    {
+      "name": "T",
+      "origin": [
+        120,
+        100
+      ],
+      "ends": [
+        [
+          124,
+          100
+        ],
+        [
+          120,
+          104
+        ],
+        [
+          116,
+          100
+        ]
+      ]
+    },
+    {
+      "name": "MovedT",
+      "origin": [
+        138.5714285,
+        102.3154762
+      ],
+      "ends": [
+        [
+          136,
+          100
+        ],
+        [
+          144,
+          100
+        ],
+        [
+          140,
+          104
+        ]
+      ]
+    },
+    {
+      "name": "Fan4",
+      "origin": [
+        160,
+        100
+      ],
+      "ends": [
+        [
+          164,
+          100
+        ],
+        [
+          163.75877048314362,
+          101.36808057330268
+        ],
+        [
+          156.53589838486224,
+          102
+        ],
+        [
+          158.63191942669732,
+          96.24122951685636
+        ]
+      ]
+    },
+    {
+      "name": "X",
+      "origin": [
+        180,
+        100
+      ],
+      "ends": [
+        [
+          184,
+          100
+        ],
+        [
+          180,
+          104
+        ],
+        [
+          176,
+          100
+        ],
+        [
+          180,
+          96
+        ]
+      ]
+    }
+  ],
+  "request": {
+    "wallsData": [
+      {
+        "begCoordinate": {
+          "x": 100,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 104,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 100,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 98,
+          "y": 103.46410161513775
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 100,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 98,
+          "y": 96.53589838486225
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 120,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 124,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 120,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 120,
+          "y": 104
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 120,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 116,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 138.5714285,
+          "y": 102.3154762
+        },
+        "endCoordinate": {
+          "x": 136,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 138.5714285,
+          "y": 102.3154762
+        },
+        "endCoordinate": {
+          "x": 144,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 138.5714285,
+          "y": 102.3154762
+        },
+        "endCoordinate": {
+          "x": 140,
+          "y": 104
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 160,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 164,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 160,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 163.75877048314362,
+          "y": 101.36808057330268
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 160,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 156.53589838486224,
+          "y": 102
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 160,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 158.63191942669732,
+          "y": 96.24122951685636
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 180,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 184,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 180,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 180,
+          "y": 104
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 180,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 176,
+          "y": 100
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      },
+      {
+        "begCoordinate": {
+          "x": 180,
+          "y": 100
+        },
+        "endCoordinate": {
+          "x": 180,
+          "y": 96
+        },
+        "floorIndex": 0,
+        "zCoordinate": 0,
+        "height": 3,
+        "thickness": 0.3,
+        "offset": 0,
+        "referenceLineLocation": "Center",
+        "structureType": "Basic"
+      }
+    ]
+  },
+  "response": {
+    "content": [
+      {
+        "type": "text",
+        "text": "{\"elements\":[{\"elementId\":{\"guid\":\"330D2679-1843-4A4F-8912-F5B145CF8540\"}},{\"elementId\":{\"guid\":\"5A2C95E5-2B03-D748-9A82-4F87AFD98A86\"}},{\"elementId\":{\"guid\":\"0A53B23D-D85F-F441-A5C3-4B529F79F211\"}},{\"elementId\":{\"guid\":\"A6EBCFA2-30A6-CC40-881B-C6B62E363F01\"}},{\"elementId\":{\"guid\":\"7F1B22C5-7706-4A48-84DD-FF9F8C3A7203\"}},{\"elementId\":{\"guid\":\"C6B036F7-B98F-B742-BC83-936AED9731A2\"}},{\"elementId\":{\"guid\":\"86EB4F32-9687-2C49-896D-5786C08BD9D6\"}},{\"elementId\":{\"guid\":\"B02B2E4E-CE4B-304E-B6F6-74930A71FDB7\"}},{\"elementId\":{\"guid\":\"62D08584-B9A1-4D49-8DFB-82205E937E96\"}},{\"elementId\":{\"guid\":\"31F077F8-B46F-5441-8702-54755D6D27D7\"}},{\"elementId\":{\"guid\":\"9357F1F2-2863-3D4F-A80B-7E3016447C29\"}},{\"elementId\":{\"guid\":\"98C90017-EEAE-FB4D-BA70-FBFA8C9E0A04\"}},{\"elementId\":{\"guid\":\"7BB3F5E9-24E7-2B46-98EE-32CF79749226\"}},{\"elementId\":{\"guid\":\"8D6FD4CA-5565-7547-875C-583F0E917DFC\"}},{\"elementId\":{\"guid\":\"712193A1-4B3A-0849-BD92-73FC2258D5F7\"}},{\"elementId\":{\"guid\":\"128B9C79-DA9A-7A4B-86E7-BCC6D58CDA30\"}},{\"elementId\":{\"guid\":\"C4232771-F640-8747-B3AE-F6621299ED23\"}}]}"
+      }
+    ],
+    "structuredContent": {
+      "elements": [
+        {
+          "elementId": {
+            "guid": "330D2679-1843-4A4F-8912-F5B145CF8540"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "5A2C95E5-2B03-D748-9A82-4F87AFD98A86"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "0A53B23D-D85F-F441-A5C3-4B529F79F211"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "A6EBCFA2-30A6-CC40-881B-C6B62E363F01"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "7F1B22C5-7706-4A48-84DD-FF9F8C3A7203"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "C6B036F7-B98F-B742-BC83-936AED9731A2"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "86EB4F32-9687-2C49-896D-5786C08BD9D6"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "B02B2E4E-CE4B-304E-B6F6-74930A71FDB7"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "62D08584-B9A1-4D49-8DFB-82205E937E96"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "31F077F8-B46F-5441-8702-54755D6D27D7"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "9357F1F2-2863-3D4F-A80B-7E3016447C29"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "98C90017-EEAE-FB4D-BA70-FBFA8C9E0A04"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "7BB3F5E9-24E7-2B46-98EE-32CF79749226"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "8D6FD4CA-5565-7547-875C-583F0E917DFC"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "712193A1-4B3A-0849-BD92-73FC2258D5F7"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "128B9C79-DA9A-7A4B-86E7-BCC6D58CDA30"
+          }
+        },
+        {
+          "elementId": {
+            "guid": "C4232771-F640-8747-B3AE-F6621299ED23"
+          }
+        }
+      ]
+    },
+    "isError": false
+  }
+}

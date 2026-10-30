@@ -1,0 +1,210 @@
+{
+  "source": "/Applications/GRAPHISOFT/Archicad 29/Defaults/Archicad/WorkEnvironment/Shortcuts/Standard Shortcuts.xml",
+  "sha256": "367d16bf8773a80c6128e26b37c47ee88bdaa3777dc52fdd9292091acd831a2b",
+  "evidence_type": "readable shipped configuration; not proof of active user scheme",
+  "bindings": [
+    {
+      "command": "Drag",
+      "key": "D",
+      "modifiers": 1,
+      "source_command": "779-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Rotate",
+      "key": "E",
+      "modifiers": 1,
+      "source_command": "780-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Elevate…",
+      "key": "Num9",
+      "modifiers": 1,
+      "source_command": "785-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Resize…",
+      "key": "K",
+      "modifiers": 1,
+      "source_command": "789-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Adjust",
+      "key": "Minus",
+      "modifiers": 1,
+      "source_command": "791-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Ungroup",
+      "key": "G",
+      "modifiers": 3,
+      "source_command": "1282-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Suspend Groups",
+      "key": "G",
+      "modifiers": 2,
+      "source_command": "1283-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Explode into Current View",
+      "key": "Equals",
+      "modifiers": 1,
+      "source_command": "1290-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Drag a Copy",
+      "key": "D",
+      "modifiers": 3,
+      "source_command": "782-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Rotate a Copy",
+      "key": "E",
+      "modifiers": 3,
+      "source_command": "783-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Rotate a Copy",
+      "key": "R",
+      "modifiers": 3,
+      "source_command": "783-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Mirror a Copy",
+      "key": "M",
+      "modifiers": 3,
+      "source_command": "784-0x00000000-0x00000000",
+      "source_context": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E"
+    },
+    {
+      "command": "Cut",
+      "key": "X",
+      "modifiers": 1,
+      "source_command": "772-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Copy",
+      "key": "C",
+      "modifiers": 1,
+      "source_command": "773-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Paste",
+      "key": "V",
+      "modifiers": 1,
+      "source_command": "774-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Select All",
+      "key": "A",
+      "modifiers": 1,
+      "source_command": "776-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Repeat Last Command",
+      "key": "B",
+      "modifiers": 1,
+      "source_command": "771-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Redo",
+      "key": "Z",
+      "modifiers": 3,
+      "source_command": "770-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Undo",
+      "key": "Z",
+      "modifiers": 1,
+      "source_command": "769-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Multiply…",
+      "key": "U",
+      "modifiers": 1,
+      "source_command": "786-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Mirror",
+      "key": "M",
+      "modifiers": 1,
+      "source_command": "781-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Tool Settings",
+      "key": "T",
+      "modifiers": 1,
+      "source_command": "797-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Edit Selection Set…",
+      "key": "T",
+      "modifiers": 3,
+      "source_command": "796-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Find & Select…",
+      "key": "F",
+      "modifiers": 1,
+      "source_command": "777-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Group",
+      "key": "G",
+      "modifiers": 1,
+      "source_command": "1281-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Pick Up Parameters",
+      "key": "C",
+      "modifiers": 2,
+      "source_command": "799-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Inject Parameters",
+      "key": "C",
+      "modifiers": 3,
+      "source_command": "800-0x00000000-0x00000000",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Quick Rotate Clockwise",
+      "key": "R",
+      "modifiers": 5,
+      "source_command": "2129985537-0x47732f52-0x1d169483",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    },
+    {
+      "command": "Quick Rotate Counter-Clockwise",
+      "key": "R",
+      "modifiers": 1,
+      "source_command": "2129985538-0x47732f52-0x1d169483",
+      "source_context": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091"
+    }
+  ]
+}

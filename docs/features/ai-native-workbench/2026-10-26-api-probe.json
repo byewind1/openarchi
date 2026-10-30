@@ -1,0 +1,1034 @@
+{
+  "date": "2026-10-26",
+  "scope": "Read-only architecture research; no project mutations or geometry verification",
+  "target": {
+    "version": 29,
+    "build": 5101,
+    "port": 19723,
+    "tapir_version": "1.7.1"
+  },
+  "checks": [
+    {
+      "name": "CreateWalls",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "ModifyWalls",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateSlabs",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateDoors",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateWindows",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateMorphs",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateZones",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateMeshes",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateAssociativeDimensions",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "Publish",
+      "result": {
+        "available": false
+      }
+    },
+    {
+      "name": "IFCFileOperation",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "PublishPublisherSet",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateSections",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "CreateLayout",
+      "result": {
+        "available": true
+      }
+    },
+    {
+      "name": "SaveProject",
+      "result": {
+        "available": true
+      }
+    }
+  ],
+  "limits": [
+    "availability confirms registration only, not parameter support or successful execution",
+    "Publish false was a name mismatch; PublishPublisherSet true is the catalog command",
+    "schemas are connector-bundled descriptions, not introspected installed implementation"
+  ],
+  "schemas": {
+    "CreateMorphs": {
+      "name": "CreateMorphs",
+      "kind": "tapir",
+      "group": "Element Commands",
+      "description": "Creates Morph elements from simple box definitions.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "morphsData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "basePoint": {
+                  "type": "object",
+                  "description": "3D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    },
+                    "z": {
+                      "type": "number",
+                      "description": "Z value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ]
+                },
+                "size": {
+                  "type": "object",
+                  "description": "Dimensions in 3D.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X dimension."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y dimension."
+                    },
+                    "z": {
+                      "type": "number",
+                      "description": "Z dimension."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ]
+                },
+                "body": {
+                  "description": "A Morph's full body geometry: an indexed vertex list plus one entry per face (polygon). Shared shape between GetDetailsOfElements' output and CreateMorphs/ModifyMorphs' input - what Get reports is what Create/Modify accept back. There is no fillet/chamfer operation in the Archicad API - a caller wanting rounded geometry must supply the already-tessellated facets here; edgeOverrides only controls how an existing straight edge is DISPLAYED (hidden/visible/smooth-shaded), not its shape.",
+                  "type": "object",
+                  "properties": {
+                    "bodyType": {
+                      "type": "string",
+                      "description": "Whether the body is a closed solid or an open surface shell. Reported accurately on Get; on Create/Modify this is set on the element but a confirmed Archicad SDK bug means it may not take effect (bodyType has been observed always coming back Solid regardless of what was requested - see edgeOverrides' note).",
+                      "enum": [
+                        "Solid",
+                        "Surface"
+                      ]
+                    },
+                    "isClosed": {
+                      "type": "boolean",
+                      "description": "READ-ONLY, Get output only (ignored if sent to Create/Modify). Geometrically computed (Modeler::MeshBody::IsClosedBody): true if every edge in the body has exactly two adjacent faces (a watertight/manifold volume), false if any edge borders only one face (an open shell / has holes or gaps). Distinct from bodyType, which is the caller's declared INTENT (Solid vs Surface) rather than the actual computed geometry - a body can be declared bodyType 'Solid' yet still be geometrically open if a face is missing."
+                    },
+                    "edgeDefault": {
+                      "type": "string",
+                      "description": "Default display status for every edge that has no entry in edgeOverrides. Reported accurately on Get; on Create/Modify this is set on the element but does not take effect due to the same confirmed Archicad SDK bug as edgeOverrides (element.morph.edgeType is silently discarded by ACAPI_Element_Create/Change).",
+                      "enum": [
+                        "HardVisible",
+                        "HardHidden",
+                        "SoftHidden"
+                      ]
+                    },
+                    "vertices": {
+                      "type": "array",
+                      "description": "Flat, indexed vertex list, local to the Morph's own placement (not world coordinates). A Solid body needs at least 4 (a tetrahedron, the minimum closed volume); a Surface body has no closedness requirement at all - the minimum is 2 vertices joined by a single wireEdge (a lone vertex with no edge at all is rejected by Archicad itself, confirmed live) - enforced with a bodyType-aware error message, not by this minItems floor alone.",
+                      "items": {
+                        "type": "object",
+                        "description": "3D coordinate.",
+                        "properties": {
+                          "x": {
+                            "type": "number",
+                            "description": "X value of the coordinate."
+                          },
+                          "y": {
+                            "type": "number",
+                            "description": "Y value of the coordinate."
+                          },
+                          "z": {
+                            "type": "number",
+                            "description": "Z value of the coordinate."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "x",
+                          "y",
+                          "z"
+                        ]
+                      },
+                      "minItems": 2
+                    },
+                    "polygons": {
+                      "type": "array",
+                      "description": "One entry per face loop (into `vertices`), counterclockwise as seen from outside the body. Optional - a body made entirely of wireEdges (see below) needs none. Set \"filled\": false on an entry to create only that loop's edges (e.g. the outline of a pyramid's side faces) without an actual filled face.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "vertexIds": {
+                            "type": "array",
+                            "description": "Counterclockwise outer-loop vertex indices for this face.",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "minItems": 3
+                          },
+                          "filled": {
+                            "type": "boolean",
+                            "description": "Defaults to true. Set to false to create only this loop's edges (a wireframe outline, e.g. a bare rectangle with no surface fill) without an actual face - holes/surfaceId are ignored in that case, since there is no fill for them to apply to."
+                          },
+                          "holes": {
+                            "type": "array",
+                            "description": "Optional hole loops cut out of this face, each a clockwise list of vertex indices.",
+                            "items": {
+                              "type": "object",
+                              "properties": {
+                                "vertexIds": {
+                                  "type": "array",
+                                  "items": {
+                                    "type": "integer"
+                                  },
+                                  "minItems": 3
+                                }
+                              },
+                              "additionalProperties": false,
+                              "required": [
+                                "vertexIds"
+                              ]
+                            }
+                          },
+                          "surfaceId": {
+                            "type": "object",
+                            "description": "The identifier of an attribute.",
+                            "properties": {
+                              "guid": {
+                                "type": "string",
+                                "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                                "format": "uuid",
+                                "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                              }
+                            },
+                            "additionalProperties": false,
+                            "required": [
+                              "guid"
+                            ]
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "vertexIds"
+                        ]
+                      }
+                    },
+                    "wireEdges": {
+                      "type": "array",
+                      "description": "Standalone edges that belong to no face at all (e.g. a bare rectangle outline, or a pyramid with a filled base but wireframe-only sides - set \"filled\": false on a polygons entry for a whole closed loop like that instead, this is for individual edges not already covered by any polygon loop). Reported accurately by GetDetailsOfElements (every edge with zero adjacent faces); accepted back by CreateMorphs/ModifyMorphs. Identifies an edge by the (unordered) pair of vertex indices it connects - reuses whatever edge already exists between those two vertices if the polygons above happen to share it.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "vertexIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "vertexIds"
+                        ]
+                      }
+                    },
+                    "edgeOverrides": {
+                      "type": "array",
+                      "description": "READ-ONLY in practice: reported accurately by GetDetailsOfElements (reflecting whatever Archicad itself currently has), but CreateMorphs/ModifyMorphs silently ignore this field on input - per-edge display status cannot be set by an add-on due to a confirmed, still-unresolved Archicad SDK bug (element.morph.edgeType/bodyType are silently discarded by ACAPI_Element_Create/Change; see the GRAPHISOFT community forum thread 'Help with setting morph's hidden edges in the API'). Sparse when present - only edges whose display status differs from edgeDefault get an entry. Identifies an edge by the (unordered) pair of vertex indices it connects.",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "vertexIds": {
+                            "type": "array",
+                            "items": {
+                              "type": "integer"
+                            },
+                            "minItems": 2,
+                            "maxItems": 2
+                          },
+                          "hidden": {
+                            "type": "boolean",
+                            "description": "Hide this edge's line entirely."
+                          },
+                          "smooth": {
+                            "type": "boolean",
+                            "description": "Shade the two adjacent faces smoothly across this edge instead of as a hard crease - the 'aide a la courbe' rounded-look hint. Does not change actual geometry."
+                          },
+                          "silhouetteOnly": {
+                            "type": "boolean",
+                            "description": "Show this edge's line only where it forms a silhouette/contour from the current viewpoint."
+                          }
+                        },
+                        "additionalProperties": false,
+                        "required": [
+                          "vertexIds"
+                        ]
+                      }
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "vertices"
+                  ]
+                },
+                "buildingMaterialId": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "xAxis": {
+                  "type": "object",
+                  "description": "3D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    },
+                    "z": {
+                      "type": "number",
+                      "description": "Z value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ]
+                },
+                "yAxis": {
+                  "type": "object",
+                  "description": "3D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    },
+                    "z": {
+                      "type": "number",
+                      "description": "Z value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ]
+                },
+                "zAxis": {
+                  "type": "object",
+                  "description": "3D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    },
+                    "z": {
+                      "type": "number",
+                      "description": "Z value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y",
+                    "z"
+                  ]
+                },
+                "surfaceId": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "castShadow": {
+                  "type": "boolean"
+                },
+                "receiveShadow": {
+                  "type": "boolean"
+                },
+                "isAutoOnStoryVisibility": {
+                  "type": "boolean"
+                },
+                "showContour": {
+                  "type": "object",
+                  "description": "Per-story visibility settings (API_StoryVisibility): the home story, plus how many stories above/below also show this element.",
+                  "properties": {
+                    "showOnHome": {
+                      "type": "boolean",
+                      "description": "Show on the home story."
+                    },
+                    "showAllAbove": {
+                      "type": "boolean",
+                      "description": "Show on all stories above the home story."
+                    },
+                    "showAllBelow": {
+                      "type": "boolean",
+                      "description": "Show on all stories below the home story."
+                    },
+                    "showRelAbove": {
+                      "type": "integer",
+                      "description": "Show this many stories above the home story (ignored when showAllAbove is true)."
+                    },
+                    "showRelBelow": {
+                      "type": "integer",
+                      "description": "Show this many stories below the home story (ignored when showAllBelow is true)."
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "showFill": {
+                  "type": "object",
+                  "description": "Per-story visibility settings (API_StoryVisibility): the home story, plus how many stories above/below also show this element.",
+                  "properties": {
+                    "showOnHome": {
+                      "type": "boolean",
+                      "description": "Show on the home story."
+                    },
+                    "showAllAbove": {
+                      "type": "boolean",
+                      "description": "Show on all stories above the home story."
+                    },
+                    "showAllBelow": {
+                      "type": "boolean",
+                      "description": "Show on all stories below the home story."
+                    },
+                    "showRelAbove": {
+                      "type": "integer",
+                      "description": "Show this many stories above the home story (ignored when showAllAbove is true)."
+                    },
+                    "showRelBelow": {
+                      "type": "integer",
+                      "description": "Show this many stories below the home story (ignored when showAllBelow is true)."
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "linkToSettings": {
+                  "type": "object",
+                  "properties": {
+                    "homeStoryDifference": {
+                      "type": "integer"
+                    },
+                    "newCreationMode": {
+                      "type": "boolean"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "displayOption": {
+                  "type": "string",
+                  "enum": [
+                    "Standard",
+                    "StandardWithAbstract",
+                    "CutOnly",
+                    "OutLinesOnly",
+                    "AbstractAll",
+                    "CutAll"
+                  ]
+                },
+                "viewDepthLimitation": {
+                  "type": "string",
+                  "enum": [
+                    "ToFloorPlanRange",
+                    "ToAbsoluteLimit",
+                    "EntireElement"
+                  ]
+                },
+                "cutFillPen": {
+                  "type": "integer"
+                },
+                "cutFillBackgroundPen": {
+                  "type": "integer"
+                },
+                "cutLineType": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "cutLinePen": {
+                  "type": "integer"
+                },
+                "uncutLineType": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "uncutLinePen": {
+                  "type": "integer"
+                },
+                "overheadLineType": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "overheadLinePen": {
+                  "type": "integer"
+                },
+                "useCoverFillType": {
+                  "type": "boolean"
+                },
+                "outlineContourDisplay": {
+                  "type": "boolean"
+                },
+                "coverFillType": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "coverFillPen": {
+                  "type": "integer"
+                },
+                "coverFillBGPen": {
+                  "type": "integer"
+                },
+                "use3DHatching": {
+                  "type": "boolean"
+                },
+                "coverFillOrientation": {
+                  "type": "object",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": [
+                        "Global",
+                        "Rotated",
+                        "Distorted",
+                        "Centered"
+                      ]
+                    },
+                    "origo": {
+                      "type": "object",
+                      "description": "2D coordinate.",
+                      "properties": {
+                        "x": {
+                          "type": "number",
+                          "description": "X value of the coordinate."
+                        },
+                        "y": {
+                          "type": "number",
+                          "description": "Y value of the coordinate."
+                        }
+                      },
+                      "additionalProperties": false,
+                      "required": [
+                        "x",
+                        "y"
+                      ]
+                    },
+                    "matrix00": {
+                      "type": "number"
+                    },
+                    "matrix10": {
+                      "type": "number"
+                    },
+                    "matrix01": {
+                      "type": "number"
+                    },
+                    "matrix11": {
+                      "type": "number"
+                    },
+                    "innerRadius": {
+                      "type": "number"
+                    }
+                  },
+                  "additionalProperties": false
+                },
+                "useDistortedCoverFill": {
+                  "type": "boolean"
+                },
+                "textureProjectionType": {
+                  "type": "string",
+                  "enum": [
+                    "Invalid",
+                    "Planar",
+                    "Default",
+                    "Cylindric",
+                    "Spheric",
+                    "Box"
+                  ]
+                },
+                "textureProjectionCoords": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "description": "3D coordinate.",
+                    "properties": {
+                      "x": {
+                        "type": "number",
+                        "description": "X value of the coordinate."
+                      },
+                      "y": {
+                        "type": "number",
+                        "description": "Y value of the coordinate."
+                      },
+                      "z": {
+                        "type": "number",
+                        "description": "Z value of the coordinate."
+                      }
+                    },
+                    "additionalProperties": false,
+                    "required": [
+                      "x",
+                      "y",
+                      "z"
+                    ]
+                  },
+                  "minItems": 4,
+                  "maxItems": 4
+                },
+                "level": {
+                  "type": "number"
+                },
+                "floorIndex": {
+                  "type": "integer",
+                  "description": "Optional floor index. If omitted, derived from the basePoint's z value."
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "basePoint"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "morphsData"
+        ]
+      },
+      "version": "1.4.0",
+      "access": "write"
+    },
+    "CreateWalls": {
+      "name": "CreateWalls",
+      "kind": "tapir",
+      "group": "Element Commands",
+      "description": "Creates Wall elements based on the given parameters.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "wallsData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "favoriteName": {
+                  "type": "string",
+                  "description": "Optional name of a favorite to base the new element on. Its settings are applied first, then the explicitly given fields override them."
+                },
+                "begCoordinate": {
+                  "type": "object",
+                  "description": "2D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ]
+                },
+                "endCoordinate": {
+                  "type": "object",
+                  "description": "2D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ]
+                },
+                "floorIndex": {
+                  "type": "integer",
+                  "description": "Story index (as returned by GetStories). When provided, zCoordinate is interpreted as bottomOffset relative to the floor. Takes priority over zCoordinate for floor assignment."
+                },
+                "zCoordinate": {
+                  "type": "number",
+                  "description": "Absolute Z when floorIndex is absent; bottomOffset relative to the floor when floorIndex is provided."
+                },
+                "height": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "thickness": {
+                  "type": "number",
+                  "exclusiveMinimum": 0
+                },
+                "offset": {
+                  "type": "number"
+                },
+                "arcAngle": {
+                  "type": "number",
+                  "description": "Arc angle in radians; non-zero creates a curved wall (begCoordinate/endCoordinate are the chord endpoints)."
+                },
+                "referenceLineLocation": {
+                  "type": "string",
+                  "enum": [
+                    "Outside",
+                    "Center",
+                    "Inside",
+                    "CoreOutside",
+                    "CoreCenter",
+                    "CoreInside"
+                  ]
+                },
+                "structureType": {
+                  "type": "string",
+                  "enum": [
+                    "Basic",
+                    "Composite",
+                    "Profile"
+                  ]
+                },
+                "buildingMaterialId": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "compositeId": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                },
+                "profileId": {
+                  "type": "object",
+                  "description": "The identifier of an attribute.",
+                  "properties": {
+                    "guid": {
+                      "type": "string",
+                      "description": "A Globally Unique Identifier (or Universally Unique Identifier) in its string representation as defined in RFC 4122.",
+                      "format": "uuid",
+                      "pattern": "^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$"
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "guid"
+                  ]
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "begCoordinate",
+                "endCoordinate",
+                "height",
+                "thickness"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "wallsData"
+        ]
+      },
+      "version": "1.4.0",
+      "access": "write"
+    },
+    "CreateSections": {
+      "name": "CreateSections",
+      "kind": "tapir",
+      "group": "Navigator Commands",
+      "description": "Creates Section elements on the floor plan.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "sectionsData": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "startCoordinate": {
+                  "type": "object",
+                  "description": "2D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ]
+                },
+                "endCoordinate": {
+                  "type": "object",
+                  "description": "2D coordinate.",
+                  "properties": {
+                    "x": {
+                      "type": "number",
+                      "description": "X value of the coordinate."
+                    },
+                    "y": {
+                      "type": "number",
+                      "description": "Y value of the coordinate."
+                    }
+                  },
+                  "additionalProperties": false,
+                  "required": [
+                    "x",
+                    "y"
+                  ]
+                },
+                "depth": {
+                  "type": "number"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "floorIndex": {
+                  "type": "integer"
+                }
+              },
+              "additionalProperties": false,
+              "required": [
+                "startCoordinate",
+                "endCoordinate"
+              ]
+            }
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "sectionsData"
+        ]
+      },
+      "version": "1.5.0",
+      "access": "write"
+    },
+    "IFCFileOperation": {
+      "name": "IFCFileOperation",
+      "kind": "tapir",
+      "group": "IFC Commands",
+      "description": "Executes an IFC file operation.",
+      "input_schema": {
+        "type": "object",
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "The file operation method to use.",
+            "enum": [
+              "save",
+              "merge",
+              "open"
+            ]
+          },
+          "ifcFilePath": {
+            "type": "string",
+            "description": "The target IFC file to use."
+          },
+          "fileType": {
+            "type": "string",
+            "description": "The type of the IFC file. The default is 'ifc'.",
+            "enum": [
+              "ifc",
+              "ifcxml",
+              "ifczip",
+              "ifcxmlzip"
+            ]
+          }
+        },
+        "additionalProperties": false,
+        "required": [
+          "method",
+          "ifcFilePath"
+        ]
+      },
+      "version": "1.2.6",
+      "access": "write"
+    }
+  }
+}

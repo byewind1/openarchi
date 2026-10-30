@@ -1,5 +1,163 @@
 # 验证记录
 
+## 2026-10-26 AI 原生工作台架构研究（仅文档与只读探测）
+
+- 报告：[架构评估](features/ai-native-workbench/assessment-2026-10-26.md)；证据：[源码基线](features/ai-native-workbench/2026-10-26-source-baseline.json)、[API 探测](features/ai-native-workbench/2026-10-26-api-probe.json)。状态为提案，未实施、未核准实施。
+- `python3 scripts/ac29-workflow.py context architecture` 复用安装身份与历史研究；本轮检查工作树中的模型、命令、编辑器、几何、渲染、存储与本地助手源码，并记录 SHA-256。
+- Archicad 连接器 `list_instances` 返回 AC29 build 5101、Tapir 1.7.1；只读 `API.IsAddOnCommandAvailable` 确认 14 个准确命令名已注册。`Publish` 返回 false 是名称不匹配，正确名 `PublishPublisherSet` 返回 true。不代表参数覆盖、建模、撤销或保存重开已验证。
+- 未执行 Archicad 写命令，未读出项目构件或上传工程数据；未改应用源码、未运行 Rust 测试、未打包、未做桌面交互测试。现有 `dist/OpenArchi.app` 未在本轮重新核对 UUID/签名，不作为本轮交付物。
+- 研究交付物同步至用户指定 Obsidian 目录；检查研究 JSON 可解析、所记录源码哈希仍匹配、报告相对链接存在、两份报告正文在链接替换后对应。仅检查本次研究文档差异，不将已有工作区改动归入本任务。
+- 经验提炼候选保存在报告，待开发者确认；没有修改 AGENTS.md。
+
+## 2026-10-25 去除重复的应用内标题行
+
+按用户反馈，移除窗口内容区重复显示文件名、版本号和语言下拉框的整行。系统窗口标题栏继续显示文件名；语言切换保留在 `View > Language`。变更影响 `src/app/shell.rs`、`src/app/mod.rs` 和对应 UI 回归，不改项目数据或撤销历史。
+
+### 自动验证
+
+- 新增 `workspace_does_not_repeat_the_native_window_title_or_language_picker`，断言窗口内容不渲染 `Untitled`、语言选择项或版本横幅；专项测试通过。
+- `python3 scripts/ac29-workflow.py verify --force`：通过格式、`cargo check --locked --all-targets`、本地化、**307 项 Rust 测试**、**15 项工具测试**、`git diff --check` 和 macOS 打包。
+- 报告：`target/ac29-workflow/runs/20261024T192956Z-5155078e/report.json`；输入 SHA-256 `e390e7bb596a40c3a37f132d8e41183df83d17c8f24827a39250f6e70434eb1f`。
+- 最终包 `dist/OpenArchi.app`：arm64 UUID `611C0AFD-9095-3764-9351-34408CD8C373`，与 release 二进制一致；签名验证通过，release SHA-256 `f19aba2e339d34288d9aafdc55342988bf1e45da9354302e06c3d13a97e5b793`。
+
+### 桌面实测
+
+用 `open -n --env HOME=/tmp/oa-header-acceptance/home -a dist/OpenArchi.app` 启动最终包；`ps eww` 确认隔离 HOME。CUA 辅助功能树与截图均来自唯一剩余的最终包实例，显示标题栏为 `Untitled`，其下直接是标准工具栏；内容区没有重复文件名、版本横幅或语言下拉框。窗口内 Edit/Info Box/Toolbox、视图标签、Quick Options 栏和状态行均保留。
+
+- 英文首帧：系统菜单、工具栏、Info Box、Toolbox、视图标签、12 个构件计数、状态和 Quick Options 栏为英文；选中数为 0。
+- 通过 `View > Language > 简体中文` 即时切换后，窗口标题为“未命名”，系统菜单及上述可见主窗口文字切为中文；截图确认 Info Box、Toolbox、视图标签、底部 Quick Options 栏和状态行。构件数仍为 12、选中数仍为 0；Edit 菜单中 Undo/Redo 均禁用，语言切换未创建撤销记录。
+- 再切回 English 后界面恢复。随后选择简体中文、退出并重启同一隔离 HOME，首帧显示中文菜单、工具箱、状态和“12 个构件”；最后恢复隔离 HOME 原先的英文偏好并退出。未修改真实用户偏好或项目模型。Quick Options 浮动调色板本次未打开；项目文件名在真实打开操作后的标题效果仍按前一节记为 unknown。
+- 依用户要求，应用内标题行的语言选择器已移除；因此本次只验证保留的 View 菜单入口，没有可单独测试的标题行入口。该移除是有意的产品调整。
+
+未提交、未推送。
+
+## 2026-10-25 原生菜单栏与文档标题验收
+
+目标是将 macOS 菜单从窗口内移到系统菜单栏，并让窗口标题显示文档文件名。行为契约与逐项结论见[原生菜单栏与文档标题](features/native-menu-title/contract.md)。本次源码更改还包含多个既有功能；验证覆盖当前整个工作区，不将通过等同为每项功能单独的桌面验收。
+
+### 自动验证
+
+- `python3 scripts/ac29-workflow.py verify --force`：通过格式检查（含 4 个 `include!` UI 文件）、`cargo check --locked --all-targets`、本地化、**306 项 Rust 测试**、**15 项工具测试**、`git diff --check` 和 macOS 打包。
+- 验证报告：`target/ac29-workflow/runs/20261024T191606Z-eeca77fa/report.json`；输入 SHA-256 `e4cbfb672f379998be7b9546fb60653e46f8a285409b24d8318fccc129eacb98`。
+- 最终包：`dist/OpenArchi.app`；arm64 UUID `13A38A8A-AD0F-3BE8-9192-134F3E7CB206`，与 `target/release/openarchi` 一致；`codesign --verify --deep --strict` 通过。release SHA-256 `e85179570052f6fbcd87e825a602faaf44bd808aab94a1bed583c537f895ff35`。
+
+### 桌面实测
+
+通过 `open -n --env HOME=/tmp/oa-menu-acceptance/home -a dist/OpenArchi.app` 启动隔离实例；`ps eww` 字段筛选确认 PID 52110 的 `HOME=/tmp/oa-menu-acceptance/home`。CUA 按精确包路径绑定 OpenArchi。窗口标题为“未命名”，主窗口中仍有 Courtyard House 演示模型（12 个构件）。测试未保存或改写该模型。
+
+- **pass：系统菜单位置与菜单组。** 辅助功能树明确显示 macOS `menu bar`，其中依次有 `OpenArchi、文件、编辑、视图、设计、文档、选项、协作、窗、帮助`。窗口内不再出现菜单/命令条；标准工具栏、视图栏、Quick Options、Info Box 仍在窗口内。
+- **pass：菜单随语言即时变化。** `视图 > 语言 > English` 后，窗口标题显示 `Untitled`，主界面状态及系统菜单变为英文；再选择 `简体中文` 后恢复 `未命名`、中文主界面与中文系统菜单。测试后已恢复中文。没有重启应用验证偏好持久化。
+- **pass：原生菜单命令到达应用。** `文件 > 打开 JSON…` 显示与原窗口相同的应用内“打开项目”对话框。对话框默认路径 `/tmp/oa-menu-test-home/Documents/courtyard.openarchi.json` 不存在，点击“打开 / 替换”显示 `No such file or directory (os error 2)`；随后取消对话框。故打开文件后的标题名、重启持久化、Undo/Redo、退出守卫和文本框快捷键均未验证，见契约中的 unknown 项。
+- 测试没有打开或操作 Archicad，也没有执行写入操作。
+
+桌面结果只覆盖上述可见项；原生菜单栏已实测通过，文档标题完整生命周期仍需有效文件路径后复验。未提交、未推送。
+
+## 2026-10-24 参数传输（吸管/注射器）实现与验证
+
+实现 AC29 风格参数传输：`⌥+点击` 吸取、`⌘⌥+点击` 注入（平面与 3D）、`⌥C`/`⌘⌥C` 命令、无选中时一次性光标模式（Esc 取消）、Element Transfer Settings 对话框（传输集增删改、按类型分组复选框、随工程保存并产生一条撤销）。行为契约、证据与边界见[参数传输](features/parameter-transfer.md)。
+
+### 自动验证
+
+- `./scripts/cargo.sh fmt --all -- --check`：通过；`cargo check --all-targets`：0 警告（清理了 `transfer.rs` 测试中一处被遮蔽的未用绑定）。
+- `./scripts/cargo.sh test --all-targets`：**274 项通过**（226 库、7 Guides、10 门窗、31 工作流）。参数传输专项 **14 项**：`src/transfer.rs` 9 项单元测试（同类型几何/材质传输且位置不变、跨类型拒绝、组取消勾选保留字段、门窗保宿主与 offset、楼梯保起终点、传输集切换、按类型缓冲、吸取默认值跳过绘制方法、墙选择值随组传输）+ `src/app/ui_tests.rs` 5 项 egui 回归（`⌥C` 选中吸取并更新工具默认值、无选中 `⌘⌥C` 进入一次性模式、平面 `⌥+点击` 手势、跨类型与非法几何注入整体失败、传输设置对话框 OK 为一条撤销记录）。
+- `python3 scripts/check-localization.py`：472 键，en/zh 缺失 0、重复 0、zh 未翻译 0。
+- `python3 scripts/ac29-workflow.py verify --force`：通过格式、检查、localization、274 项 Rust 测试、15 项工具测试、`git diff --check` 和 macOS 打包，报告 `target/ac29-workflow/runs/20261023T200806Z-309aae34/report.json`。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `AD4B9F6E-6016-3CDA-8BCD-D0C3F07625E7`，release SHA-256 `41092a55ed85aabf0693ec81cd049859fc1b034c2de45fdc3f7c44e42fae6852`，`codesign --verify --deep --strict` 通过，`dwarfdump --uuid` 两处一致。
+
+### 桌面实测（用户授予屏幕录制权限后完成）
+
+最终包 `dist/OpenArchi.app`，隔离 HOME `/tmp/oa-transfer-smoke/home`（`ps eww` 确认注入），演示工程 Courtyard House 12 构件，cua-driver（用户已授权 Accessibility+Screen Recording 的 0.21.0 daemon）窗口截图 + 像素点击/键盘，后台 shell `screencapture -l <window>` 辅助取样：
+
+- 英文界面：工具栏出现吸管/注射器图标按钮；选中构件后 `⌥C`（前台 CGEvent 和弦）状态栏显示 `Picked up Slab parameters from Slab 001`（吸取进入每类型缓冲并写入工具默认值，无撤销记录、无 dirty）；选中阳台楼板（Timber、厚 0.16）后点工具栏注射按钮，状态 `Injected parameters into 1 element(s)`，注入后未选中阳台的平面填充 (237,238,230) 与主楼板完全一致（Concrete、0.28 生效）；工具栏撤销恢复木色 (233,219,193)、重做再次一致——整次注入为一条可逆记录；Esc 清选正常，全程构件数 12。
+- Edit 菜单出现 `Pick Up Parameters ⌥C`、`Inject Parameters ⌘⌥C`、`Element Transfer Settings…`；对话框呈现传输集列表（All Parameters 高亮）、New/Duplicate/Delete（单集时 Delete 禁用）、名称框与按类型分组复选框（Wall 五组、Slab/Stair/Door/Window 各两组、Polyline 一组，默认全选），Cancel 关闭无变更。期间 Info Box 输入非法厚度顺带触发 `Wall thickness must be between 1 mm and 5 m` 校验拒绝（既有信息框路径）。
+- 中文：标题栏选择器切到简体中文后全界面即时切换（标题 `建筑设计工作台`、菜单/工具箱/状态栏中文）；编辑菜单显示 `吸取参数 ⌥C`、`注入参数 ⌘⌥C`、`元素传输设置…`；对话框为 `传输集/新建/复制/删除/名称/传输的参数/几何/材质与图层/表面/平面显示/数据/确定/取消`（传输集名 `All Parameters` 为用户数据按原样显示）；中文保存守卫 `未保存的更改/放弃并关闭` 出现并可用。选简体中文退出重启后**首帧即中文**（标题、菜单、工具箱、状态 `就绪 选择构件或开始绘制`、`12 个构件`），隔离 HOME 偏好文件持久化为 `zh-CN`；随后切回 English（即时生效）并退出，不影响用户真实偏好。语言切换前后构件数与撤销栈不变。
+
+### 桌面未验证项与限制
+
+- 含 Cmd 的组合键（`⌘⌥C`）与带修饰键的指针点击（`⌥+点击`/`⌘⌥+点击` 手势）未能经桌面自动化送达：本机系统级输入拦截吞掉 Cmd 和弦（前台与后台 CGEvent、CLI 全局投递均失败，和弦曾被前台应用接收），修饰键不随投递的鼠标事件生效（应用收到普通点击）。`⌥C` 与单键可达。这两条路径由无头 RawInput 回归覆盖（`cmd_option_c_without_selection_arms_one_shot_inject`、`option_click_gesture_picks_up_in_plan`）；桌面键鼠实测以工具栏按钮、菜单项与 `⌥C` 为准。
+- 3D 视图手势未在桌面重复（与平面共用 `execute_transfer` 代码路径）；传输集 XML 导入/导出未实现（契约记录为延后）。
+- 观察项（非本特性缺陷）：Info Box 的墙厚度校验错误文本在 Esc 清选后仍残留显示，待后续信息框状态清理。
+
+测试后已清理：OpenArchi 测试实例退出、Terminal 转发进程停止、FIFO 移除，未触碰用户 Archicad 与既有 REA MCP 进程；未提交、未推送。
+
+### 2026-10-24 补充：手势语义核对与 `⌘⌥+点击` 正向回归
+
+用户核对快捷方式后确认语义为：`Alt(⌥)+左键点击` 吸取、`Cmd+Alt(⌘⌥)+点击` 注入目标构件。复核源码（`src/app/plan.rs`、`src/app/model_view.rs` 拦截块，`src/app/mod.rs:1674-1678` 命令键）与既有实现一致，无需行为改动；`⌥C`/`⌘⌥C` 是工具栏与 Edit 菜单命令的附加快捷键（依据用户提供的 AC29 工具栏提示 "Pick Up Parameters (Option+C)"），不是对手势的替代。为此新增正向回归 `cmd_option_click_gesture_injects_into_target_element`（吸取后 `⌘⌥+点击` 目标墙 → 厚/高/材质注入、参考线不动、一条撤销），全量测试重新通过。该改动仅涉及 `#[cfg(test)]` 代码，当时的发布包（UUID `AD4B9F6E-6016-3CDA-8BCD-D0C3F07625E7`）不受影响。
+
+### 2026-10-24 补充：悬停光标与构件亮显（AC29 悬停反馈链）
+
+用户描述 AC29 的完整交互语义后补齐了悬停反馈：按住 `⌥`（吸取）或 `⌘⌥`（注入）且指针在平面/3D 画布上时，指针切换为自绘位图光标（吸管/注射器，`src/transfer_cursor.rs` 程序化绘制，经 `PlatformOutput::cursor_image` → egui-winit → NSCursor 送达；不支持的平台回退 Crosshair）；悬停到点击会生效的构件上时光标出现液体且构件亮显（平面：白色浅罩+亮青描边；3D：`SceneRenderer::render` 新增 `hovered` 参数改用亮蓝基色）。注入仅在吸取缓冲已有该构件类型时 primed/亮显；指针离开画布、松开修饰键、平移/拖拽或 Space 时恢复常规光标；工具栏命令的一次性模式复用同一套光标。egui 命中测试使用上一轮 widget 矩形（一帧延迟），测试与实现均按此处理。
+
+- `./scripts/cargo.sh fmt --all -- --check`：通过（rustfmt 已运行）。`./scripts/cargo.sh test --all-targets`：**279 项通过**（231 库、7 Guides、10 门窗、31 工作流）。新增 4 项回归：`transfer_cursor::cursor_bitmaps_are_distinct_and_well_formed`（四种位图稳定且互异）、`alt_hover_shows_eyedropper_cursor_and_highlights_element`（⌥ 悬停 primed/亮显、空白处空管、松键清除）、`cmd_alt_hover_primes_syringe_only_when_buffer_holds_type`（空缓冲不 primed、吸取后 primed+亮显）、`alt_hover_in_3d_shows_transfer_cursor_and_clears_without_modifier`（3D 位图与清除）。
+- `python3 scripts/ac29-workflow.py verify`：通过格式、检查、localization、279 项 Rust 测试、15 项工具测试与 macOS 打包。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `99147C64-610C-3634-90DF-00089795F1E1`，release SHA-256 `ed0c668a9767e21b4ff1759f51d3fc0f86aa354e08e363584619572803ccd80d`，`codesign --verify --deep --strict` 通过（上一包 `AD4B9F6E-…` 已被本次替换）。
+- 桌面烟雾（隔离 HOME `/tmp/oa-cursor-smoke/home`，`open -n` 启动 pid 18008）：2D 平面截图渲染完整；F3 切 3D 透视后 wgpu 渲染正常（墙/板/地面/轴标无回归）。测试实例已退出，临时文件已清理。
+- **unknown**：修饰键按住期间的光标样式、液体状态与悬停亮显无法经本机自动化送达（系统输入拦截吞掉修饰键+指针组合，`screencapture` 也不含光标），真机视觉需用户手持验证；位图为 32×32，Retina 下观感（是否偏小）未知。此前记录的 `⌘⌥C` 和弦与 `⌥+点击` 桌面拦截限制不变。
+
+### 2026-10-24 补充：吸取后激活对应工具
+
+按用户描述补齐 AC29 吸取语义的最后一段：点击吸取构件属性后，自动 `set_tool` 激活对应构件的工具（墙→Wall、板→Slab、楼梯→Stair、多段线→Polyline、门→Door、窗→Window），带吸取到的默认值直接进入可绘制状态；工具属视图状态，不产生模型撤销记录，状态栏仍显示吸取消息。注入（`⌘⌥`）不切换工具。实现位于 `Editor::pick_up_from`（`src/editor.rs`），命令（`⌥C`/工具栏/菜单）与手势（`⌥+点击`）共用同一入口。
+
+- `./scripts/cargo.sh test --all-targets`：**280 项通过**（232 库、7 Guides、10 门窗、31 工作流）。新增 `pick_up_activates_the_matching_tool`（吸取板→Slab 工具+板厚默认、吸取墙→Wall 工具+厚高默认、无撤销无 dirty），并加固两处既有断言：吸取后 `tool == Wall`；注入前切到 Select 后注入不改变工具。
+- `python3 scripts/ac29-workflow.py verify`：通过格式、检查、localization、280 项 Rust 测试、15 项工具测试与 macOS 打包。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `2266DEFC-C31C-36C0-8015-845FE15E10D4`，release SHA-256 `03b8c93e69f2138ae545fee6308704ed1c501c3f72ee1d235fdfe82b09912a8d`，`codesign --verify --deep --strict` 通过（替换上一包 `99147C64-…`）。
+- 桌面尝试（隔离 HOME，pid 98411）：应用启动并完整渲染（截图确认）；随后尝试经 cua-driver 前景点击与原始 CGEvent 点击画布以"选中墙 → `⌥C` 吸取 → 观察工具激活"，三次点击均未在画布生效（Info Box 保持 0 selected，状态栏不变）——与此前记录的 egui 画布输入投递限制一致；期间确认另一运行中的 OpenArchi 实例（用户开启，pid 96389，主屏）不受影响并保持未触碰。工具激活的桌面验证由无头测试支持，真机确认待用户以新包手持执行。测试实例已退出、临时文件已清理；未提交、未推送。
+
+### 2026-10-24 补充：按住修饰键时独占指针反馈（隐藏捕捉标记）
+
+按用户澄清：按住 `⌥`/`⌘⌥` 期间指针只允许吸管/注射器两种状态（空管 / 半管液体），原有的捕捉点/悬停示意标记（`CursorFeedback` 的箭头勾、三射线、捕捉目标样式，`src/app/plan.rs` 悬停反馈块）必须隐藏；松开修饰键后恢复捕捉交点/线中点的常规样式。实现为在 `plan()` 中以 `transfer_cursor_active` 门控整个悬停反馈块（含 `set_cursor_icon` 与 `paint`），传输光标激活时不运行；一次性武装模式同样独占。3D 视图无 painted 捕捉标记，无需处理。
+
+- 新增回归 `alt_hover_suppresses_snap_feedback_until_released`（悬停墙端点：无修饰键时 `cursor_icon == Default` 即反馈块运行；按住 `⌥` 后为 `Crosshair` 回退 + 位图光标，反馈被抑制；松开后恢复 `Default`），`./scripts/cargo.sh test --all-targets` **281 项通过**（233 库、7 Guides、10 门窗、31 工作流）。
+- `python3 scripts/ac29-workflow.py verify`：通过格式、检查、localization、281 项 Rust 测试、15 项工具测试与 macOS 打包。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `0FBA737F-507F-39ED-BC66-82B463B6883C`，release SHA-256 `8055bd45e805bce4ef09e783d579d1d26201e33433e6908ecc260b7c9c1d642b`，`codesign --verify --deep --strict` 通过（替换上一包 `2266DEFC-…`）。
+- 桌面烟雾：新包（隔离 HOME，pid 26907）启动并完整渲染（截图确认）；修饰键按住期间的指针视觉仍无法经自动化送达（记录在案的限制），需用户手持验证。测试实例已退出，另一运行中的 OpenArchi 实例（pid 17479）未触碰；临时文件已清理；未提交、未推送。
+
+### 2026-10-24 补充：光标改画布内绘制 + 绘制状态方块十字
+
+用户真机验证失败。根因判断：首版的吸管/注射器经 `PlatformOutput::cursor_image` → egui-winit → NSCursor 位图送达，本机真机不可见（无头回归只覆盖 egui 输出层，NSCursor 上传链路无证据）。按本应用已验证的铅笔光标模式重做：**隐藏系统指针（`CursorIcon::None`）+ 每帧在指针位置绘制字形**（`src/transfer_cursor.rs` 重写为 `paint_pick_up`/`paint_inject`/`paint_square_crosshair`）。同时按用户澄清实现绘制状态光标：六个绘图工具（墙/板/楼梯/多段线/门/窗）激活时指针统一为吸附点上的**方块十字**（小方块+四向刻线，随端点/中点/自由位置移动），替代箭头/铅笔/手型组合；Select 箭头与 Marquee 十字不变。平面与 3D 同步；`apply_polyline_edit_cursor` 与 3D 悬停反馈块在传输模式激活时不再覆盖指针。
+
+- `./scripts/cargo.sh test --all-targets`：**281 项通过**（233 库、7 Guides、10 门窗、31 工作流）。光标回归改为断言 `CursorIcon::None` + `transfer_cursor`（kind, primed）+ `transfer_hover` 状态；新增 `drawing_tool_shows_square_crosshair_cursor`（Wall 工具 None、Select 恢复 Default）；删除 NSCursor 位图单元测试。
+- `python3 scripts/ac29-workflow.py verify`：通过格式、检查、localization、281 项 Rust 测试、15 项工具测试与 macOS 打包。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `759C40BE-D727-3E5F-8D98-8FA4DC3FAFD6`，release SHA-256 `031ec7e6bcb4f645a4611e7817b671dd762f21bfd7d20411b7eed7ef5efd7a13`，`codesign --verify --deep --strict` 通过（替换 `0FBA737F-…`）。
+- 桌面视觉验证尝试（隔离 HOME）：启动后窗口仅背景色、内容不合成，点击激活后仍不渲染；用独立 bundle id（com.openarchi.smoke）的临时副本复现同样现象——**扩展了已记录的"第二实例窗口不合成内容"未知项：与 bundle id 无关，本环境同会话非首个实例均不渲染，首实例（如用户手开的）正常**。绘制字形真机视觉留待用户以新包手持验证；测试实例与临时副本已清理，用户实例（pid 27461）未触碰；未提交、未推送。
+
+### 2026-10-24 补充：液体可见性与绘图十字简化
+
+依据[Archicad 29 Parameter Transfer 官方帮助](https://help.graphisoft.com/AC/29/INT/_AC29_Help/030_Interaction/030_Interaction-98.htm)和[The Intelligent Cursor 官方帮助](https://help.graphisoft.com/AC/29/INT/_AC29_Help/030_Interaction/030_Interaction-39.htm)：吸管/注射器在有效悬停时有半满样式；绘图工具空白处使用简单十字，智能吸附位置再显示相应节点/边提示。修正画布字形绘制顺序：此前液体先画、随后被白色管身和深色内腔盖住；现改为管体完成后再绘制带暗边的青色液体。绘图光标移除方框与粗刻线，改为细十字，仍定位在吸附点。此项为 OpenArchi 原创绘制，不复制帮助图片资源。
+
+- `python3 scripts/ac29-workflow.py verify --force`：格式、`cargo check --all-targets`、localization、**283 项 Rust 测试**（含新增液体绘制层级和简洁十字两项回归）、15 项工具测试、`git diff --check` 与 macOS 打包均通过。
+- 新包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `975757F5-4C46-359E-906F-A621CA6AAA12`，`codesign --verify --deep --strict` 通过；release SHA-256 `782b03ac75bacc2099522cbff90d6e1581f29193c0b3d988c2156fe885ff592a`。GUI 未做本轮手持验证。
+- 真机按住 Option 悬停构件后的半满显示、绘图十字观感仍需以最终包手持确认；代码/无头回归不能替代该视觉验收。
+
+### 2026-10-24 补充：绘制中按住 Shift 锁定 X/Y 轴向
+
+用户要求绘制时按住 Shift 后只能沿 X 或 Y 方向移动（AC29 正交手势）。实现于统一捕捉入口 `AtelierApp::target`（`src/guides_ui.rs`）：Shift 生效且下一个点未吸附到端点时，以活动绘制锚点（`editor.anchor`，即墙起点；无 anchor 时取多段线最后一个节点）为基准，按指针相对锚点的主方向把目标锁定到过锚点的 X 或 Y 轴上（主导轴取绝对偏移较大者）；锚点/端点吸附不受影响，避免 Shift 阻断闭合或吸附起点。墙工具原有的 Ortho/Shift 逻辑保留（`base_target` 内在捕捉前先做正交收缩），新增约束作用于最终目标，因此对墙、板、楼梯、多段线、门、窗及参考线绘制一致生效，且不会被后续捕捉带离轴。
+
+- `./scripts/cargo.sh test --all-targets`：**284 项通过**（235 库、7 Guides、10 门窗、31 工作流）。新增回归 `shift_locks_drawing_to_dominant_axis_through_anchor`：主导横向锁定 Y、主导纵向锁定 X、无 Shift 时不约束、多段线末节点作锚点、精确端点吸附优先于轴锁。
+- `python3 scripts/ac29-workflow.py verify`：通过格式、检查、localization、284 项 Rust 测试、15 项工具测试与 macOS 打包，报告 `target/ac29-workflow/runs/20261024T143827Z-74207094/report.json`。
+- 最终包 `dist/OpenArchi.app`：release 与包内 arm64 UUID 均为 `3C4F39A0-564B-3768-80B4-45763F232CD5`，release SHA-256 `8a88a9410d2743c53696ba3bfaa3fe2879e8dafb87e601e4810356f8846708ec`，签名校验通过。
+- 桌面烟雾（隔离 HOME `/tmp/oa-shift-smoke/home`，`open -n` 启动 pid 83170，`ps eww` 确认注入）：新包启动并完整渲染 Courtyard House（截图确认，12 elements）。按住 Shift 的绘制手势属于修饰键+指针组合，无法经本机自动化送达（既有记录的限制）；轴锁语义由无头 `target()` 回归覆盖，真机确认待用户手持。测试实例已退出（`kill 83170` 仅杀本实例）；用户手开的实例（pid 62178）确认未被触碰后自行退出。临时目录已清理；未提交、未推送。
+- **unknown**：Shift 轴锁与轨迹/捕捉提示（tracker）组合下的视觉观感、Shift 中途按下/松开时锁定轴的切换手感，需用户真机验证。
+
+## 2026-10-20 PLN 与图库互操作方案（文档调查，待核准）
+
+新增[架构及实施方案](features/pln-interop/plan.md)和[证据台账](features/pln-interop/evidence.md)。已只读核对当前源码/进展、`context pln` 目标身份及固定 AC29 SDK 官方文档。REA 绑定目标成功；Mach-O 完整结果超传输预算，导出及 plist 检查被客户端 `approval policy is never` 拒绝；Hopper 符号查询超时且清理未确认，详细资源/限制见台账。没有取得 PLN 解码或回存运行证据。
+
+仅文档变更；未改应用源码、未运行应用测试/打包/桌面验证，不产生新的应用 UUID 或签名结论。历史测试与包记录不代表本轮重新验证。实施需用户核准。
+
+### 2026-10-20 REA MCP 重新调查
+
+`context pln` 复用本机 AC29 29.0.0 v1 INT (5101) / arm64 / SHA-256 `d86af90a1fc90f0a9ef2c8565300179acc9735dda8fc3e0fe07611e8aa8b5505`。发现两份候选样本：
+
+- `/Users/ren/MAC工作/工作/code/开源项目/su2bim/tests/test1.pln`：26,119,696 bytes；SHA-256 `73ec87bd2fc839d2a6b8502d3b28fc22720eb445b624ee432ce721f33a7dd57b`。
+- `/Users/ren/MAC工作/工作/code/开源项目/_legacy_backup/obr存档/gdl 案例/bak/chair-gdl.pln`：18,212,624 bytes；SHA-256 `ab2b9d1b4f02dd692ed9a03fc497709f8a4d06a677ea20c4fbd2de4e9ed29ef1`。
+
+当前 REA provider 为 Ghidra 12.1.4（Hopper launcher 缺失，IDA 未配置）。`open_binary(test1.pln, provider_id=ghidra)` 返回 `unsupported binary format`；打开 AC29 Mach-O 成功，但 `binary_overview`、2 个 strings 搜索、1 个 procedures regex 搜索长时间未返回，停止等待时没有 Evidence。`close_binary` 调用未及时返回；CLI 搜索结束后的最终 `binary_session` 显示 `open=false`、无 provider binding、无活动请求，确认本次 MCP Ghidra 会话已关闭。不得据此解释任何 PLN 字节布局。细节见 [REA 证据台账](features/pln-interop/evidence.md#2026-10-20-按当前-rea-mcp-链路重新调查-pln)。
+
+本次未在 Archicad 打开或保存样本，未修改样本/应用源码，未运行测试或打包。结论：按当前 REA `open_binary` 路由不能直接分析 PLN；PLN 解析仍未完成。
+
+后续沿既有 Ghidra CLI 配置尝试：REA 6.4.0 的 `inspect-artifact test1.pln` 也返回 `unsupported binary format`；`inspect-binary-layout` 命令 schema 仅接受 Linux ELF。当前 shell 不继承 Codex MCP 的 Ghidra 环境变量，显式传入已记录的 Ghidra/JDK/REA provider 路径后，AC29 静态搜索运行约 210 秒仍未返回，Ctrl+C 后 CLI 报 `cancelled` / `cleanup=complete`。无搜索结果、无 Evidence。详细边界见 [证据台账](features/pln-interop/evidence.md)。
+
 ## 2026-10-18 墙体参考线编辑、接头几何、连续墙结束与窗口标题（当前）
 
 本节记录当前工作树（未提交）在 AC29 墙体参考线编辑、接头几何、连续墙结束手势和窗口标题本地化方面的结论，取代上方各节的测试数字作为当前结论；历史记录保留。
@@ -514,3 +672,205 @@ Archicad 29 观察：本机 `29.0.0 v1 INT (5101)`，SHA-256 `d86af90a1fc90f0a9e
 - 平面截图 `/tmp/join-recovered.png`（3024×1976）：横向墙填充在交会处连续；在填充行 y=1330 上，x=1330–1439 全部为 `(211,211,211)`，没有内部深色竖线。横向墙顶边在 y=1318–1322 处按竖向墙身范围 x=1368–1395 断开，竖向墙两侧轮廓在 y=1322 终止，不再穿入横向墙内部。
 - 同一截图中平面画布为空白纸面，没有构造网格线；两个空白采样区（x=1760–2320，y=850–1700；x=650–2320，y=1400–1700）非背景像素均为 0。恢复项目的 `grid_settings` 序列化为 `show_construction_grid=false`、`grid_snap_enabled=false`、`snap_mode=None`。
 - 限制：自定义 `View` 菜单未能通过本轮自动化稳定展开，因此没有直接读取 `Snap Options > Grid Snap` 复选框；网格捕捉关闭由项目状态、画布空白和自动回归共同支持。未重复检查不同材质、不同墙高、旋转墙或 AC29 像素级画笔画定义；3D 只沿用既有端帽隐藏回归，本轮未对这两个测试墙截图三维交会。未提交、推送、打标签或发布。
+
+## 2026-10-24 图层设置对话框（AC29 Layer Settings 复刻）
+
+本轮交付动态图层系统与 AC29 风格图层设置对话框：Cmd+L / Options > Element Attributes > Layers… / Quick Options 图层菜单三个入口；左侧图层组合（选择即预览、Update 写回、New… 新建），右侧搜索 + 专业分类树 + 状态表（眼睛/锁/三维模式图标、扩展=相交组编号、Show: X of Y、New/▾/Delete）；OK 提交（被删图层元素迁往 Archicad Layer，与 AC 的 catch-all 语义一致），Cancel/Esc 丢弃；全部改动经 `ProjectHeader.layers` 可撤销；锁定图层禁止编辑/删除/放置；隐藏图层不渲染但墙相交清理仍按帮助语义参与；同非零相交组才清理墙端。图标为原创矢量绘制（复刻 AC29 观察到的形态，未拷贝资源）。行为契约与证据见 `docs/features/layer-settings/contract.md`。
+
+自动验证：`cargo fmt`/`cargo check` 干净；`./scripts/cargo.sh test --all-targets` **301 项通过**（252 库、7 Guides、10 工作流、1 性能基线忽略项之外的新布局用例、31 集成等，含新增 4 个图层对话框用例、相交组回归 `collinear_walls_on_different_intersection_groups_keep_end_caps`、legacy 图层 JSON 迁移与锁定守卫测试）；`check-localization` 通过；`python3 scripts/ac29-workflow.py verify --force` PASSED（test_count 300、tool_test_count 15，含打包 receipts）。
+
+打包：`dist/OpenArchi.app` release 与包内 arm64 UUID 均为 `1CA89A55-D18D-35D0-8E31-F8F5AA25886D`，`codesign --verify --deep --strict` 通过。
+
+桌面冒烟（隔离 HOME `/private/tmp/oa-layer-home`）：英文实例 Cmd+L 打开对话框、面板/图标/OK/Cancel 正常（`/private/tmp/ac29-layers/openarchi-layers-en.png`）；写偏好 `zh-CN` 重启后首帧窗口标题「OpenArchi — 建筑设计工作台」，Cmd+L 对话框全部控件中文。首轮截图发现组合列表第 3 行被滚动条遮挡——根因是 egui `ui.horizontal` 把行高钳到当前行高、模态内滚动区塌缩（组合列表视口仅 252×112、表格 440×64，临时探针测试实测）；改为 `allocate_ui(718×420)` + 两个 `scope_builder` 定宽定高侧栏后复测视口 252×280/456×252，重新打包复验：10 个组合全部完整可见、无遮挡、对勾+高亮在 03 平面 - 初步（`/private/tmp/ac29-layers/openarchi-layers-zh-final-v3.png`，AX 树 271 元素含「图层 (模型视图)/图层组合/搜索图层/显示: 2/32/确定/取消」佐证）。语言切换仅改变界面文案，未改变构件、选择、撤销历史。
+
+限制与 unknown：AC29 New 分裂菜单与对话框左上菜单内容未运行时观察（像素点击有崩溃风险，见契约 Risks：调查中目标 Archicad PID 6914 曾在合成点击后 FATAL 退出，已立即重启并停止该类交互，恢复对话框留给用户）；闭眼/闭锁图标像素形态按帮助语义推断；图层数据名（模板图层/组合名键之外的 "Archicad Layer" 等）按项目数据处理不随界面语言翻译；顶部工具栏同步开关未证实未实现。未提交、推送、打标签或发布。
+
+
+## 2026-10-28 — Edit menu implementation (partial AC29 coverage)
+
+See [behavior contract](features/edit-menu/contract.md) and [command coverage, limits and verification](features/edit-menu/coverage.md). Added shared native/egui catalog, validated atomic edit commands, grouping/locking, transform/copy, alignment/distribution, numeric reshape and non-mutating preview. No global Edit-menu equivalence claim: 12 commands remain disabled and several implementations intentionally support bounded model types/workflows.
+
+Final fresh forced verification: 324 Rust tests passed, 1 existing ignored performance test; 15 tooling tests passed; format, compile, localization, diff and package checks passed. App `dist/OpenArchi.app`; arm64 release/bundle UUID `A93D50AE-DC6E-34FB-8468-FE928B4EBB94`; deep strict signature passed. Final receipt under `target/ac29-workflow/runs/` (2026-10-28 07:36 UTC).
+
+Desktop **unverified**: isolated-HOME packaged app launched; CUA returned `-10005: cgWindowNotFound` for both bundle-id and full-path binding. Bilingual Drag OK/Cancel, Escape and model/history invariance passed RawInput tests; these are not native desktop acceptance. Actual language switch/restart and remaining dialogs unknown. Existing title-bar language picker was removed by earlier native-title work; only View > Language is present. Reusable lesson candidates are in coverage.md, pending developer confirmation; AGENTS.md was not edited by this task.
+
+
+## 2026-10-28 — AC29 Edit keyboard shortcuts
+
+[Shortcut contract and exact mapping](features/edit-menu/shortcuts.md). Read installed Standard Shortcuts 29 global/non-text XML; active user-custom scheme unknown. Replaced legacy Cmd+D Duplicate with Drag, added transforms/copies/grouping/selection and standard Cmd+Alt+Z redo, retained Cmd+Shift+Z alias, and unified menu hints. Native-style Copy/Cut/Paste events handled, including Cmd+Alt+C injection. Text focus/modal safety and exact modifiers tested.
+
+Fresh verification: **332 Rust + 15 tooling tests passed**, 1 existing ignored performance test. Formatting, compile, localization, diff and packaging passed. `dist/OpenArchi.app` UUID **A89C6B50-EEF7-350B-8A11-0902CCA10313** matches release; deep strict signature passed. New isolated-HOME English instance launched (PID 67397); CUA full-path bind failed with **-10005 cgWindowNotFound**. Actual desktop shortcuts, bilingual language switches and Chinese restart remain unknown. Existing missing title-bar selector remains absent. No full native localization claim.
+
+
+## 2026-10-28 — 编辑快捷键验收边界纠正（研究/记录）
+
+此前 332 Rust / 15 工具测试的通过仅证明当时源码的测试结果；按键路由到数值对话框不能证明 AC29 鼠标驱动的移动/旋转/镜像正确。当前这一用户目标仍未完成。已查询官方帮助并保存[独立交互契约](features/edit-menu/pointer-interaction.md)与[171 条标准快捷键](features/edit-menu/standard-shortcuts-full-29.md)。本轮仅文档与配置事实提取：无新源码变更、无新 app 构建、无新增 runtime observation 或 REA Evidence。文档存在性、配置计数、JSON 与本地链接另行核对；不复用历史测试为新增交互背书。
+
+
+## 2026-10-28 — Cmd+D 直接鼠标移动，取消数值对话框
+
+- `dispatch_edit` 的 Drag / Drag a Copy / Drag Multiple Copies 进入 `PointerDrag`。平面轮廓和三维当前楼层水平面预览不改项目；单击提交，Esc/右键取消当前预览。Option 单副本，Option+Cmd（兼容物理 Ctrl）多副本，模式锁存；逐份 Undo，近位置双击结束。具体假设和限制见 [交互契约](features/edit-menu/pointer-interaction.md)。旋转、镜像对话框不在此次修正范围。
+- 新增/更新 egui 事件测试：Cmd+D 无模态、两种语言、鼠标移动不改模型/撤销历史、点击位移、取消、单副本锁存、多次放置、锁定拒绝、序列化、Undo、三维水平面。已通过完整 `python3 scripts/ac29-workflow.py verify --force`：336 Rust tests passed、1 ignored performance test；15 tooling tests passed；格式、check --locked --all-targets、本地化检查、diff 检查通过。工作区既有 unused import / unused_mut 警告未扩大修改。
+- 新包 `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`；release/bundle arm64 UUID 均 `20722E96-CE86-3AD6-9C90-30AEB71F7628`，codesign deep strict 通过。源码新鲜度 receipt：`target/ac29-workflow/runs/20261028T090926Z-8ee66de6/report.json`；随后 bundle 核验 `matches_successful_build_receipt`。
+- 桌面：用隔离 HOME `target/pointer-drag-smoke-home`（预写 en）启动最终包，PID 10931 的 HOME 已由 ps 证实。CUA 按应用名和最终包路径均绑定到现有用户实例（中文“未命名”、12 个构件），清单没有提供可选新实例窗口。为避免修改用户原有工作，没有向该旧实例发送编辑按键。**新包 Cmd+D、鼠标落位与中英文切换桌面实测未验证**；未用旧实例截图代替新包证据。原有用户实例 PID 97630 保持不动。
+- 本次无新增语言文本，沿用命令名称和已有状态翻译，画布反馈为数值与 +/++。英文/中文 RawInput 验证通过；语言两个入口、重启持久化和完整窗口表面未在最终包实测，见 ui-language.md。
+- 经验候选（待开发者确认，未写入 AGENTS）：连续多副本的双击结束需同时判定落点距离，快速点击不同位置仍需继续；编辑过程的 Option 需优先于参数传递光标。
+
+
+## 2026-10-28 REA移动实测修正最终验收
+
+
+`python3 scripts/ac29-workflow.py verify --force`：340 Rust tests passed、1 performance test ignored；15 tooling tests passed；格式、cargo check --locked --all-targets、本地化检查和diff检查通过。
+
+最终包：/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app。release与bundle arm64 UUID 均 `E25DBA40-EC95-3424-AEA1-D96269C31FD8`；codesign deep/strict通过；bundle检查与成功源码receipt一致。
+最终运行PID45500，隔离HOME `target/rea-drag-smoke-home`，用户实际HOME偏好没有改动。新包完成英文移动/复制/多副本/取消，中文基点/单副本/多副本/取消，以及菜单撤销。
+
+语言：真实新实例首帧为中文；同一最终实例经 View > Language 完成 English→简体中文→English；标题、顶层菜单、工具栏、Info Box、工具箱、视图标签、选择/构件数量、状态栏、Quick Options条已查看。切换前后恢复项目JSON完全相同；选择保持，Undo/Redo菜单状态及撤销结果正常。Quick Options浮动面板、无关对话框和原有部分3D子菜单译名未逐项验收，不能声称全应用本地化完成。标题栏语言选择器已在此前用户要求的原生标题栏改造中移除（native-menu-title/contract.md已有记录），本轮使用现有唯一语言入口，没有恢复它。
+
+
+详见 [本轮验收](</Users/ren/MAC工作/工作/code/开源项目/openarchi/docs/features/edit-menu/drag-runtime-acceptance.md>)。AC29 REA10份，最终包REA1份，English/中文阶段AX记录在 edit-menu/evidence/。
+
+## 2026-10-28 按住左键直接移动/复制补丁
+
+详见[直接拖动验收](features/edit-menu/direct-drag-acceptance.md)。AC29独立样本按压即拖→Option→保持Option按Cmd→释放→两次点击→Esc已实测，REA及输入记录归档；原用户项目未修改。OpenArchi平面整体拖动在吸管判断前创建共享移动会话，释放不提交，点击落位。
+
+verify --force：342 Rust passed/1 ignored，15 tooling passed，格式/check/localization/diff/package passed。receipt `target/ac29-workflow/runs/20261028T151445Z-adfcd132/report.json`；最终`dist/OpenArchi.app`与release UUID `E856826B-CF89-38E1-99ED-1F24094199EF`，strict/deep签名通过。
+
+桌面：最终包已启动并渲染英文恢复模态；系统前台loginwindow锁屏，CUA cgWindowNotFound且无法激活，已请求解锁。当前最终包完整拖动、中英切换/重启均unknown，不能沿用前一版本桌面通过结论。
+
+## 2026-10-28 Cmd+D物体上取点修复
+
+[修复记录](features/edit-menu/cmd-d-object-click-fix.md)：完整工作区回归先复现按下后立即移动丢失基点，再改为按下取点、消费本次释放。覆盖墙端点/墙身/其他元素/空白、轻微抖动和三种复制模式。verify --force：344 Rust passed/1 ignored、15 tooling passed；format/check/localization/diff/package passed。最终UUID `6D9C20DF-E324-3692-A1EE-1AB1C1CF6D9A`，strict/deep签名通过，bundle与源码receipt匹配：`target/ac29-workflow/runs/20261028T154449Z-77cbd3ec/report.json`。最终包PID67637启动后系统再次loginwindow锁屏，桌面实际操作与中英切换待解锁；原用户PID69192未操作。
+
+## 2026-10-29 三维旋转光标与底视
+
+[契约及桌面证据](features/3d-orbit/contract.md)。左右跨水平线的仰角范围改为±1.53，原创环形双箭头显示于左键/Shift中键旋转，暂停保持、松开恢复；普通中键平移保留。345 Rust passed/1 ignored、15 tooling passed，format/check/localization/diff/package通过。receipt `target/ac29-workflow/runs/20261028T161755Z-dd034f54/report.json`；dist/OpenArchi.app与release UUID `6C1ABA5B-EE6F-3647-AEC0-98D09BD2991A`、strict/deep签名通过、当前源码receipt匹配。
+
+最终包PID22934独立HOME桌面实测通过：英文左键越水平看到底面+环形光标、释放；Shift中键回水平上方；中文Shift中键底视、普通中键平移；切回英文。截图/AX归档。用户PID72149未改。不复制AC资源，不声明Archicad整体等价；不含极点翻滚，未全量验证本地化。
+
+## 2026-10-29 移动/复制距离角度Tracker
+
+[实现及快捷键速查](features/edit-menu/drag-tracker.md)。D/R距离、A角度、Tab切换、Enter提交、Esc两阶段取消；单位随当前DimensionStyle，Option复制模式保留输入，多副本放置后继续。348 Rust passed/1 ignored、15 tooling passed；format/check/localization/diff/package全部通过。最终app与release UUID `7908B563-1CC2-3B50-82B0-FACA46863462`，strict/deep签名通过、源码receipt匹配：`target/ac29-workflow/runs/20261028T164152Z-9ef85f21/report.json`。
+
+桌面：独立最终包PID20870启动后前台loginwindow锁屏，输入守卫拒绝，已请求解锁；实际键盘/中英切换/重启/视觉检查均unknown。不将自动事件测试冒称桌面实测。
+
+## 2026-10-29 旋转光标精修
+
+仅精修原创矢量光标：更小的细线双弧、实心箭头、浅色细描边、无中心圆点。348 Rust passed/1 ignored、15 tooling passed；format/check/localization/diff/package通过。最终dist/OpenArchi.app UUID `A7A5838A-8DD5-3A95-ABF9-1974AFDA730F`，签名通过且源码receipt匹配（`20261028T165109Z-ae746401`）。独立最终包PID95076已在真实GPU视图浅色墙面、深色底板上保持旋转检查，截图见[旋转契约](features/3d-orbit/contract.md)。无文字变化，未重做无关语言与Tracker验收。
+
+## 2026-10-29 吸管光标精修
+
+原创细管/尖口/窄挡圈/圆角胶帽替换粗管与大圆头，蓝色液柱保留。348 Rust passed/1 ignored、15 tooling passed；format/check/localization/diff/package通过。当前dist/OpenArchi.app UUID `C892F68C-7EF2-3053-8F70-27163929543B`，签名通过且源码receipt匹配（20261028T165741Z-02b0dbe3）。最终包独立PID51947已实测平面空白/墙体悬停和Option点击吸取参数；AX确认Picked up Wall parameters from Wall 001。截图与边界见[吸管精修](features/parameter-transfer-evidence/pickup-refinement-2026-10-29.md)。无新文字，3D和无关Tracker桌面验收未重复。
+
+## Active wall method switching — 2026-10-29
+
+`python3 scripts/ac29-workflow.py verify --force` passed: 350 Rust tests, one ignored performance test, 15 tooling tests; formatting, all-target check, localization and diff checks passed. Fresh `dist/OpenArchi.app` release/bundle arm64 UUID `512DBB7E-75EA-3F49-BCA9-03FA867FBF06`; strict deep codesign passed. Receipt: `target/ac29-workflow/runs/20261028T171643Z-903a89aa/report.json`. Final `bundle` freshness recheck passed.
+
+New regressions: `active_wall_method_switch_retains_nodes_through_info_box_clicks` exercises full-workspace egui method-button events, retained nodes, exact preview/committed endpoints, and undo/redo. `active_wall_method_switch_rectangle_and_cancel_preserve_transaction_boundary` covers retained prefix + four rectangle edges, single undo and cancellation.
+
+Native smoke on final package: isolated HOME `target/wall-method-home`, PID 6999 (closed after verification), existing user PID 37444 untouched. Started wall with W; clicked (600,650), AXPressed Continuous, clicked (750,650), AXPressed Single, moved/clicked (750,750). Preview retained both segments; elements 12→14; Cmd+Z returned 12. Repeated in Chinese through native View > Language; elements 12→14; undo returned 12; repeated partial input and Escape canceled with 12 remaining. Restored English. Evidence: `docs/features/wall-method-evidence/` screenshot and AX dumps. No labels added/edited. Language restart persistence was not rerun; the title-bar selector remains absent by prior user request. Settings-dialog route shares default application code but was not manually exercised. Rectangle/Polygonal mixed transitions have no current desktop comparison with AC29; arbitrary other commands are not claimed supported.
+
+Reusable lesson candidate (awaiting developer confirmation; not written into AGENTS): changing a construction method should transition pending input state, retain accepted nodes, and reset incompatible numeric locks; test preview and final geometry together, and verify switching alone leaves the model/undo history unchanged.
+
+## 2026-10-29 — Standard toolbar / Edit > Reshape
+
+- Delivered existing-model subset: Trim, Magic Wand, Adjust, Intersect, Fillet/Chamfer and numeric/graphical Resize; seven original icons and shared menu dispatch. Roof/Shell Trim disabled explicitly. Full per-command object matrix, AC29 help/runtime evidence and unsupported curved/3D/hosted cases: [contract](features/reshape-toolbar/contract.md).
+- Forced verify `target/ac29-workflow/runs/20261028T175117Z-2836eec4/report.json`: fmt/includes, check all targets, localization, **364 Rust tests**, **15 tooling tests**, diff and packaging passed. 14 added regressions include geometry, actual egui pointer sequences, rollback, undo/redo and persistence.
+- Fresh `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`; release/bundle arm64 UUID **BD0A3CB4-A003-3F81-AA7C-CB1D4EC3A237**; strict deep codesign passed. Supersedes intermediate E37C9E59 / 363-test run.
+- Final native PID 2944 / window 41654: toolbar layout, EN/ZH native menu labels, whole main-window representative surfaces, Resize dialog EN/ZH, View > Language switching and Chinese restart first-frame confirmed via native AX menus/screenshots. Model edit was never confirmed in desktop process. [Evidence](features/reshape-toolbar/contract.md#final-packaged-desktop-evidence).
+- Desktop **partial**: CUA cannot bind (`cgWindowNotFound`); egui AX controls unavailable; bounded CG clicks/keys did not activate custom controls. Canvas completion/cancel/undo/save, Fillet dialog, floating Quick Options and title-bar language selector are unknown (selector absent from native-title configuration). Headless UI tests are not substituted for these gaps. No global AC equivalence or complete localization claim.
+
+## 2026-10-29 — Ctrl temporary Trim follow-up
+
+Holding physical Ctrl temporarily activates scissors Trim; release restores the prior tool/draft. Mouse release remains owned by Trim when Ctrl is released first. Five additional full-workspace regressions pass. Forced verify receipt `target/ac29-workflow/runs/20261028T180350Z-ab1bd890/report.json`: **369 Rust + 15 tooling tests**, fmt/check/localization/diff/package passed. Final `dist/OpenArchi.app` release/bundle arm64 UUID **E8A6B374-EEA4-3641-889F-03610EBD897D**; strict/deep signature passed.
+
+Final isolated native instance verified View > Language English→Chinese→English and Chinese restart first-frame title; user's older process preserved. Native Ctrl-click remains unknown because CUA binds the existing older user instance. New tooltip translations verified in automated events; title-bar selector absent and floating Quick Options not rechecked. Details and screenshots: [follow-up contract](features/reshape-toolbar/contract.md#ctrl-follow-up-validation--final-package).
+
+## 2026-10-29 — Cmd / continuous interval Trim correction
+
+User corrected Ctrl to **Cmd**. Temporary Cmd mode, repeated menu/toolbar mode, nearest end interval, middle deletion and endpoint-only final deletion implemented. **373 Rust + 15 tooling tests passed**; fmt/check/localization/diff/package passed. Receipt `target/ac29-workflow/runs/20261028T181812Z-05046f41/report.json`. Final `dist/OpenArchi.app` release/bundle arm64 UUID **967D7AFF-53BC-36FE-B4CF-A75C0B0FDF99**; strict/deep signature and source-freshness check passed.
+
+Native final package isolated PID 32074: actual Cmd hover/click, sequential end cuts, middle deletion, last-interval deletion, Chinese repeated menu Trim, Escape, Undo/Redo passed; recovery JSON confirms exact results. EN→ZH→EN menu switch and both revised tooltips checked. Chinese restart PID 51563 confirmed first frame and recovered final geometry. Test instances closed, user PID 52583 untouched. Title-bar selector absent by prior configuration; floating Quick Options and unrelated dialogs unknown. Details: [Cmd acceptance](features/reshape-toolbar/contract.md#cmd-final-verification-and-native-acceptance).
+
+## 2026-10-29 — Rotated wall middle-edge node editing
+
+Actionable wall palette with Insert node and existing transform entries, shared plan/3D preview and atomic two-wall commit; original endpoints fixed, hosted-opening checks/remap, numerical Distance/Angle, cancel and undo. 3D straight-wall insertion is an explicit OpenArchi extension, not AC29 equivalence. **377 Rust + 15 tooling tests passed**, fmt/includes/check/localization/diff/package passed. Receipt `target/ac29-workflow/runs/20261028T183751Z-e2a64a9f/report.json`.
+
+Final dist/OpenArchi.app release/bundle UUID **1BA174C1-BFB7-3218-8144-D1F78A68D3F2**, strict/deep signature passed; source freshness matches receipt. Native final instance passed rotated wall plan edit; orbit then 3D edge edit; preview/cancel; numerical 2.5 m/90° input; exact saved node geometry; Undo/Redo; EN→ZH→EN; Chinese restart/recovery. User PID 99546 untouched, test instances closed and isolated language restored. Title-bar selector absent by existing configuration; floating Quick Options and transform alias dialogs not rechecked. Full [contract and evidence](features/wall-editing.md#2026-10-29-final-verification).
+
+## 2026-10-29 — Complete two-row wall command palette
+
+`verify --force` passed **399 Rust tests + 15 tooling tests**, format/includes, all-target check, localization, diff and fresh packaging. Receipt `target/ac29-workflow/runs/20261028T191127Z-5671ac64/report.json`. Deliverable `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`; release/bundle arm64 UUID **36F797A9-B20D-3043-9BD2-CC877AB1B026**, strict/deep signature passed; final bundle freshness matches source receipt.
+
+Final native isolated app exercised all ten commands with model-result JSON: insert node, curve, tangent, two-point trapezoid exterior, trapezoid split, drag, three-point rotate, two-point mirror, +1.25 m elevate and three incremental copies. Actual curve plan/3D/3D-palette-preview-cancel, Undo/Redo and recovery reopening passed. EN→ZH→EN and Chinese restart passed. One native-discovered zero-distance clamp/stage lock was fixed and fresh-built before final acceptance. [Detailed screenshots, command table, limits and language coverage](features/wall-pet-palette/validation.md). Custom contour walls still bypass old straight-wall junction cleaning; legacy unsupported partial edits reject atomically. No full Archicad equivalence claim.
+
+## 2026-10-29 — Baseline default node, solid/hollow pencil, hover commands
+
+Fresh `verify --force`: **402 Rust + 15 tooling passed**, formatting/includes, all-target check, locale validation, diff/package. Receipt `target/ac29-workflow/runs/20261028T195222Z-83063bfc/report.json`; app `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`, release/bundle arm64 UUID **0A21A3A6-9135-3AD1-99D0-8AD06964E908**, strict/deep signature passed, final freshness matches receipt.
+
+Native final package: baseline click immediately starts Insert node; original-line solid pencil/outside hollow pencil in plan and 3D; mouse motion alone activates/highlights Curve and Rotate; return to Insert; confirm two-wall result; Cancel, Undo/Redo; EN→ZH→EN and Chinese restart passed. Three new UI regressions cover all-ten hover transitions, visible highlight, original curved path and stage preservation. Scope remains wall reference editing; [detailed evidence, setup retry, localization boundary and experience candidates](features/wall-pet-palette/cursor-followup/validation.md).
+
+## 2026-10-29 — Compact wall palette and mouse-release confirmation
+
+Fresh `verify --force`: **404 Rust + 15 tooling passed**, formatting/includes, all-target check, localization, diff/package. Receipt `target/ac29-workflow/runs/20261028T201755Z-a93fb169/report.json`. App `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`; release/bundle arm64 UUID **85D62F1A-641C-3977-B41A-7F73F94C586C**, strict/deep signature passed; source freshness matches receipt.
+
+Compact 148×64-point ten-icon palette; command instructions and Apply/Cancel block removed. Pointer-adjacent numeric tracker, real text+Enter confirmation, plan/3D selected-baseline drag-release, held-drag hover switching and UI-release exclusion verified. Native final app passed EN→ZH→EN, Chinese restart, undo/redo and exact saved-model comparison. Title-bar language selector unavailable by prior product choice; floating Quick Options, unrelated dialogs, other command-specific tracker fields not native rechecked. Full evidence and explicit localization limits: [compact follow-up](features/wall-pet-palette/compact-followup/validation.md).
+
+## 2026-10-29 — Selected multi-wall junction movement
+
+Fresh `verify --force`: **413 Rust + 15 tooling passed**, formatting/includes, all-target check, locale validation, diff/package. Receipt `target/ac29-workflow/runs/20261028T203304Z-0a93b003/report.json`. App `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`; release/bundle arm64 UUID **E13465E1-CFD3-37B2-AC26-638D87358165**, strict/deep signature passed; source freshness matches receipt.
+
+Selected straight-wall junction drag now moves every participating node atomically; fixed far ends, private preview, click/Enter/release, cancel, one undo/redo and JSON round trip. T/X through-walls split with existing metadata/opening handling. Nine new regressions cover geometry, selection, rejection and plan/3D event handling. Final native package verified three-wall shared plan/3D preview and release, exact saved coordinates/remote endpoints, Undo/Redo exact JSON, EN→ZH→EN, Chinese restart and reopen. Move node uses existing EN/ZH translation keys. Title-bar selector unavailable; unrelated dialogs/floating Quick Options and curved/profiled junctions unverified/unsupported. [Full evidence and scope](features/wall-junction-edit/validation.md); [experience candidates](features/wall-junction-edit/contract.md#implementation-evidence-and-candidate-lessons) await developer confirmation.
+
+## 2026-10-29 — three-state palette and multi-wall endpoint cleanup
+
+Fresh `dist/OpenArchi.app` built from the verified source receipt `target/ac29-workflow/runs/20261029T025513Z-71e440bb/report.json`: **428 Rust tests (380 library + 48 integration), 15 tooling tests passed**, one existing performance test ignored. Format/includes, all-target check, localization validation, diff, package and strict/deep signature pass. Release/bundle arm64 UUID **ECA2334E-2A55-32E6-A959-B0D0A70DD16A**; final `ac29-workflow.py bundle` reports source freshness matches receipt.
+
+Three palette states now coexist while browsing; click/canvas-return promotes a candidate. Multi-way straight-wall endpoints use adjacent sector face intersections, center caps and bounded short-wall bevels; plan, selection, Trace, private preview and ordinary 3D share arbitrary polygons. Added geometry/UI/render regressions cover holes, reverse spikes, concavity, order/reversal/rotation, reference offsets and short walls. AC29 INT 5101 was separately reproduced/measured: symmetric Y/T/X match observed unions; the four-ray AC case itself retains a reverse spike, intentionally removed by this OpenArchi policy. [Contract, measurements, screenshots and limits](features/wall-junction-cleanup/contract.md).
+
+**Native final-bundle UI is unverified:** isolated process 81807/window 43250 launched, but macOS was locked (`CGSSessionScreenIsLocked=Yes`, foreground loginwindow 420), preventing guarded mouse input and leaving a blank viewport. Plan/3D visual acceptance, palette interaction, language switching/restart and native undo/redo could not run. Automated tests are not substituted for those checks. Original user OpenArchi 27005 and Archicad 51530 were preserved. [Full validation / blocker](features/wall-junction-cleanup/validation.md). Pending experience proposals are in the contract; no reusable AGENTS.md rules were changed for this follow-up.
+
+## 2026-10-29 — Polyline editing aligned with the shared wall session
+
+Fresh `python3 scripts/ac29-workflow.py verify --force` passed formatting, all-target compilation, localization/duplicate-key validation, **431 Rust tests** (one performance test ignored), **15 tooling tests**, whitespace and packaging. Receipt: `target/ac29-workflow/runs/20261029T045457Z-c7623878/report.json`. Deliverable: `dist/OpenArchi.app`; release and bundle arm64 UUID **1E951660-57EF-36A1-82DB-F6D93FBE7E45**; deep strict signature passed. The preceding CD1A15D5 UUID was superseded after the overlapping-node priority correction.
+
+Final-package native smoke used isolated HOME, PID 68716 then 75249: English/Chinese node and edge palettes + numeric tracker, off-edge insertion, node drag (other vertices remain), undo, language switches and Chinese restart title passed within the recorded scenario. The existing user process (14 elements, 1 selected) remained intact. All disposable test instances were closed. Numeric Enter, staged transforms, arc/corner geometry, JSON and original wall callers have automated coverage; not every command was re-executed natively. Exact cursor hotspot/timing, full AC29 equivalence, untouched dialogs and native verification of every dirty/history field remain unknown. The existing title-bar selector has been removed by the native-title contract; View → Language was exercised. See [feature contract, finite claim outcomes and screenshots](features/polyline-editing.md#2026-10-29--implementation-and-final-validation).
+
+## 2026-10-29 — wall/polyline palette click activation and command lock
+
+Fresh forced verification `target/ac29-workflow/runs/20261029T061018Z-d96a38ff/report.json`: format, all-target check, localization validation, **432 Rust tests** (one performance case ignored), **15 tooling tests**, whitespace and packaging passed. Release/bundle UUID **4095BCED-962A-36A1-8AEC-BD27D78FB11F**; strict deep ad-hoc signature passed. Deliverable `dist/OpenArchi.app` is current to the successful receipt.
+
+Removed hover-candidate promotion on canvas return from the shared wall/polyline session. Left-click icon activation locks the active command against mouse movement; hover only paints feedback. Both objects/both languages, held drags, staged/numeric state, cancellation, undo and wall projected-3D are covered by passing event regressions. Final native English plan smoke passed for both objects: default Insert node remains after hover/return; click Curve activates it; hover Rotate/return retains Curve. Original user instance (12 elements, 1 selected) untouched; disposable isolated instance closed. No new native Chinese/3D replay or exact cursor-hotspot measurement is claimed for this no-label-change fix. See [contract](features/wall-pet-palette/contract.md#click-lock-correction-implementation-and-verification) and [native evidence](features/wall-pet-palette/click-lock-20261029/native.md).
+
+## 2026-10-29 — remove selected-wall passive length
+
+Fresh forced workflow passed formatting, all-target check, localization validation, 432 Rust tests (one performance case ignored), 15 tooling tests, diff whitespace and packaging. Receipt `target/ac29-workflow/runs/20261029T062421Z-2231a9dd/report.json`; final `dist/OpenArchi.app` arm64 UUID **5858F0D1-77C2-36F5-9485-0F512AA2329B**, matching release UUID; strict deep signature passed. Native final-package English/Chinese selection screenshots confirm no wall-length annotation above the baseline while blue reference line, black handles, real overall dimensions and gap feedback remain. Isolated instance closed; user instance/project preserved. Static endpoint-palette length removal is bilingual-test covered, Chinese restart first title `未命名` passed on a second isolated final-package instance. Native popup replay and untouched dialogs are not newly verified. See [wall selection contract and screenshots](features/wall-selection.md#removal-delivered-and-checked).
+
+## 2026-10-30 — endpoint menu matches Insert node menu
+
+Fresh `verify --force` receipt `target/ac29-workflow/runs/20261030T125243Z-57ab5fec/report.json`: format, all-target check, localization validation, **433 Rust tests** (one performance case ignored), **15 tooling tests**, diff whitespace and packaging passed. `dist/OpenArchi.app` release/bundle UUID **8A99BFD7-6D77-3566-B8E0-5F2404D5D802**; strict deep ad-hoc signature passed.
+
+Endpoint and Insert node use the same compact ten-icon control. First endpoint slot remains Move node; shared-command roundtrip restores existing endpoint drag/snap behavior. Both ends/both languages and undo/redo are event tested. Final native start-endpoint English/Chinese palette, explicit Curve activation/hover lock, return to Move node, language roundtrip and Chinese restart title passed with isolated test instances; original user process left running. Native end-endpoint/every-command replay, untouched dialogs, exact hotspots/timing and new AC29 equivalence are not claimed. See [contract](features/wall-pet-palette/contract.md#endpoint-menu-delivered-and-verified--2026-10-30) and [evidence](features/wall-pet-palette/endpoint-menu-20261030/native.md).
+
+
+## 2026-10-31 Slab straight-edge insert
+
+439 Rust / 15 tooling tests passed through forced ac29 verify; fresh dist/OpenArchi.app arm64 UUID 500A51F6-6954-3181-892E-8B7D15A2280B, release/bundle match and strict/deep codesign passed. Native final-package CUA: isolated HOME, edge click→concave perimeter, undo/redo, 3D solid, save→restart→Open contour roundtrip; English/Chinese status and representative workspace surfaces, Chinese first-frame restart then English restored. Title-bar language entry absent, floating Quick Options and exact cursor hotspot unknown. Straight single-ring insert only; full Slab reconstruction incomplete. [Evidence/limits](features/slab-edge-editing/contract.md).
+
+
+## 2026-10-31 完整边线编辑包验证结果
+
+`python3 scripts/ac29-workflow.py verify --force` PASS：461项Rust测试（413 lib + 7/10/31 integration，1 ignored）、15项工具测试、格式/include格式、all-targets check、本地化、diff检查和fresh打包。凭据：`target/ac29-workflow/runs/20261030T191701Z-0793e2d5/report.json`。新增完整小面板13项实际egui事件回归全部通过，含双语角度45/135、表面/三作用域、孔洞输入、曲边保弧插点显式释放立即提交、变换/切线/倒圆角、候选分裂ID、undo/redo/JSON；另有7项完整kernel与2项geometry专项回归。
+
+交付包：`dist/OpenArchi.app`；arm64 release/bundle UUID均 `78EE8804-D188-39AD-9986-35B2635C18B5`，deep/strict codesign PASS。本轮没有提交或推送。
+
+最终包桌面限制：隔离HOME `/tmp/oa-slab-full-home-20261031`，当次新进程73397、CGwindow52526（逻辑1512×988），ps核对HOME正确；用户旧进程89567保留。CUA getApp路径返回用户旧实例（中文13个构件），未对其发输入；精确PID的REA启动观察`ev_592c3e705aec3e489c5426956fa1845fb7cb264e804998ff495aa599fc2b5ba4`确认新包英文启动、Recover对话框，完整记录[evidence/20261031-openarchi-final-native.json](evidence/20261031-openarchi-final-native.json)。它只证明启动/界面，不证明恢复已点击或完整鼠标编辑。
+
+当前CUA对Archicad已知窗口的点击持续返回 `-10005 noWindowsAvailable`（重读AX/AXRaise及重新绑定后仍失败）；重置CUA会话没有解决多实例精确绑定。未绕过用户实例保护。故本轮新包完整真鼠标手势、EN→中文→EN即时菜单切换、中文重启、精确系统光标热点为unknown，不能套用上一版原生验证冒充通过；双语新增命令的自动事件回归通过。圆弧半径显示已实现，独立数值半径锁定待维护者确认当前分支保持规则，异步问题已提出，未将超时视为同意。
+
+
+## 2026-10-31 — P0 baseline and save integrity
+
+Fresh `verify --force`: **465 Rust + 15 tooling passed**, one existing performance test ignored; formatting/includes, all-target check, localization, whitespace and fresh packaging passed. Receipt `/Users/ren/MAC工作/工作/code/开源项目/openarchi/target/ac29-workflow/runs/20261030T201614Z-d8346a8c/report.json`. Deliverable `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`; release/bundle arm64 UUID **0B031BCF-7C67-336C-97DC-26A39F4660C5**, strict/deep signature passed. Four new filesystem regressions fail against the old save implementation and pass after exclusive temporary-file creation, file sync, atomic rename and owned cleanup. No UI strings or operation gestures changed.
+
+Native isolated process30131: verified HOME/current bundle, English main window and File→Save JSON open passed. Save/cancel input on the custom modal did not execute after coordinate/keyboard/AX Raise retries; native disk save/reopen, 3D, full slab gestures and bilingual switching remain unknown. No user instance/project touched. [P0 report and remaining gates](features/ai-native-workbench/p0-execution-2026-10-31.md), [capability/write-entry matrix](features/ai-native-workbench/p0-capabilities-2026-10-31.md), [pre-code storage contract](features/persistence/contract.md). P0 overall remains in progress; P1 not started.

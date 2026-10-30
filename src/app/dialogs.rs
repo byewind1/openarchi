@@ -71,7 +71,8 @@ impl AtelierApp {
             return;
         };
         let stories = self.editor.project.stories.clone();
-        let action = dialog.show(ctx, self.language, &stories);
+        let layers = self.editor.project.layers.clone();
+        let action = dialog.show(ctx, self.language, &stories, &layers);
         if action == WallDialogAction::None {
             self.wall_settings_dialog = Some(dialog);
             return;
@@ -341,20 +342,6 @@ impl AtelierApp {
                             }
                         }
                     });
-                }
-                PlanOptionKind::Layers => {
-                    ui.checkbox(
-                        &mut options.show_all_layers,
-                        language.translate("Show All Layers"),
-                    );
-                    ui.add_space(4.);
-                    for combination in LayerCombination::ALL {
-                        ui.radio_value(
-                            &mut options.layer_combination,
-                            combination,
-                            language.translate(combination.name()),
-                        );
-                    }
                 }
                 PlanOptionKind::PenSets => {
                     for pen_set in PenSet::ALL {

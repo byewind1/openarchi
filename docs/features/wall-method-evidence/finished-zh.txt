@@ -1,0 +1,161 @@
+AXWindow | 未命名
+AXButton | 辅助线
+AXButton | 网格
+AXCheckBox | 描图
+AXButton | ▾
+AXButton | 测量
+AXCheckBox | 组
+AXCheckBox | 三维剖切
+AXCheckBox | 楼层平面 · F2
+AXCheckBox | 三维透视 · F3
+AXStaticText | 编辑工具
+AXStaticText | 工作区控制 · 视口上下文
+AXStaticText | 信息框
+AXStaticText | 墙
+AXStaticText | 墙 014
+AXStaticText | 全部已选: 1
+AXStaticText | 图层：
+AXPopUpButton | Archicad 图层
+AXStaticText | 结构功能：
+AXPopUpButton | 未定义
+AXStaticText | 几何方法：
+AXCheckBox | 单线
+AXCheckBox | 连续
+AXCheckBox | 多边形
+AXCheckBox | 矩形
+AXStaticText | 参考线：
+AXCheckBox | 居中
+AXCheckBox | 内部
+AXCheckBox | 外部
+AXStaticText | 参考线偏移
+AXIncrementor | 0.000 m
+AXStaticText | 厚度
+AXIncrementor | 0.220 m
+AXStaticText | 高度
+AXIncrementor | 3.000 m
+AXStaticText | 顶部偏移
+AXIncrementor | 0.000 m
+AXStaticText | 底部偏移
+AXIncrementor | 0.000 m
+AXStaticText | 顶部链接：
+AXPopUpButton | 1. First floor (所属楼层 + 1)
+AXStaticText | 结构：
+AXTextField | Generic Wall/Shell
+AXButton | 平面图与剖面…
+AXButton | 设置…
+AXButton | 应用
+AXStaticText | 就绪
+AXStaticText | 已创建构件 013
+AXStaticText | X 7.500 m   Y -0.987 m   |   14 个构件
+AXStaticText | 工具箱
+AXButton | ⋯
+AXStaticText | 选择与区域
+AXCheckBox | 箭头
+AXCheckBox | 选区框
+AXButton | 设计
+AXCheckBox | 墙
+AXCheckBox | 楼板
+AXCheckBox | 楼梯
+AXCheckBox | 门
+AXCheckBox | 窗
+AXCheckBox | 柱
+AXCheckBox | 梁
+AXCheckBox | 对象
+AXCheckBox | 灯具
+AXCheckBox | 屋顶
+AXCheckBox | 壳体
+AXCheckBox | 栏杆
+AXCheckBox | 幕墙
+AXCheckBox | 天窗
+AXCheckBox | 转角窗
+AXCheckBox | 洞口
+AXCheckBox | 墙端
+AXCheckBox | 网格地形
+AXCheckBox | 形体
+AXCheckBox | 区域
+AXButton | 视点
+AXButton | 文档
+AXButton | 结构工程
+AXButton | 机电工程
+AXStaticText | OPENARCHI
+米制 · Z 轴向上
+Apple Silicon / Metal
+AXStaticText | 导航器
+AXStaticText | Courtyard House
+AXButton | 楼层
+AXCheckBox | 00  Ground floor     +0.00 m
+AXCheckBox | 01  First floor     +3.20 m
+AXCheckBox | 02  Roof level     +6.40 m
+AXButton | 剖面
+AXButton | 立面
+AXButton | 室内立面
+AXButton | 工作表
+AXButton | 详图
+AXButton | 三维文档
+AXButton | 三维
+AXButton | 明细表
+AXButton | 项目索引
+AXButton | 列表
+AXButton | 信息
+AXButton | 帮助
+AXCheckBox | 三维显示所有楼层
+AXCheckBox | 属性
+AXCheckBox | 图库
+AXCheckBox | AI 助手
+AXStaticText | 构件设置
+AXStaticText | Wall 014
+AXStaticText | Warm plaster · 7.46 m²
+AXStaticText | 构件名称
+AXTextField | Wall 014
+AXStaticText | 所属楼层
+AXPopUpButton | Ground floor
+AXStaticText | 表面
+AXPopUpButton | Warm plaster
+AXStaticText | 起点 X
+AXIncrementor | 7.500 m
+AXStaticText | 起点 Y
+AXIncrementor | 1.500 m
+AXStaticText | 终点 X
+AXIncrementor | 7.500 m
+AXStaticText | 终点 Y
+AXIncrementor | -0.987 m
+AXStaticText | 厚度
+AXIncrementor | 0.220 m
+AXStaticText | 高度
+AXIncrementor | 3.000 m
+AXStaticText | 墙设置
+AXStaticText | 厚度
+AXStaticText | 0.220 m
+AXStaticText | 高度
+AXStaticText | 3.000 m
+AXStaticText | Reference Line
+AXStaticText | 居中
+AXStaticText | 参考线偏移
+AXStaticText | 0.000 m
+AXStaticText | 顶部 / 底部偏移
+AXStaticText | 0.000 / 0.000 m
+AXStaticText | Structure
+AXStaticText | Generic Wall/Shell
+AXStaticText | 平面显示
+AXStaticText | 投影
+AXStaticText | 未剖线
+AXStaticText | 实线
+AXStaticText | 左侧表面
+AXStaticText | Stucco - Yellow Rough
+AXStaticText | 右侧表面
+AXStaticText | Stucco - Yellow Rough
+AXStaticText | 端面
+AXStaticText | Stucco - White Rough
+AXStaticText | 结构功能
+AXStaticText | 未定义
+AXStaticText | 属性 ID
+AXStaticText | SW - 014
+AXButton | 编辑墙设置  ⌘T
+AXButton | 应用修改
+AXButton | 复制
+AXButton | 删除
+AXButton | 当前楼层构件
+AXStaticText | 追踪器 · 点击起始节点
+AXStaticText | 14 个构件
+AXUnknown | Floor plan canvas
+AXStaticText | 未命名

@@ -45,15 +45,16 @@ cargo install cargo-xwin --locked
 ## 五分钟操作
 
 1. 启动后显示自带住宅模型和单一二维平面窗口；按 **F3** 进入透视 3D，按 **F2** 返回平面。
-2. 按 **W** 或选择 **Wall** 创建真实墙体。墙工具激活且未选择构件时，Info Box 的 **Default Settings** 直接设置下一面墙的图层、几何方法、参考线及偏移、结构、厚度、高度、顶部链接和上下偏移；材质、捕捉与正交也在同一栏。四种几何方法会切换真实绘制状态：**单线**为两次点击一段墙；**连续**逐点添加墙段，双击完成，Backspace 删除最后一段；**矩形**由两个对角点生成四条世界轴对齐墙；**多边形**逐点绘制，点击起点、回车或双击闭合并一次生成整圈墙。切换方法会放弃未完成草稿。墙建好后选择 **Door** / **Window** 并点击墙面可放置矩形洞口，Info Box 可修改宽度、高度、窗台高度和沿墙偏移。具体证据、限制和验收步骤见 [墙几何方法](docs/features/wall-geometry-methods.md) 与 [门窗洞口](docs/features/openings.md)。
+2. 按 **W** 或选择 **Wall** 创建真实墙体。墙工具激活且未选择构件时，Info Box 的 **Default Settings** 直接设置下一面墙的图层、几何方法、参考线及偏移、结构、厚度、高度、顶部链接和上下偏移；材质、捕捉与正交也在同一栏。四种几何方法会切换真实绘制状态：**单线**为两次点击一段墙；**连续**逐点添加墙段，双击完成，Backspace 删除最后一段；**矩形**由两个对角点生成四条世界轴对齐墙；**多边形**逐点绘制，点击起点、回车或双击闭合并一次生成整圈墙。绘制中切换方法保留起点和已接受节点，切换本身不提交；完成时一次提交，Esc 放弃整个草稿。见[切换契约](docs/features/wall-method-switch.md)。墙建好后选择 **Door** / **Window** 并点击墙面可放置矩形洞口，Info Box 可修改宽度、高度、窗台高度和沿墙偏移。具体证据、限制和验收步骤见 [墙几何方法](docs/features/wall-geometry-methods.md) 与 [门窗洞口](docs/features/openings.md)。
 3. 点击起点后，在 **Tracker** 输入 Length / Angle，点击 **Create [Enter]** 或按回车。编辑数值会锁定 Tracker；取消 Lock 可恢复鼠标跟随。
 4. 按 **L** 创建矩形楼板：点击两对角点，或在 Tracker 输入 ΔX / ΔY。楼板顶面位于所属楼层标高，厚度向下延伸。
 5. 按 **P** 或从 Document 工具组选择 **Polyline**，点击起点后连续左键添加节点；Tracker 显示并可锁定距离/角度。右键完成开放多段线，点击起点闭合并完成；绘制中按 **Esc** 取消当前绘制并返回上一个工具，再按一次回到选择工具。多段线仅用于二维绘图，不进入 3D。
+   编辑已选多段线时，节点与边线复用墙线的图标浮板、左键切换并锁定指令、P/Shift-P 命令循环和数值跟踪器。直接拖节点只移动该节点；点边线后可插点、弯曲、编辑切线或整线偏移；拖动、旋转、镜像和多重复制使用墙线相同的确认/取消流程。节点浮板另提供倒角与圆角。
    选中多段线后，直接拖动边段可移动整条线（显示箭头，不弹面板）；点击节点打开节点编辑面板，单击边段会在点击位置插入节点并打开该节点的面板，可拖动节点、倒角/圆角、偏移相邻边、移动、旋转、镜像或按指定数量多重复制。拖动松开确认，撤销可回退。圆角以 8 段直线近似圆弧。
 6. 在 Toolbox 选择 **Stair**（快捷键 **S**），在 **Stair Settings** 设置宽度、总高、踏步数、梯板厚度和扶手高度，点 **Start Drawing**，再在平面点击楼梯起点与终点。终点确定跑长和方向；按 **F3** 可查看同步生成的三维楼梯。
 7. 按 **V** 选择。可在平面或三维点选同一元素；平面拖动移动，右侧 Properties 输入精确坐标与尺寸后点 **Apply changes**。
 8. 选中墙体后按 **⌘T** 打开 **Wall Settings**，可编辑 Archicad 29 风格的几何、平面显示、模型、结构分析与分类属性；**Apply/OK** 同步高度、厚度、参考线偏移和楼层等几何字段，并按一次撤销事务提交。未选构件且墙工具激活时，**⌘T** 打开 **Wall Default Settings**，新画的墙继承这些默认值；此时 Info Box 的 **Default Settings** 也直接编辑同一组默认值，**Settings…** 与 **平面图与剖面…** 打开该对话框。选中单面墙且 Info Box 开启时，Info Box 直接显示图层、结构功能、几何方法、参考线、厚度、高度、顶部链接等常用属性，修改会立即同步到平面和 3D；**Window > Palettes > Info Box** 可显示或隐藏该栏，**Settings…** 与 **⌘T** 打开完整墙设置。选中楼梯后按 **⌘T** 可打开楼梯属性对话框，修改尺寸与踏步数后点 **Apply** 或 **OK**；变化同步到平面和 3D，也可以撤销。
-9. **⌘Z / ⇧⌘Z** 撤销/重做，**⌘D** 复制，**Delete** 删除。一次拖动记为一次撤销事务。
+9. **⌘Z / ⌥⌘Z** 撤销/重做（兼容 ⇧⌘Z），**⌘D** 拖动、**⌥⌘D** 拖动副本、**⌘E** 旋转、**⌘M** 镜像、**⌘U** 阵列，**Delete** 删除。一次拖动记为一次撤销事务。
 10. 右侧 Navigator 切换三个楼层。新元素归属当前楼层；3D 可显示全部楼层或仅当前楼层。
 11. Library 搜索并应用墙/板参数预设，然后在平面放置。Assistant 提供本地 Summary / Quantities / Check model；没有连接真实 AI。
 12. **Save project / ⌘S** 打开 JSON 文件窗口；**File → Open / ⌘O** 恢复。可用 **Browse…** 调用系统原生保存／打开面板，路径输入保留为高级回退。打开/新建会提示未保存修改。
@@ -88,7 +89,7 @@ cargo install cargo-xwin --locked
 
 - 可运行的原生桌面工作台：Archicad 风格核心菜单族与主要命令分组、标准/编辑工具栏、可调整面板、完整建筑设计工具箱分类、上下文 Info Box、双视图、四种 Navigator 地图、属性/图库/AI 面板。未实现命令以可交互界面预览呈现，不执行虚假的模型操作。
 - 直线墙、矩形楼板的交互建模；独立内存模型与稳定元素 ID。
-- 可逐节点绘制、选取、编辑和撤销/重做的二维多段线；右键结束开放路径，点击起点结束闭合路径；选中时线条高亮绿色、节点显示黑色实心圆点。从 Select 状态按住左键并从任意部位拖动（包括端点/节点）会移动整条线；单击节点打开节点面板，单击直线边段会插入节点并打开其编辑面板，支持节点拖动、倒角、精确圆弧圆角、整条多段线内外偏移、端点间按拖动位置动态调整半径的圆弧、移动、旋转、镜像和按数量多重复制。圆弧以端点、半径及方向参数保存在模型中，采样只用于绘制，不增加可编辑节点。支持端点吸附、JSON 保存恢复，不进入三维视图。填充区域和矩形几何方法尚未实现。
+- 可逐节点绘制、选取、编辑和撤销/重做的二维多段线；右键结束开放路径，点击起点结束闭合路径；选中时线条高亮绿色、节点显示黑色实心圆点。从 Select 状态按住左键并从任意部位拖动（包括端点/节点）会移动整条线；单击节点打开节点面板，单击直线边段打开共享编辑面板，预览插点，确认后提交，支持节点拖动、倒角、精确圆弧圆角、整条多段线内外偏移、端点间按拖动位置动态调整半径的圆弧、移动、旋转、镜像和按数量多重复制。圆弧以端点、半径及方向参数保存在模型中，采样只用于绘制，不增加可编辑节点。支持端点吸附、JSON 保存恢复，不进入三维视图。填充区域和矩形几何方法尚未实现。
 - 参数化直跑楼梯：对话框设定宽度、总高、踏步数、梯板厚度和扶手高度；平面两点放置，生成踏步线、封闭 3D 楼梯实体和双侧扶手线，可用属性对话框修改并撤销。项目以 JSON 持久化楼梯参数。
 - 门窗洞口（首个 BIM 纵切）：Door / Window 工具点击直墙放置矩形洞口；平面显示洞口、门扇与开启弧或窗玻璃线，3D 将墙拆为墙垛、窗台和过梁，窗另生成薄玻璃板。洞口参数（宽度、高度、窗台高度、沿墙偏移）可编辑、校验、撤销和 JSON 往返；移动墙时洞口跟随，单独拖动沿宿主墙滑动并钳制在墙内，删除墙时级联删除洞口。复制宿主墙会重映射洞口宿主；单独粘贴洞口会被跳过。当前仅支持直墙、矩形洞口和单墙开洞，详见[门窗洞口功能说明](docs/features/openings.md)。
 - Archicad 29 风格墙设置：六个分组（几何与定位、轮廓偏移修改器、平面图与剖面、模型、结构分析参数、分类与属性）的类型化字段，支持墙属性与墙默认设置、校验、撤销和 JSON 持久化。几何字段同步平面/三维；其余分组目前作为持久化属性，轮廓生成、平面显示覆盖、表面映射和结构求解尚未接入。范围与证据边界见[墙设置功能说明](docs/features/wall-settings.md)。
@@ -107,9 +108,9 @@ cargo install cargo-xwin --locked
 
 ## 未实现与技术局限
 
-这不是完整 BIM 引擎：墙体仍是独立构件；连续墙、矩形墙和多边形墙目前由多段普通墙组成，不是单一 PolyWall 元素。多边形墙尚无可移动参考边、自交警告和曲边，连续墙也尚未提供 AC29 的弧形段 pet palette。3D 外轮廓挤出只用于常见单闭环的连通墙组，多孔、分离或高度不同的组仍按构件显示。尚无参数化墙体自动延伸/连接，也没有写回模型的 3D 布尔交接。Marquee 裁切仍以单个墙体为单位；楼梯会作为完整构件显示，暂未按 Marquee 剪切。楼梯目前仅支持直跑，未实现转角/多跑楼梯、休息平台、栏杆立柱或建筑规范校核。门窗洞口只支持直墙上的矩形洞口，没有弧形墙、非矩形洞口、门窗框扇、多墙切割或跨墙交接处的洞口；Marquee 裁切带洞口的墙时仍显示为实墙。另无通用布尔运算、复合构造、任意多边形楼板、约束求解、剖立面、施工图、协作或工程量扣减。没有 IFC、PLN、GSM、BSM 解析；适配器目前仅实现自有 JSON。
+这不是完整 BIM 引擎：墙体仍是独立构件；连续墙、矩形墙和多边形墙目前由多段普通墙组成，不是单一 PolyWall 元素。多边形墙尚无可移动参考边、自交警告和曲边，连续墙也尚未提供 AC29 的弧形段 pet palette。3D 外轮廓挤出只用于常见单闭环的连通墙组，多孔、分离或高度不同的组仍按构件显示。尚无参数化墙体自动延伸/连接，也没有写回模型的 3D 布尔交接。Marquee 裁切仍以单个墙体为单位；楼梯会作为完整构件显示，暂未按 Marquee 剪切。楼梯目前仅支持直跑，未实现转角/多跑楼梯、休息平台、栏杆立柱或建筑规范校核。门窗洞口只支持直墙上的矩形洞口，没有弧形墙、非矩形洞口、门窗框扇、多墙切割或跨墙交接处的洞口；Marquee 裁切带洞口的墙时仍显示为实墙。楼板轮廓已有外环、内孔、逐边圆弧、增减多边形及逐边角度/表面的有限实现；完整边线面板有自动事件回归，但最终包全套真实鼠标验收仍未完成，斜边 Marquee 裁剪仍 unknown，详见[楼板契约](docs/features/slab-edge-editing/contract.md)。另无通用实体布尔、复合构造、约束求解、关联剖立面、施工图、协作或工程量扣减。没有 IFC、PLN、GSM、BSM 解析；适配器目前仅实现自有 JSON。
 
-三维透视相机使用基础实体着色，无 PBR/阴影。Inside Marquee 的裁切适用于当前直棱柱墙和矩形板；Outside 仅做构件过滤，尚无裁切差集；任意复杂自交多边形也不支持。高度通过 Info Box 数值输入，尚未实现 Archicad 的第二次点击定高、楼层范围裁切和自定义切口材质；3D 区域复制为图片也未实现。每次重绘重建网格，拾取线性遍历；[性能基线](docs/performance-baseline.md) 记录了 1k/10k/50k 墙的耗时，50k 时墙轮廓准备约 133–155 秒，尚无缓存或空间索引。坐标使用 f32 米制局部坐标，不适合大地坐标精度要求。撤销/重做使用 100 步可逆差异，只保留受影响构件；尚未迁移的复杂操作仍会为计算差异复制一次完整项目。Marquee 的 PDF/DWG 打印导出、系统剪贴板、上下文菜单和任意角度板旋转尚未实现。
+三维透视相机使用基础实体着色，无 PBR/阴影。Inside Marquee 的裁切适用于当前直棱柱墙和矩形板；Outside 仅做构件过滤，尚无裁切差集；任意复杂自交多边形也不支持。高度通过 Info Box 数值输入，尚未实现 Archicad 的第二次点击定高、楼层范围裁切和自定义切口材质；3D 区域复制为图片也未实现。每次重绘重建网格，拾取线性遍历；[性能基线](docs/performance-baseline.md) 记录了 1k/10k/50k 墙的耗时，50k 时墙轮廓准备约 133–155 秒，尚无缓存或空间索引。坐标使用 f32 米制局部坐标，不适合大地坐标精度要求。撤销/重做使用 100 步可逆差异，只保留受影响构件；尚未迁移的复杂操作仍会为计算差异复制一次完整项目。Marquee 的 PDF/DWG 打印导出、系统剪贴板、上下文菜单尚未实现；轮廓板旋转已有共享变换路径。
 
 Trace 目前只有楼层平面与整个模型参考，设置不持久化，参考不参与捕捉，也没有门窗／剖面／布局参考和多窗口参考设置。智能光标目前只覆盖现有的选择、绘制、吸附、框选与拖动交互；Archicad 的节点/边缘细分光标、锁定对象、子元素手柄、魔棒、修剪、参数拾取/传递及尺寸标注光标尚未实现。
 
@@ -127,3 +128,18 @@ Trace 目前只有楼层平面与整个模型参考，设置不持久化，参�
 OpenArchi 优先建立可信的可编辑建筑模型与可预测的交互，再让 AI 通过明确的模型操作接口参与工作：AI 提议的改动应可预览、可检查、可撤销，建筑师始终能直接编辑模型。路线图不承诺时间表，按验证结果迭代。
 
 官方稳定版本已核对，`Cargo.lock` 已锁定：egui/eframe 0.36.2、wgpu 30.0.1、glam 0.34.1。wgpu 直接使用 eframe 的同版本重导出，避免渲染资源跨版本不兼容。
+
+The standard toolbar and Edit > Reshape share Trim, Magic Wand, Adjust, Intersect, Fillet/Chamfer and Resize workflows for the supported native model subset. See the [object/interaction matrix and limits](docs/features/reshape-toolbar/contract.md): straight geometry and plan input are the current scope; wall fillets and Roof/Shell trimming are unavailable. Resize includes a fixed-point click and graphical ratio input; Magic Wand creates independent elements from straight boundaries.
+
+Hold **Cmd** over the plan for temporary scissors Trim, click a supported segment, and release Cmd to return to the current tool. The shortcut preserves an unfinished wall/polyline draft; each successful click is a separate undoable edit. Toolbar/menu Trim stays active until Escape. Each click removes only the interval between the nearest intersecting boundaries (or an endpoint), so further clicks trim the remaining intervals in order.
+
+Selected wall: click the middle reference segment to start node editing, or press-drag it and release on the canvas to apply. The compact ten-icon palette shows active, hovered and normal states separately. Left-click an icon to activate its command; hovering or returning to the canvas leaves that command locked. A small distance/angle tracker follows near the pointer; edit its values and press Enter to apply, or Escape to cancel. Plan and projected 3D share the workflow. See the [current interaction and validation](docs/features/wall-pet-palette/compact-followup/validation.md); contour-wall junction cleaning remains limited.
+
+墙参考线中段编辑：选中墙后点击基线中间段，默认进入插入节点并显示双排十图标面板（插入节点、曲边、切线调弧、梯形墙外侧边、梯形墙新点、拖动、旋转、镜像、升降、阵列复制）。当前命令最深亮显，悬停候选次之，其余正常；点击候选或移回画布激活该命令，也可用 P/Shift+P；原基线上是实心铅笔，离开原基线为空心。拖动后松开鼠标确认，或在鼠标附近的小型距离/角度输入框中输入后按 Enter；Esc 取消。图标面板已缩小，去掉下方状态说明及应用/取消按钮。曲墙/梯形墙支持持久化及平面/三维显示，但尚不参与直墙接头清理。详见[操作与验收](docs/features/wall-pet-palette/validation.md)。
+
+多选相交直墙后，拖动共同交点会同步移动所有已选墙在该处的节点，远端和未选墙不动；T/十字交叉中的穿过墙会在交点处分段。松手或数值 Enter 一次提交，Esc 取消，支持一次撤销/重做、平面及同高三维参考边。曲墙/梯形墙交点变形暂不支持。详见[交点联动契约](docs/features/wall-junction-edit/contract.md)。
+
+多直墙共端点收口：三条及以上墙按实际相邻方向计算墙边交点，中心补齐，短墙/近乎平行处采用受限斜切；平面、选中轮廓、Trace 与普通三维共用多边形。外置参考线及同向重叠采用保守端帽；带洞墙和裁剪/仅选中三维仍保留专用旧路径。参见[汇交清理与三档面板反馈](docs/features/wall-junction-cleanup/validation.md)。
+
+
+Slab edge editing: select a slab in plan and click a perimeter or hole edge/node. The shared palette supports node edits, exact circular arcs/tangents, single/ring offsets, polygon addition/subtraction with holes and split results, edge angle/surface scopes, and shared drag/rotate/mirror/elevate/multiply. Curved edges also offer geometry-preserving arc-node insertion. Plan, area, mesh, picking and JSON persistence use the same contour. Invalid intersections are rejected; AC self-intersection regularization, composite/reference-plane settings and full Slab subsystem equivalence remain outside this delivered editor. See [scope and verification](docs/features/slab-edge-editing/contract.md).

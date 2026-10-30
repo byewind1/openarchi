@@ -1,0 +1,17 @@
+{
+  "date": "2026-10-26",
+  "head": "13101c5caf665afa7a2ae44f8ac5545bb09c7dee",
+  "note": "Working tree has pre-existing uncommitted changes; hashes identify inspected files, not HEAD alone. No source modifications in this research.",
+  "files": {
+    "Cargo.toml": "b8d204f4f0315812003f46e91819f9a0922598285638bd52c1407ff66f87d3e1",
+    "src/model.rs": "1133f4aa60ca1c10587ccd5100a1d1558d7504041204322a912a74bd1b2c9a7f",
+    "src/command.rs": "eef81f58655e09f8ecd1975c7452d7f3967a0b6e01b4bb5f6e9e6d395738c2e2",
+    "src/editor.rs": "abbbcc46548ec25302ecab64be6d5ca47860221c6f0cf7d41fa484424670cf7d",
+    "src/geometry.rs": "0f832583a2f934a6f722ce5aec17ae937886684b109582eaa73474a74e946e02",
+    "src/render.rs": "283e44a250502e52519b7ee3b26fb57c6d5a945677213485ad2bab4413640872",
+    "src/storage.rs": "a4a862dbba8ded53623c6adfb36aebb653b45de832b4ced71d9edfcf9a53dd55",
+    "src/app/inspector.rs": "5e060fd3a5b72e2ac36bdcbba6667886fc8b44329543fbc6ce1dab286b1c4e06",
+    "docs/architecture.md": "a87fe5f737196e1df8fdd03117be935cdc11349eeef0a832cf901c08116738ee",
+    "docs/performance-baseline.md": "601aa50d5e68a3e65a620c5bc0e770a02a423301815427c83d3de731deea6963"
+  }
+}

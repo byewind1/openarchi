@@ -1,0 +1,7 @@
+2026-10-29 final packaged-app native verification attempt
+OpenArchi owned test PID 81807, window 43250, isolated HOME confirmed.
+CGSSessionScreenIsLocked = Yes; foreground PID 420 = loginwindow.
+Foreground-guarded input helper refused pointer delivery. Window remained blank; AX showed menus only.
+No claim of native interaction, GPU output or bilingual UI verification for this bundle.
+User OpenArchi PID 27005 and Archicad PID 51530 preserved.
+Owned test process 81807 terminated after recording the locked-desktop blocker; no user process was closed.

@@ -16,13 +16,6 @@ impl UiLanguage {
         }
     }
 
-    pub fn window_title(self) -> &'static str {
-        match self {
-            Self::English => "OpenArchi — Architectural Workbench",
-            Self::SimplifiedChinese => "OpenArchi — 建筑设计工作台",
-        }
-    }
-
     pub fn translate(self, key: &str) -> &str {
         if self == Self::English {
             let dictionary =
@@ -80,14 +73,11 @@ mod tests {
     }
 
     #[test]
-    fn window_title_follows_the_selected_language() {
+    fn untitled_document_name_is_localized_for_the_window_title() {
+        assert_eq!(UiLanguage::English.translate("Untitled"), "Untitled");
         assert_eq!(
-            UiLanguage::English.window_title(),
-            "OpenArchi — Architectural Workbench"
-        );
-        assert_eq!(
-            UiLanguage::SimplifiedChinese.window_title(),
-            "OpenArchi — 建筑设计工作台"
+            UiLanguage::SimplifiedChinese.translate("Untitled"),
+            "未命名"
         );
     }
 

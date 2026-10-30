@@ -22,6 +22,20 @@ serde_json = "1"
 glam = "0.34"
 bytemuck = { version = "1", features = ["derive"] }
 rfd = "0.15"
+geo = { version = "=0.33.1", default-features = false, features = ["earcut"] }
+
+# Native macOS menu bar. Versions match what eframe/rfd already pin in
+# Cargo.lock (objc2 0.6.5 / objc2-app-kit 0.3.2 / objc2-foundation 0.3.2).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.5"
+objc2-app-kit = { version = "0.3.2", features = [
+    "NSApplication",
+    "NSEvent",
+    "NSMenu",
+    "NSMenuItem",
+    "NSResponder",
+] }
+objc2-foundation = { version = "0.3.2", features = ["NSString", "NSObject"] }
 
 [profile.dev]
 opt-level = 1

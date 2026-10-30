@@ -1,0 +1,2315 @@
+{
+  "edit_state": {
+    "groups": [],
+    "locked": [],
+    "suspend_groups": false,
+    "autogroup": false
+  },
+  "grid_settings": {
+    "show_construction_grid": false,
+    "main_spacing_x": 2.0,
+    "main_spacing_y": 2.0,
+    "main_steps_x": 1,
+    "main_steps_y": 1,
+    "aux_spacing_x": 0.0,
+    "aux_spacing_y": 0.0,
+    "aux_steps_x": 0,
+    "aux_steps_y": 0,
+    "grid_snap_enabled": false,
+    "snap_mode": "None",
+    "snap_spacing_x": 0.05,
+    "snap_spacing_y": 0.05,
+    "rotate_enabled": false,
+    "rotated_display": false,
+    "origin_x": 0.0,
+    "origin_y": 0.0,
+    "rotation_deg": 45.0,
+    "origin_display": false,
+    "background": [
+      250,
+      250,
+      248,
+      255
+    ],
+    "grid_line_color": [
+      218,
+      222,
+      213,
+      255
+    ]
+  },
+  "guide_settings": {
+    "snap_enabled": true,
+    "guide_lines_enabled": true,
+    "distance_guides_enabled": true,
+    "method": "Half",
+    "divisions": 3,
+    "percent": 20.0,
+    "distance": 1.0,
+    "scope": "BetweenNodes",
+    "origin": "Endpoint",
+    "distance_reference": "Edges",
+    "door_reference": "Center"
+  },
+  "guides": [],
+  "plan_options": {
+    "drawing_scale": 100,
+    "orientation_degrees": 0.0,
+    "pen_set": "Architectural100",
+    "partial_structure": "EntireModel",
+    "model_view": "BuildingPlans",
+    "graphic_overrides": "NoOverrides",
+    "renovation_filter": "ShowAllElements",
+    "dimension_style": "PlainMeter",
+    "active_design_option": null
+  },
+  "design_options": {
+    "options": [],
+    "next_id": 0
+  },
+  "layers": {
+    "categories": [
+      {
+        "id": 2,
+        "name": "Design",
+        "parent": null
+      },
+      {
+        "id": 3,
+        "name": "Architectural",
+        "parent": 2
+      },
+      {
+        "id": 4,
+        "name": "MEP",
+        "parent": 2
+      },
+      {
+        "id": 5,
+        "name": "Structural",
+        "parent": 2
+      },
+      {
+        "id": 6,
+        "name": "Documentation",
+        "parent": null
+      },
+      {
+        "id": 7,
+        "name": "Viewpoint",
+        "parent": null
+      }
+    ],
+    "layers": [
+      {
+        "id": 0,
+        "name": "Archicad Layer",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": null,
+        "protected": true
+      },
+      {
+        "id": 1,
+        "name": "- Hidden",
+        "group": 1,
+        "status": {
+          "visible": false,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": null,
+        "protected": false
+      },
+      {
+        "id": 2,
+        "name": "Finish - Ceiling",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 3,
+        "name": "Finish - Floor",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 4,
+        "name": "Finish - Wall",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 5,
+        "name": "Interior - Equipment",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 6,
+        "name": "Interior - Furniture",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 7,
+        "name": "Interior - Lamp",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 8,
+        "name": "Interior - Partition",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 9,
+        "name": "Interior - Stair & Railing",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 10,
+        "name": "Model Unit - Module",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 11,
+        "name": "Model Unit - Zone",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 12,
+        "name": "Morph - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 13,
+        "name": "Shell - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 14,
+        "name": "Shell - Roof",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 15,
+        "name": "Site & Landscape - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 16,
+        "name": "Site & Landscape - Terrain",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 3,
+        "protected": false
+      },
+      {
+        "id": 17,
+        "name": "Mechanical - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 4,
+        "protected": false
+      },
+      {
+        "id": 18,
+        "name": "Mechanical - Ductwork",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 4,
+        "protected": false
+      },
+      {
+        "id": 19,
+        "name": "Plumbing - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 4,
+        "protected": false
+      },
+      {
+        "id": 20,
+        "name": "Electrical - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 4,
+        "protected": false
+      },
+      {
+        "id": 21,
+        "name": "Electrical - Lighting",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 4,
+        "protected": false
+      },
+      {
+        "id": 22,
+        "name": "Structural - Column",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 5,
+        "protected": false
+      },
+      {
+        "id": 23,
+        "name": "Structural - Beam",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 5,
+        "protected": false
+      },
+      {
+        "id": 24,
+        "name": "Structural - Slab",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 5,
+        "protected": false
+      },
+      {
+        "id": 25,
+        "name": "Structural - Foundation",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 5,
+        "protected": false
+      },
+      {
+        "id": 26,
+        "name": "Structural - Wall",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 5,
+        "protected": false
+      },
+      {
+        "id": 27,
+        "name": "Annotation - General",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 6,
+        "protected": false
+      },
+      {
+        "id": 28,
+        "name": "Annotation - Dimension",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 6,
+        "protected": false
+      },
+      {
+        "id": 29,
+        "name": "Annotation - Label",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 6,
+        "protected": false
+      },
+      {
+        "id": 30,
+        "name": "Sections & Details",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 7,
+        "protected": false
+      },
+      {
+        "id": 31,
+        "name": "3D Views",
+        "group": 1,
+        "status": {
+          "visible": true,
+          "locked": false,
+          "solid_3d": true
+        },
+        "category": 7,
+        "protected": false
+      }
+    ],
+    "combinations": [
+      {
+        "id": 1,
+        "name": "01 Site",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 2,
+        "name": "02 Drafting",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 3,
+        "name": "03 Plans - Preliminary",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 4,
+        "name": "04 Plans - Approval",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 5,
+        "name": "05 Plans - Detailed",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 6,
+        "name": "06 Plans - Mechanical",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 7,
+        "name": "07 Plans - Structural",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 8,
+        "name": "08 Rendering",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 9,
+        "name": "09 Layouting",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      },
+      {
+        "id": 10,
+        "name": "10 Show 3D Zones as Solid",
+        "statuses": {
+          "0": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "1": {
+            "visible": false,
+            "locked": false,
+            "solid_3d": true
+          },
+          "2": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "3": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "4": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "5": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "6": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "7": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "8": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "9": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "10": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "11": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "12": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "13": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "14": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "15": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "16": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "17": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "18": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "19": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "20": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "21": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "22": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "23": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "24": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "25": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "26": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "27": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "28": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "29": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "30": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          },
+          "31": {
+            "visible": true,
+            "locked": false,
+            "solid_3d": true
+          }
+        }
+      }
+    ],
+    "active_combination": 3,
+    "next_id": 32
+  },
+  "schema_version": 1,
+  "name": "Cmd Trim validation",
+  "next_id": 6,
+  "stories": [
+    {
+      "id": 0,
+      "name": "Ground floor",
+      "elevation": 0.0
+    },
+    {
+      "id": 1,
+      "name": "First floor",
+      "elevation": 3.2
+    },
+    {
+      "id": 2,
+      "name": "Roof level",
+      "elevation": 6.4
+    }
+  ],
+  "elements": [
+    {
+      "id": 2,
+      "name": "Line 2",
+      "story": 0,
+      "material": "Plaster",
+      "layer": 0,
+      "renovation": "New",
+      "design_option": null,
+      "wall_settings": null,
+      "shape": {
+        "kind": "Polyline",
+        "points": [
+          {
+            "x": -2.0,
+            "y": -2.0
+          },
+          {
+            "x": -2.0,
+            "y": 2.0
+          }
+        ],
+        "arcs": []
+      }
+    },
+    {
+      "id": 3,
+      "name": "Line 3",
+      "story": 0,
+      "material": "Plaster",
+      "layer": 0,
+      "renovation": "New",
+      "design_option": null,
+      "wall_settings": null,
+      "shape": {
+        "kind": "Polyline",
+        "points": [
+          {
+            "x": 0.0,
+            "y": -2.0
+          },
+          {
+            "x": 0.0,
+            "y": 2.0
+          }
+        ],
+        "arcs": []
+      }
+    },
+    {
+      "id": 4,
+      "name": "Line 4",
+      "story": 0,
+      "material": "Plaster",
+      "layer": 0,
+      "renovation": "New",
+      "design_option": null,
+      "wall_settings": null,
+      "shape": {
+        "kind": "Polyline",
+        "points": [
+          {
+            "x": 2.0,
+            "y": -2.0
+          },
+          {
+            "x": 2.0,
+            "y": 2.0
+          }
+        ],
+        "arcs": []
+      }
+    },
+    {
+      "id": 1,
+      "name": "Line 1",
+      "story": 0,
+      "material": "Plaster",
+      "layer": 0,
+      "renovation": "New",
+      "design_option": null,
+      "wall_settings": null,
+      "shape": {
+        "kind": "Polyline",
+        "points": [
+          {
+            "x": -4.0,
+            "y": 0.0
+          },
+          {
+            "x": -2.0,
+            "y": 0.0
+          }
+        ],
+        "arcs": [
+          null
+        ]
+      }
+    },
+    {
+      "id": 5,
+      "name": "Line 1",
+      "story": 0,
+      "material": "Plaster",
+      "layer": 0,
+      "renovation": "New",
+      "design_option": null,
+      "wall_settings": null,
+      "shape": {
+        "kind": "Polyline",
+        "points": [
+          {
+            "x": 2.0,
+            "y": 0.0
+          },
+          {
+            "x": 4.0,
+            "y": 0.0
+          }
+        ],
+        "arcs": [
+          null
+        ]
+      }
+    }
+  ],
+  "transfer_settings": {
+    "sets": [
+      {
+        "name": "All Parameters",
+        "groups": [
+          "data",
+          "floor_plan_display",
+          "geometry",
+          "material_layer",
+          "surfaces"
+        ]
+      }
+    ],
+    "active": 0
+  }
+}

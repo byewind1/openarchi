@@ -1,3 +1,5 @@
+#[cfg(test)]
+use crate::layers::ARCHICAD_LAYER;
 use crate::{
     cursor::CursorFeedback,
     editor::{Editor, MarqueeArea, MarqueeGeometry, MarqueeScope, Tool},
@@ -7,14 +9,13 @@ use crate::{
     render::SceneRenderer,
     storage,
     view_settings::{
-        DimensionStyle, GraphicOverrides, Layer, LayerCombination, ModelViewOptions,
-        ORIENTATION_PRESETS, PartialStructureDisplay, PenSet, PlanOptions, RenovationFilter,
-        RenovationStatus, SCALE_PRESETS, ZOOM_PRESETS,
+        DimensionStyle, GraphicOverrides, ModelViewOptions, ORIENTATION_PRESETS,
+        PartialStructureDisplay, PenSet, PlanOptions, RenovationFilter, RenovationStatus,
+        SCALE_PRESETS, ZOOM_PRESETS,
     },
     wall::{StructuralFunction, WallChoice, WallGeometryMethod, WallSettings},
     wall_ui::{
-        WallDialogAction, WallSettingsDialog, WallSettingsDraft, layer_label, localized_error,
-        top_link_label,
+        WallDialogAction, WallSettingsDialog, WallSettingsDraft, localized_error, top_link_label,
     },
 };
 use eframe::egui::{self, *};
@@ -22,15 +23,23 @@ use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 mod dialogs;
+mod drag_tracker;
+mod edit_menu;
+mod edit_shortcuts;
 mod file_io;
 mod info_box;
 mod inspector;
+mod layers_ui;
 mod model_view;
+#[cfg(target_os = "macos")]
+mod native_menu;
 mod plan;
 mod quick_options;
+mod reshape_ui;
 mod shell;
 #[cfg(test)]
 mod ui_tests;
+mod wall_node_ui;
 
 const INK: Color32 = Color32::from_rgb(225, 229, 230);
 const MUTED: Color32 = Color32::from_rgb(155, 164, 167);
@@ -74,6 +83,19 @@ fn rectangle_wall_segments(a: Point, b: Point) -> Vec<(Point, Point)> {
         .map(|index| (corners[index], corners[(index + 1) % 4]))
         .collect()
 }
+
+/// File name for the window title: strips a trailing `.json` and the
+/// `.openarchi` marker before it (`院子.openarchi.json` → `院子`).
+fn file_display_name(path: &str) -> Option<String> {
+    let raw = std::path::Path::new(path).file_name()?.to_str()?;
+    let name = raw.strip_suffix(".json").unwrap_or(raw);
+    let name = name.strip_suffix(".openarchi").unwrap_or(name);
+    if name.is_empty() {
+        None
+    } else {
+        Some(name.to_owned())
+    }
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum View {
     Plan,
@@ -101,7 +123,6 @@ enum FileAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlanOptionKind {
-    Layers,
     PenSets,
     PartialStructure,
     ModelView,
@@ -110,32 +131,6 @@ enum PlanOptionKind {
     Dimensions,
     DesignOptions,
     Scale,
-}
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum PolylineEditCommand {
-    InsertNode,
-    MoveNode,
-    Chamfer,
-    Fillet,
-    OffsetPolyline,
-    CurveEdge,
-    Move,
-    Rotate,
-    Mirror,
-    Multiply,
-}
-#[derive(Clone, Debug)]
-struct PolylineEdit {
-    element_id: u64,
-    node: Option<usize>,
-    edge: Option<usize>,
-    command: PolylineEditCommand,
-    palette_at: Pos2,
-    drag: Option<(Project, Point)>,
-    chamfer_length: f32,
-    fillet_radius: f32,
-    multiply_count: usize,
-    error: String,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum WallEditCommand {
@@ -155,6 +150,8 @@ struct WallEdit {
     node: Option<usize>,
     command: WallEditCommand,
     palette_at: Pos2,
+    insert_anchor: Point,
+    elevation: Option<f32>,
     drag: Option<(Project, Point)>,
     snap: Option<WallSnap>,
     error: String,
@@ -249,6 +246,7 @@ pub struct AtelierApp {
     element_settings: Option<Element>,
     element_settings_error: String,
     wall_settings_dialog: Option<WallSettingsDialog>,
+    layer_settings: Option<crate::app::layers_ui::LayerSettingsState>,
     info_box_visible: bool,
     info_box_wall: Option<InfoBoxWallState>,
     info_box_wall_tool: Option<InfoBoxWallToolState>,
@@ -257,6 +255,11 @@ pub struct AtelierApp {
     stair_settings_open: bool,
     stair_settings_draft: crate::stairs::StairSpec,
     stair_settings_error: String,
+    edit_dialog: Option<edit_menu::EditDialog>,
+    pointer_drag: Option<edit_menu::PointerDrag>,
+    reshape_session: Option<reshape_ui::ReshapeSession>,
+    trim_shortcut_gesture: bool,
+    clipboard_write_pending: bool,
     command_dialog: Option<String>,
     command_dialog_tab: usize,
     command_dialog_name: String,
@@ -267,11 +270,25 @@ pub struct AtelierApp {
     command_dialog_representation: String,
     command_dialog_classification: String,
     drag: Option<(Project, Point, Vec<u64>)>,
-    polyline_edit: Option<PolylineEdit>,
     wall_edit: Option<WallEdit>,
+    wall_insert: Option<wall_node_ui::WallInsert>,
     wall_edit_palette_rect: Option<Rect>,
     file_action: Option<FileAction>,
     path: String,
+    /// True once a project file has actually been opened or saved at `path`;
+    /// until then the window title shows the localized "Untitled" even though
+    /// `path` already carries a suggested location.
+    path_confirmed: bool,
+    /// Last window title sent to the viewport; kept to avoid redundant
+    /// `ViewportCommand::Title` messages every frame.
+    sent_title: String,
+    /// In-window egui menu strip. Hidden on macOS, where the menus live in the
+    /// native system menu bar; headless UI tests force it back on to keep
+    /// exercising the egui menu path shared with Windows/Linux.
+    in_window_menus: bool,
+    /// Native menu bar sync (macOS only). Enabled for the real app entry
+    /// point, off for headless tests built through `from_renderer`.
+    native_menu_enabled: bool,
     file_error: String,
     library_search: String,
     assistant_input: String,
@@ -287,6 +304,21 @@ pub struct AtelierApp {
     recovery_error: String,
     last_recovery_save: Option<Instant>,
     last_recovery_revision: Option<u64>,
+    /// AC29-style parameter transfer: one-shot eyedropper/syringe modes and
+    /// the Element Transfer Settings working copy.
+    pick_armed: bool,
+    inject_armed: bool,
+    transfer_dialog: Option<crate::transfer::TransferSettings>,
+    /// Element under the pointer while a transfer cursor is active; the
+    /// active view recomputes it every frame and paints the hover highlight.
+    transfer_hover: Option<u64>,
+    /// Transfer cursor drawn this frame: glyph kind, primed state and the
+    /// pointer position it is painted at. Recomputed every frame.
+    transfer_cursor: Option<(
+        crate::transfer_cursor::TransferCursor,
+        bool,
+        eframe::egui::Pos2,
+    )>,
 }
 impl AtelierApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
@@ -302,9 +334,12 @@ impl AtelierApp {
         let renderer = cc.wgpu_render_state.clone().map(SceneRenderer::new);
         let mut app = Self::from_renderer(renderer, gpu_name);
         app.language = UiLanguage::load_preference();
-        cc.egui_ctx.send_viewport_cmd(egui::ViewportCommand::Title(
-            app.language.window_title().to_owned(),
-        ));
+        app.native_menu_enabled = cfg!(target_os = "macos");
+        // The window title is the document name (file name, or the localized
+        // "Untitled"), never the software name; see `document_title`.
+        app.sent_title = app.document_title();
+        cc.egui_ctx
+            .send_viewport_cmd(egui::ViewportCommand::Title(app.sent_title.clone()));
         if let Some(path) = app.recovery_path.clone() {
             match crate::recovery::read(&path) {
                 Ok(project) => app.recovery_prompt = project,
@@ -347,18 +382,23 @@ impl AtelierApp {
             tracker_a: 4., tracker_b: 0., tracker_locked: false, hover_point: Point::default(),
             draft: None, draft_id: None, element_settings: None, element_settings_error: String::new(),
             wall_settings_dialog: None,
+            layer_settings: None,
             info_box_visible: true,
             info_box_wall: None,
             info_box_wall_tool: None,
             info_box_opening: None,
             info_box_opening_tool: None,
             stair_settings_open: false, stair_settings_draft: crate::stairs::StairSpec::default(), stair_settings_error: String::new(),
-            command_dialog: None, command_dialog_tab: 0, command_dialog_name: String::new(),
+            clipboard_write_pending: false, edit_dialog: None, pointer_drag: None, reshape_session: None, trim_shortcut_gesture: false, command_dialog: None, command_dialog_tab: 0, command_dialog_name: String::new(),
             command_dialog_number: 1., command_dialog_enabled: true,
             command_dialog_method: "Default".into(), command_dialog_reference: "Center".into(),
             command_dialog_representation: "By Element".into(), command_dialog_classification: "Not assigned".into(),
-            drag: None, polyline_edit: None, wall_edit: None, wall_edit_palette_rect: None, file_action: None,
+            drag: None, wall_edit: None, wall_insert: None, wall_edit_palette_rect: None, file_action: None,
             path: directory.join("courtyard.openarchi.json").display().to_string(),
+            path_confirmed: false,
+            sent_title: String::new(),
+            in_window_menus: !cfg!(target_os = "macos"),
+            native_menu_enabled: false,
             file_error: String::new(), library_search: String::new(), assistant_input: String::new(),
             messages: vec![(false, "Your design companion\n\nAsk for a project summary, quantities, or a model check. This demo runs local rules; no AI service is connected.".into())],
             help: false, gpu_name, language: UiLanguage::English,
@@ -366,9 +406,34 @@ impl AtelierApp {
             recovery_path: crate::recovery::path(), recovery_prompt: None,
             recovery_error: String::new(), last_recovery_save: None,
             last_recovery_revision: None,
+            pick_armed: false, inject_armed: false, transfer_dialog: None, transfer_hover: None, transfer_cursor: None,
         }
     }
 
+    /// Document name shown in the native window title: the file name without
+    /// the `.openarchi.json` extension pair, or localized "Untitled" until a
+    /// file has actually been opened or saved.
+    fn document_title(&self) -> String {
+        if self.path_confirmed {
+            file_display_name(self.path.trim())
+                .unwrap_or_else(|| self.language.translate("Untitled").to_owned())
+        } else {
+            self.language.translate("Untitled").to_owned()
+        }
+    }
+    fn sync_window_title(&mut self, ctx: &Context) {
+        let title = self.document_title();
+        if title != self.sent_title {
+            self.sent_title = title.clone();
+            ctx.send_viewport_cmd(egui::ViewportCommand::Title(title));
+        }
+    }
+    #[cfg(target_os = "macos")]
+    fn sync_native_menu(&mut self, ctx: &Context) {
+        if self.native_menu_enabled {
+            native_menu::sync(self, ctx);
+        }
+    }
     fn style(ctx: &Context) {
         Self::install_cjk_fallback(ctx);
         let mut s = Style {
@@ -661,6 +726,53 @@ impl AtelierApp {
                 line((0.5, 0.14), (0.5, 0.86));
                 path(&[(0.4, 0.27), (0.2, 0.4), (0.2, 0.69), (0.4, 0.79)]);
                 path(&[(0.6, 0.27), (0.8, 0.4), (0.8, 0.69), (0.6, 0.79)]);
+            }
+            "Trim" => {
+                circle(0.23, 0.27, 0.12);
+                circle(0.23, 0.73, 0.12);
+                line((0.3, 0.34), (0.88, 0.8));
+                line((0.3, 0.66), (0.88, 0.2));
+            }
+            "Magic Wand" => {
+                line((0.35, 0.38), (0.84, 0.87));
+                line((0.18, 0.05), (0.18, 0.26));
+                line((0.07, 0.16), (0.29, 0.16));
+                path(&[(0.45, 0.12), (0.7, 0.17), (0.68, 0.42)]);
+                path(&[(0.12, 0.43), (0.13, 0.69), (0.38, 0.72)]);
+            }
+            "Adjust" => {
+                line((0.08, 0.15), (0.92, 0.15));
+                for x in [0.25, 0.5, 0.75] {
+                    line((x, 0.88), (x, 0.35));
+                }
+                path(&[(0.35, 0.47), (0.5, 0.3), (0.65, 0.47)]);
+            }
+            "Intersect" => {
+                path(&[(0.18, 0.86), (0.18, 0.22), (0.86, 0.22)]);
+                line((0.08, 0.63), (0.3, 0.63));
+                line((0.63, 0.1), (0.63, 0.34));
+            }
+            "Fillet/Chamfer…" => {
+                path(&[
+                    (0.15, 0.88),
+                    (0.17, 0.57),
+                    (0.3, 0.35),
+                    (0.52, 0.2),
+                    (0.88, 0.18),
+                ]);
+                line((0.08, 0.65), (0.3, 0.65));
+                line((0.65, 0.08), (0.65, 0.3));
+            }
+            "Resize…" => {
+                box_outline(0.1, 0.47, 0.4, 0.4);
+                box_outline(0.35, 0.12, 0.53, 0.53);
+                path(&[(0.53, 0.46), (0.78, 0.22), (0.61, 0.22)]);
+                line((0.78, 0.22), (0.78, 0.39));
+            }
+            "Trim Elements to Roof/Shell" => {
+                path(&[(0.07, 0.5), (0.5, 0.12), (0.93, 0.5)]);
+                path(&[(0.23, 0.43), (0.23, 0.88), (0.77, 0.88), (0.77, 0.43)]);
+                line((0.13, 0.62), (0.87, 0.62));
             }
             "Multiply" => {
                 box_outline(0.16, 0.34, 0.48, 0.48);
@@ -1227,6 +1339,22 @@ impl AtelierApp {
                 line((0.12, 0.3), (0.12, 0.14));
                 line((0.88, 0.3), (0.88, 0.14));
             }
+            "Pick Up" => {
+                line((0.12, 0.88), (0.3, 0.66));
+                line((0.12, 0.88), (0.42, 0.78));
+                line((0.3, 0.66), (0.64, 0.32));
+                line((0.42, 0.78), (0.76, 0.44));
+                circle(0.8, 0.2, 0.13);
+            }
+            "Inject" => {
+                line((0.1, 0.9), (0.3, 0.7));
+                line((0.24, 0.64), (0.58, 0.3));
+                line((0.36, 0.76), (0.7, 0.42));
+                line((0.24, 0.64), (0.36, 0.76));
+                line((0.58, 0.3), (0.7, 0.42));
+                line((0.64, 0.36), (0.82, 0.18));
+                line((0.74, 0.08), (0.92, 0.26));
+            }
             _ => {
                 closed(&[(0.5, 0.12), (0.84, 0.5), (0.5, 0.88), (0.16, 0.5)]);
                 line((0.3, 0.5), (0.7, 0.5));
@@ -1480,6 +1608,13 @@ impl AtelierApp {
         self.editor.status = "Element Settings · Select one element first".into();
     }
     fn open_command_preview(&mut self, command: String) {
+        if edit_menu::EDIT_GROUPS
+            .iter()
+            .any(|(_, items)| items.contains(&command.as_str()))
+        {
+            self.dispatch_edit(&command);
+            return;
+        }
         self.command_dialog_tab = 0;
         self.command_dialog_name = command.clone();
         self.command_dialog = Some(command.clone());
@@ -1522,6 +1657,38 @@ impl AtelierApp {
         camera.point_on_horizontal_plane(ndc, viewport.aspect_ratio(), elevation)
     }
     fn shortcuts(&mut self, ctx: &Context) {
+        if let Some(insert) = self.wall_insert.as_mut() {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.wall_insert = None;
+                self.wall_edit_palette_rect = None;
+                self.editor.status = "Edit cancelled".into();
+            } else if ctx.input(|i| i.key_pressed(Key::P)) {
+                insert.cycle(ctx.input(|i| i.modifiers.shift));
+            } else if ctx.input(|i| i.key_pressed(Key::Enter)) {
+                insert.confirm = true;
+            }
+            return;
+        }
+
+        if self.reshape_session.is_some() {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.reshape_session = None;
+                self.editor.status = "Reshape cancelled".into();
+            }
+            return;
+        }
+        if self.pointer_drag.is_some() {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) && !self.cancel_pointer_drag_input() {
+                self.finish_pointer_drag();
+            }
+            return;
+        }
+        if self.edit_dialog.is_some() {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.edit_dialog = None;
+            }
+            return;
+        }
         if self.trace.pointer_mode_active() {
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.trace.cancel_pointer_modes();
@@ -1536,6 +1703,10 @@ impl AtelierApp {
         if self.rotated_grid_tool.is_some() && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.rotated_grid_tool = None;
             self.editor.status = "Set Rotated Grid cancelled".into();
+            return;
+        }
+        if (self.pick_armed || self.inject_armed) && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.disarm_transfer();
             return;
         }
         if self.guide_shortcuts(ctx) {
@@ -1555,7 +1726,6 @@ impl AtelierApp {
                 || self.marquee_3d_preview.is_some()
                 || !self.marquee_3d_points.is_empty()
                 || self.drag.is_some()
-                || self.polyline_edit.is_some()
                 || self.wall_edit.is_some()
                 || self.stair_settings_open
                 || self.element_settings.is_some()
@@ -1568,11 +1738,7 @@ impl AtelierApp {
                 if let Some((before, _, _)) = self.drag.take() {
                     self.editor.project = before;
                 }
-                if let Some(edit) = self.polyline_edit.take()
-                    && let Some((before, _)) = edit.drag
-                {
-                    self.editor.project = before;
-                }
+
                 if let Some(edit) = self.wall_edit.take()
                     && let Some((before, _)) = edit.drag
                 {
@@ -1621,7 +1787,24 @@ impl AtelierApp {
             self.tracker_locked = false;
             self.preview_tool = None;
         }
-        if ctx.egui_wants_keyboard_input() {
+        if ctx.egui_wants_keyboard_input()
+            || self.file_action.is_some()
+            || self.help
+            || self.close_prompt
+            || self.recovery_prompt.is_some()
+            || self.element_settings.is_some()
+            || self.layer_settings.is_some()
+            || self.stair_settings_open
+            || self.grid_dialog.is_some()
+            || self.wall_settings_dialog.is_some()
+            || self.command_dialog.is_some()
+            || self.plan_option_dialog.is_some()
+            || self.transfer_dialog.is_some()
+            || self.guide_ui.values.is_some()
+        {
+            return;
+        }
+        if self.edit_shortcuts(ctx) {
             return;
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::ALT, Key::S)) {
@@ -1718,42 +1901,18 @@ impl AtelierApp {
                 self.finish_polyline();
             }
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::T)) {
-            self.open_element_settings();
-        }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
             self.file_action = Some(FileAction::Save);
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
             self.file_action = Some(FileAction::Open);
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Z)) {
-            self.editor.redo();
-        } else if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z)) {
-            self.editor.undo();
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::D)) {
-            self.editor.duplicate();
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::C)) {
-            self.editor.copy_selection();
-            self.editor.status = format!("Copied {} element(s)", self.editor.clipboard.len());
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::X)) {
-            let count = self.editor.cut_selection();
-            self.editor.status = format!("Cut {count} element(s)");
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::V)) {
-            let count = self.editor.paste(Point::new(0.5, 0.5));
-            self.editor.status = format!("Pasted {count} element(s)");
-        }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::A))
-            && self.editor.tool == Tool::Marquee
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::L))
+            && self.layer_settings.is_none()
         {
-            let count = self.editor.select_all_in_marquee();
-            self.editor.status = format!("Selected {count} element(s) in Marquee");
+            self.open_layer_settings();
         }
-        if ctx.input(|i| i.modifiers.command) {
+        if ctx.input(|i| i.modifiers.command || i.modifiers.alt) {
             return;
         }
         for (key, t) in [
@@ -1928,11 +2087,20 @@ impl AtelierApp {
         let ctx = ui.ctx().clone();
         self.handle_close_request(&ctx);
         self.autosave_recovery(&ctx);
+        self.sync_window_title(&ctx);
+        #[cfg(target_os = "macos")]
+        {
+            for action in native_menu::take_pending() {
+                self.perform_menu_action(action, &ctx);
+            }
+            self.sync_native_menu(&ctx);
+        }
         if self.file_action.is_none()
             && !self.help
             && !self.close_prompt
             && self.recovery_prompt.is_none()
             && self.element_settings.is_none()
+            && self.layer_settings.is_none()
             && !self.stair_settings_open
             && self.grid_dialog.is_none()
         {
@@ -2072,11 +2240,20 @@ impl AtelierApp {
         self.quick_options_palette(&ctx);
         self.element_settings_dialog(&ctx);
         self.wall_settings_dialog(&ctx);
+        self.layer_settings_dialog(&ctx);
         self.stair_settings_dialog(&ctx);
         self.command_preview_dialog(&ctx);
+        self.edit_dialog_ui(&ctx);
+        self.reshape_dialog(&ctx);
+        if std::mem::take(&mut self.clipboard_write_pending) {
+            // egui-winit emits Paste only when the OS clipboard contains text.
+            // Model payload stays in the typed application clipboard.
+            ctx.copy_text("OpenArchi elements".to_owned());
+        }
         self.guides_dialog(&ctx);
         self.grids_dialog(&ctx);
         self.trace_palette(&ctx);
+        self.transfer_settings_dialog(&ctx);
         self.trace_browse_dialog(&ctx);
         Window::new(Self::t(self.language, "About OpenArchi")).open(&mut self.help).default_width(460.).show(&ctx, |ui| {
             if self.language == UiLanguage::SimplifiedChinese {
@@ -2084,7 +2261,7 @@ impl AtelierApp {
                 ui.label(self.language.translate("版本 0.1 · 原生 Rust 桌面应用"));
                 ui.label(self.language.translate("在平面图中绘制墙体、矩形楼板和二维多段线。可在二维与三维视图中选择并编辑构件，尺寸单位为米。"));
                 ui.separator();
-                for text in ["V 选择 · M 选区框 · W 墙 · L 楼板 · P 多段线 · S 楼梯", "多段线：逐点绘制，按 Enter 完成，Esc 取消并返回上一个工具，再按 Esc 回到选择", "楼梯：设置参数后在平面点击起点和终点", "Esc：取消当前操作并返回上一个工具；再次按 Esc 回到选择", "F2 楼层平面 · F3 三维透视", "选区框支持矩形、旋转矩形和多边形", "F5 在三维中显示选择构件或选区框裁剪体", "⌘A 选择选区框内的构件节点", "⌘Z 撤销 · ⇧⌘Z 重做 · ⌘D 复制", "⌘S 保存 JSON · ⌘O 打开 JSON"] { ui.label(text); }
+                for text in ["V 选择 · M 选区框 · W 墙 · L 楼板 · P 多段线 · S 楼梯", "多段线：逐点绘制，按 Enter 完成，Esc 取消并返回上一个工具，再按 Esc 回到选择", "楼梯：设置参数后在平面点击起点和终点", "Esc：取消当前操作并返回上一个工具；再次按 Esc 回到选择", "F2 楼层平面 · F3 三维透视", "选区框支持矩形、旋转矩形和多边形", "F5 在三维中显示选择构件或选区框裁剪体", "⌘A 选择选区框内的构件节点", "⌘Z 撤销 · ⌥⌘Z 重做 · ⌘D 拖动 · ⌥⌘D 拖动副本", "⌘S 保存 JSON · ⌘O 打开 JSON"] { ui.label(text); }
                 ui.separator();
                 ui.label(format!("渲染器：{}", self.gpu_name));
                 ui.label(self.language.translate("原型限制：暂不支持 PDF/DWG 导出和原生 BIM 文件解析。当前助手为本地规则演示。"));
@@ -2093,7 +2270,7 @@ impl AtelierApp {
                 ui.label(self.language.translate("Version 0.1 · Native Rust desktop application"));
                 ui.label(self.language.translate("Draw walls, rectangular slabs and 2D polylines in plan. Select and edit elements in plan; walls and slabs are also shown in 3D. All dimensions are metres."));
                 ui.separator();
-                for text in ["V · Select     M · Marquee     W · Wall     L · Slab     P · Polyline     S · Stair", "Polyline: left-click nodes, right-click to finish, click start to close, Esc cancels and returns to previous tool; press Esc again for Select", "Select a Polyline, then click a node or edge for the edit palette; drag to preview, release to commit", "Node palette: move, chamfer, fillet, move, rotate, mirror, multiply; edge palette: scale, move, rotate, mirror, multiply", "Esc · Cancel current command → previous tool → Select", "F2 · Floor plan     F3 · Perspective 3D", "Marquee: rectangle, rotated rectangle or polygon", "F5 · Show selected elements or the clipped Marquee volume in 3D", "⌘A · Select elements with nodes inside Marquee", "Cmd/Ctrl+X/C/V · Cut / Copy / Paste selected elements", "Marquee controls: move area, stretch nodes, mirror, rotate, story", "Click start → click end, or type in Tracker → Create", "Drag selected elements in plan to move them", "Shift / Ortho · constrain walls to X or Y", "Right-drag · pan     Scroll · zoom     F · fit", "3D: Shift+middle-drag orbit, right-drag pan, click select", "⌘Z · Undo     ⇧⌘Z · Redo     ⌘D · Duplicate", "Delete · Remove", "⌘S · Save JSON     ⌘O · Open JSON"] { ui.label(text); }
+                for text in ["V · Select     M · Marquee     W · Wall     L · Slab     P · Polyline     S · Stair", "Polyline: left-click nodes, right-click to finish, click start to close, Esc cancels and returns to previous tool; press Esc again for Select", "Select a Polyline, then click a node or edge for the edit palette; drag to preview, release to commit", "Node palette: move, chamfer, fillet, move, rotate, mirror, multiply; edge palette: scale, move, rotate, mirror, multiply", "Esc · Cancel current command → previous tool → Select", "F2 · Floor plan     F3 · Perspective 3D", "Marquee: rectangle, rotated rectangle or polygon", "F5 · Show selected elements or the clipped Marquee volume in 3D", "⌘A · Select elements with nodes inside Marquee", "Cmd/Ctrl+X/C/V · Cut / Copy / Paste selected elements", "Marquee controls: move area, stretch nodes, mirror, rotate, story", "Click start → click end, or type in Tracker → Create", "Drag selected elements in plan to move them", "Shift / Ortho · constrain walls to X or Y", "Right-drag · pan     Scroll · zoom     F · fit", "3D: Shift+middle-drag orbit, right-drag pan, click select", "⌘Z · Undo     ⌥⌘Z · Redo     ⌘D · Drag     ⌥⌘D · Drag a Copy", "Delete · Remove", "⌘S · Save JSON     ⌘O · Open JSON"] { ui.label(text); }
                 ui.separator();
                 ui.label(format!("Renderer: {}", self.gpu_name));
                 ui.label(self.language.translate("Prototype limits: outside-volume filtering, PDF/DWG export and native BIM file parsing are not implemented. Local assistant is a rule-based demonstration."));
@@ -2105,10 +2282,10 @@ impl AtelierApp {
 impl eframe::App for AtelierApp {
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         self.workspace(ui);
-        self.apply_polyline_edit_cursor(ui.ctx());
     }
 }
 
 include!("../guides_ui.rs");
 include!("../grids_ui.rs");
 include!("../trace_ui.rs");
+include!("../transfer_ui.rs");

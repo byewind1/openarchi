@@ -99,3 +99,67 @@ CUA observed the running Archicad 29 `Untitled` project with the Wall tool activ
 Graphisoft's AC29 help defines four distinct input methods: Single Straight Wall from two endpoints, Chained Wall from successive segments completed by double-click, Rectangle Wall from a diagonal whose four sides stay orthogonal to the Normal Grid, and Polygon Wall from a free contour with one reference edge. The help pages are public documentation; this pass did not capture the four gestures as REA runtime Evidence.
 
 **OpenArchi design:** `WallGeometryMethod` now selects a real input state machine in `src/editor.rs`. Single is two clicks. Continuous stores successive nodes, supports Backspace, Enter and double-click completion, and commits the chain once. Rectangular emits four world-axis-aligned segments from two corners and uses a ΔX/ΔY Tracker. Polygonal normalizes a closed ring counter-clockwise and commits its segments once. Shared plan previews, method switching, cancellation and localized status are wired in `src/app.rs`. The current model has no PolyWall entity, so non-Single methods produce groups of ordinary wall segments; curved pet-palette segments, Rotated Rectangle, a movable polygon reference edge, self-intersection warnings and single-element PolyWall semantics remain explicit gaps. See [wall geometry methods](features/wall-geometry-methods.md).
+
+## PLN / Archicad 图库互操作提案 — 2026-10-20
+
+用户要求先评估当前架构，再写实施方案，核准后实施。[架构及实施方案](features/pln-interop/plan.md)建议先验证依赖本机 AC29 的原生编辑桥接，使用源工程副本与字段白名单回写；独立 Rust PLN 编解码和完整 GDL 运行时另设研究门槛。[证据台账](features/pln-interop/evidence.md)记录当前源码、固定 AC29 官方 API 文档、本机目标身份与 REA 限制。本轮没有解码 PLN、转换图库或实现功能，不能宣称已支持这些格式。
+
+**REA MCP 复查（2026-10-20）：** 搜到本机两份 PLN 候选样本，记录大小与 hash 后尝试走当前 `open_binary + Ghidra`。REA 明确拒绝样本：`unsupported binary format`；AC29 29 INT 5101 Mach-O 本身成功绑定 Ghidra 12.1.4，但 overview 与关键字符串/函数搜索均长时间无返回，停止等待后未取得 Evidence。close 调用未及时返回，但稍后的最终状态确认本次 Ghidra 会话已关闭。故当前链路证明的是 PLN 不在此 Ghidra target 路由的支持格式内；没有证明其内部结构，也不等于整个 REA 永无其他读取方式。详情见证据台账当日补记。
+
+REA 6.4.0 CLI 随后也拒绝 test1.pln 为 unsupported format。shell 不会自动继承 Codex MCP 的 Ghidra env；按已有工作流显式带入安装/JDK 路径后，对 AC29 的搜索运行约 210 秒仍未完成，Ctrl+C 后 REA 报告 cancelled 且 cleanup complete。REA 当前认可的 binary-layout 命令只接受 Linux ELF。没有返回 PLN 内部结构结果；完整路径与边界见 [证据台账](features/pln-interop/evidence.md)。
+
+## Parameter Transfer — Archicad 29 INT 5101, 2026-10-24
+
+Graphisoft's public AC29 help (`030_Interaction-98/99`) defines Parameter Transfer: hold Alt (Option) and click an element to pick up its parameters as the tool default; hold Ctrl+Alt (Option+Cmd) and click to inject the picked parameters into same-type elements; Line/Arc/Polyline/Spline form one 2D drafting type; the Element Transfer Settings dialog stores named transfer sets with per-type checkboxes, and unlisted settings always transfer. A user-supplied screenshot of the running AC29 toolbar confirmed the "Pick Up Parameters (Option+C)" tooltip. The exact always-transferred list, the ⌘⌥C command shortcut (third-party tables only) and 3D gesture details remain unknown; no REA runtime Evidence was captured for this feature.
+
+**OpenArchi design (original implementation):** `src/transfer.rs` owns `TransferType`/`TransferSet`/`TransferSettings` and `apply_transfer` with five all-or-nothing groups (Geometry, Material & Layer, Surfaces, Floor Plan Display, Data) — identity, position, story, renovation and design option never transfer. `Editor::pick_up_from` stores one snapshot per type (session state, no undo) and mirrors picked values into tool defaults; `Editor::inject_into` validates the whole batch and commits one undo record, or leaves the project untouched on failure. `src/transfer_ui.rs` adds the Edit-menu commands, `⌥C`/`⌘⌥C`, one-shot armed cursor modes with Escape cancellation, and the Element Transfer Settings dialog (sets stored on `Project.transfer_settings`, serde-default for old JSON). Gestures (`⌥+click` pickup, `⌘⌥+click` inject) work in both plan and 3D views.
+
+**Verification:** 14 focused tests (9 unit + 5 egui regressions) pass inside the 274-test suite; localization has 472 keys with both locales complete. Desktop interaction verification was blocked by the session environment — the ZCode host lacks Accessibility (CGEvent posts leave the cursor untouched, osascript reports -25211), app activation is suppressed from this background context, and CuaDriver refuses background input for AX-unresolvable egui windows. See [Validation 2026-10-24](validation.md) for the full blocker record; the contract and remaining unknowns are in [parameter transfer](features/parameter-transfer.md).
+
+## Archicad 模块复刻难度评估 — 2026-10-25
+
+### 结论与估算口径
+
+REA 显著降低的是行为发现成本：它可帮助定位入口、控件状态、调用路径，并对限定场景做运行时观察。它不会自动提供 OpenArchi 的数据模型、几何算法、视图派生、历史系统、持久化或格式兼容。模块难度必须分开估算为“UI/交互复现”和“模型语义/全链路复现”。以下难度是面向单机、独立模型、逐步实现的工程判断，不是对 Graphisoft 内部实现的测量。
+
+| 难度 | 模块类型 | 主要成本 |
+|---|---|---|
+| 低到中 | 菜单、工具栏、简单对话框、偏好与视图设置、简单属性编辑 | 状态有限；需复现校验和提交/取消，但与几何关系较少。 |
+| 中到高 | 墙、板、门窗、楼梯等构件工具；捕捉、约束、拖动和属性修改 | 要连接工具状态机、输入约束、模型变更、选择、平面/3D、撤销和持久化。 |
+| 高 | 多构件连接、复合构造、宿主洞口、剖立面/尺寸/表格等文档视图 | 需要维护跨元素关系并在编辑、视图、属性统计和重开后保持一致。 |
+| 很高 | PLN/GSM 互操作、完整图库语义、Teamwork、大项目性能及全面兼容 | 涉及私有/版本化格式、参数化运行时、服务端权限与冲突，或规模下的计算成本。 |
+
+### 本机仓库与目标证据
+
+- 本机目标身份：Archicad 29.0.0 v1 INT (5101)，Apple Silicon；可执行文件 SHA-256 `d86af90a1fc90f0a9ef2c8565300179acc9735dda8fc3e0fe07611e8aa8b5505`。本次复用既有界面盘点与证据，没有重新操作目标应用。
+- `docs/archicad-interface-inventory.md` 记录了本机 14 个顶层菜单及 1272 行辅助功能树；这表明可观察界面面很广，不能证明命令背后的模型行为已被调查或实现。
+- `README.md` 当前列出的未实现项包括通用布尔、约束求解、剖立面、施工图、协作、工程量扣减，以及 PLN/GSM/BSM 解析；当前适配器只有自有 JSON。墙设置也明确区分“字段可保存”和“轮廓生成/表面映射/结构求解已接入”。这是仓库状态描述，不是 AC29 功能清单。
+- `docs/performance-baseline.md` 记录 50,000 面墙的轮廓准备约 133–155 秒，提示大项目性能本身已是实际难题；不应从小样本行为正确推断可扩展性。
+- 本机 PLN 调查见 [PLN REA 限制记录](features/pln-interop/rea-ghidra-unsupported-format.md)：REA 6.4.0 在可执行文件目标解析阶段拒绝 PLN；Ghidra 强制 raw import 仅证明可装入原始字节，不提供 PLN 语义。此结论针对记录的工具链和样本，不声称所有可能格式研究路线均无效。
+
+### 官方资料与社区旁证
+
+- Graphisoft AC29 API 的 [`API_ElementMemo`](https://graphisoft.github.io/archicad-api-devkit/struct_a_p_i___element_memo.html) 包含多边形坐标/圆弧、孔洞、库部件参数、屋面/壳体轮廓、楼梯分段等不同可变数据。这支持“UI 控件数量不是模型实现工作量”的判断；API 文档本身不测量独立实现成本。
+- Graphisoft 的 [Teamwork 功能概览](https://help.graphisoft.com/AC/29/INT/_AC29_Help/080_Collaboration/080_Collaboration-3.htm)描述元素和项目数据保留、在线状态反馈、所有权冲突请求、增量 Send/Receive、离线本地副本及用户权限等。故协作应视为独立系统能力，而非菜单外观工作。
+- Reddit 上的 [Archicad JSON Interface / MCP 开发者讨论](https://www.reddit.com/r/ArchiCAD/comments/1t9a9ok/has_anyone_built_an_mcp_server_for_archicad_json/)谈到接口覆盖、批量操作和上下文管理；这是用户经验，只作旁证，不作为 API 保证或产品事实。
+- agent-reach 的 Exa 后端未配置；公开检索改用已可用的 Reddit/GitHub 路由和网页搜索。讨论未被当作权威技术证据。
+
+### 建议的难度判断
+
+若目标是一个实用的单用户 BIM 子集，优先完成少数垂直功能切片，并把数据模型、视图一致性、撤销/保存和性能作为共同底座；REA 可以让每个切片的 Archicad 行为调查更省力。若目标改为 Archicad 全模块等价，原生格式、图库运行时、剖面/文档系统、协作和规模性能会形成多个独立的长期工程，不应按菜单项数量线性拆分估时。
+
+**未知与限制：**本轮没有重新捕获 Archicad 运行时动作；没有对 API 覆盖率做系统盘点；没有进行 PLN/GSM 格式解析；社区经验不保证适用于所有项目或 AC29 build。难度分档是结合仓库当前边界、公开 API/帮助与工程推断。
+
+**同步日期：**2026-10-25。Obsidian 副本：[OpenArchi 模块复刻难度评估（2026-10-25）](</Users/ren/Library/Mobile Documents/iCloud~md~obsidian/Documents/库/01-Projects/dev开发/OpenArchi 开发/OpenArchi-模块复刻难度评估-2026-10-25.md>)。仓库根 `AGENTS.md` 的 “Archicad module effort assessment” 同步保存可复用评估原则。
+
+
+## 2026-10-28 — Edit 鼠标交互纠正与全量标准快捷键
+
+[交互契约](features/edit-menu/pointer-interaction.md)区分入口组合键与操作中修饰键，引用 AC29 官方 Drag/Rotate/Mirror、复制、Tracker 和取消操作帮助。当前数值对话框不是已完成的鼠标操作复刻。记录用户 Ctrl 描述与官方 macOS Cmd+Option 的差异、镜像多副本和 key-up/Undo 边界未知项。[标准配置全表](features/edit-menu/standard-shortcuts-full-29.md)保存本机 XML 全部 171 条绑定（Global 115 / Non-Text 47 / Text 9），含源文件 hash、上下文和机器可读数据。已同步指定 Obsidian OpenArchi 开发目录；未修改应用源码或进行新打包。
+
+
+## 2026-10-29 — 操作研究与墙编辑技能沉淀
+
+用户要求将本轮方法、真实判断、开发教训与规则沉淀。已更新 [AC29技能入口](../skills/openarchi-ac29/SKILL.md)、[操作研究参考](../skills/openarchi-ac29/references/operation-research.md)、[实现技巧](../skills/openarchi-ac29/references/implementation.md)及AGENTS复盘节。证据类型逐主张区分；Cmd Trim与十图标的文档/推断边界、多选节点用户要求、AC29 Fan4自身尖片与OpenArchi修复选择均明确标注。未补做锁屏阻断的最终包原生验收。
+
+完整中文复盘保存于用户指定Obsidian目录：`OpenArchi-Archicad操作研究与墙编辑开发技能沉淀-2026-10-29.md`。本次仅更新知识与技能，没有新增应用源码改动；技能quick_validate和diff检查通过。

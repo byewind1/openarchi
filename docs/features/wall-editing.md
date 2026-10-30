@@ -120,7 +120,7 @@ group a baseline edit with their own transaction.
   direction. Hosted openings retain their numeric offset from the named start,
   so their absolute position changes with that reversal. AC29 behavior for this
   case was not observed.
-- The palette is intentionally informational. It does not yet expose AC29's
+- Historical initial palette was informational (superseded by the 2026-10-29 insertion update below). It did not expose AC29's
   full node-editing command set, curved walls, arc conversion, wall-profile
   editing or linked-wall controls.
 - Group, locked, multi-story and composite walls are not specially handled.
@@ -193,3 +193,57 @@ reapplied it and 3D showed no buried end cap. Screenshots:
   curved walls and wall-profile bodies remain unverified or unimplemented.
 - The current drag does not offer a numeric length/angle editor in the wall
   palette; the Plan Tracker remains part of wall creation rather than this edit.
+
+
+## 2026-10-29 selected wall middle-edge palette
+
+User screenshot shows Insert new node active, a stationary original segment and a two-leg preview. Goal: after rotating the wall or observing it from a rotated view, left-click a selected wall's middle reference segment and perform actual shape editing from its palette. View clarification is pending; implement the shared straight-wall node operation independently first. The existing palette is informational and 3D has selection/orbit only (readable source: `open_wall_edit`, `wall_edit_palette`, `model_view`).
+
+Evidence: user screenshot for visible palette/preview only; [AC29 Adding Element Nodes](https://help.graphisoft.com/AC/29/INT/_AC29_Help/030_Interaction/030_Interaction-90.htm) documents select→edge click→Insert new node→place and creation of an additional element for straight linear elements. It explicitly restricts 3D node insertion to polygonal elements. [Pet Palettes](https://help.graphisoft.com/AC/29/INT/_AC29_Help/020_Configuration/020_Configuration-27.htm) documents context-dependent commands. No AC runtime claim this turn.
+
+Contract: keep original endpoints, preview two connected straight wall pieces through the new point, click/Enter to commit one transaction, Escape cancels. Use a private validated project candidate, original material/layer/wall settings/story and identity on first segment, new identity on second; openings wholly before/after the original hit station retain their measured offset on their respective piece, splitting through an opening rejects atomically. Lock and group policy follows existing reshape. Plan/3D/joins derive from those same two walls and project JSON stores them normally. Numeric distance in metres and angle in degrees are optional; label units explicitly. Preserve existing direct endpoint/whole-wall dragging. Palette exposes supported operations only; curved-wall, slanted/profile commands remain outside the current straight-wall model. If the 3D route is implemented, straight-wall insertion there is an explicit OpenArchi extension, not exact AC29 equivalence.
+
+Acceptance: rotated wall and rotated plan hit-testing; original endpoints fixed and node shared; palette pointer input isolation; preview/cancel no model/history mutation; locked/group/invalid/opening rollback; material and opening remapping; actual UI command click and point completion; undo/redo and JSON roundtrip; both language packs and final native package.
+
+
+### Implemented slice and current evidence
+
+View clarification was not answered during work. Both rotated-plan and 3D projected-reference-edge routes were implemented with one shared model operation. The 3D straight-wall route is an explicit OpenArchi extension (AC29 help limits 3D node insertion to polygonal elements). This update implements the screenshot's highlighted **Insert node**, plus palette entry to existing Drag/Rotate/Mirror/Multiply commands; it does not claim all screenshot icons, curved-wall or complex-profile editing.
+
+- `ReshapeCommand::InsertWallNode` / `reshape::candidate`: validated private candidate, split at the original clicked station, preserve source endpoints/metadata, first ID retained/second ID allocated, opening host/offset remapped; a split through an opening and locked affected openings reject. Suspended group membership extends to the second segment. Commit uses the existing single-undo editor operation.
+- `wall_node_ui::WallInsert`, `start_wall_insert`, `wall_insert_canvas`: preview-only state, point placement, Distance in metres / Angle in world XY degrees, Apply/Enter, Cancel/Escape; numeric input locks the preview until Follow pointer. Actual original model is untouched before confirmation. The first palette includes supported transform routes only.
+- `set_wall_edit_hit` uses the clicked station, not the unrotated screen midpoint. Plan projection honors orientation. `selected_wall_model_edge` projects base/top reference segments and unprojects input onto the same horizontal elevation plane; orbiting while an insertion is pending cannot claim the primary pointer. Existing ordinary orbit/plan drag remain available. 3D selection now displays the top reference line/handles. Node-end dragging in 3D was not added; this entry is specifically the middle segment.
+- Endpoints and 3D/plan geometry remain derived from normal wall elements, with no inserted-node special persistence format. Adjacent unrelated walls are not moved.
+
+### 2026-10-29 final verification
+
+Forced verification `target/ac29-workflow/runs/20261028T183751Z-e2a64a9f/report.json`: **377 Rust tests + 15 tooling tests passed**, formatting/includes, cargo check all targets, locale validation, diff and packaging passed. Four new tests cover rotated plan + both languages + actual palette button/canvas input + preview/cancel/undo; orbit then 3D edge hit + placement without camera drift; exact endpoints/metadata/opening remap/JSON roundtrip; invalid/locked/group/opening atomic rejection. Existing wall dragging and Cmd Trim tests also passed in the full suite.
+
+Final app `/Users/ren/MAC工作/工作/code/开源项目/openarchi/dist/OpenArchi.app`; release/bundle arm64 UUID **1BA174C1-BFB7-3218-8144-D1F78A68D3F2**. Strict deep codesign passed; `bundle` recheck matches successful source receipt.
+
+Native smoke on final package: isolated HOME `target/wall-node-smoke-home`, initial PID 99920/window 42013, later restart PIDs 22057/35684. User's PID 99546 untouched. Foreground-guarded CGEvents for canvas/orbit and AXPress for controls/native menus. [Fixture](wall-node-evidence/fixture.json): one straight wall (-3,-1)→(3,1), thickness 0.3 m, height 3 m.
+
+| Claim | Result / evidence |
+|---|---|
+| Rotated wall middle click opens actionable palette | pass: screen (895,562); [EN palette](wall-node-evidence/plan-palette-en.png), AX text alongside |
+| Pointer preview leaves model unchanged | pass: before-click recovery JSON equals fixture; [EN preview](wall-node-evidence/plan-preview-en.png) |
+| Plan click creates two connected walls with fixed original endpoints | pass: node (-1.0883694,-1.9953438), count 1→2; [saved JSON](wall-node-evidence/plan-result.json), [screen](wall-node-evidence/plan-result.png) |
+| Undo/Redo | pass: native menu Undo/Redo/Undo restored 1/2/1 walls |
+| Orbit, then click projected 3D middle reference segment | pass: native left drag (1100,700)→(1160,715), then click (883,469); [orbited](wall-node-evidence/model-orbited.png), [ZH palette](wall-node-evidence/model-palette-zh.png) |
+| 3D preview/cancel/commit | pass: [ZH preview](wall-node-evidence/model-preview-zh.png); Cancel recovery JSON equals fixture; confirmed node (-1.1109972,-2.0351205), [JSON](wall-node-evidence/model-result.json), [screen](wall-node-evidence/model-result-zh.png). Undo/Redo/Undo passed |
+| Editable numerical fields | pass: AXSetValue Distance=2.5 m and Angle=90°, [AX readback](wall-node-evidence/numeric-locked-ax.txt); palette Apply produced node (-0.0021768708,2.4992743), original clicked anchor≈(-0.0021768,-0.0007257), [JSON](wall-node-evidence/numeric-result.json). Initial AX text-match attempts encountered changed live values; final retry used the observed popup's last two AXIncrementors. Duplicate Apply labels were disambiguated to the popup button; failed attempts made no commit |
+| Bilingual surfaces and restart | pass: native View > Language EN→ZH→EN; main-window title/menu/toolbar/Info Box/toolbox/tabs/counts/status/Quick Options bar, idle and active insertion palettes, numeric labels inspected. [ZH numeric](wall-node-evidence/numeric-zh.png), [EN numeric](wall-node-evidence/numeric-en.png). Chinese restart first-frame title `未命名`; [capture](wall-node-evidence/final-chinese-restart.png), recovery reopens two-wall result [AX](wall-node-evidence/reopened-ax.txt) |
+
+Isolated preference restored to English; all test processes closed. Title-bar language selector remains absent per prior product configuration. Floating Quick Options, transform dialogs reached through the new aliases, curved/slanted/profile walls, native hosted-opening splitting and arbitrary occluded 3D edges were not desktop-tested. Native persistence used recovery/reopen, not Save As. Exact dirty/undo stack invariance across language switches remains covered by existing automated localization tests, not extracted from this native process. No complete AC29 or full-localization equivalence claimed.
+
+Candidate reusable lessons (unconfirmed; not added to AGENTS.md):
+- Project and unproject a 3D editable edge on the same elevation plane; screen midpoint arithmetic alone cannot recover the correct world hit after orbit.
+- Topology edits should preview private candidates and commit once, remapping hosted elements before validation; a split through an opening must reject atomically.
+
+## 2026-10-29 — User correction: full icon palette
+
+Supersedes the single Insert-node/text-popup scope above. Middle-edge clicks now offer all ten commands as an original two-row icon palette, with shared pending state and a separate tracker. Exact arc and trapezoid contours persist and drive plan/3D, picking and hosted openings. [Contract and supported workflows](wall-pet-palette/contract.md); [final 399-test/native ten-command acceptance](wall-pet-palette/validation.md). Custom-wall junction cleanup and unsupported legacy partial edits remain bounded as documented.
+
+## 2026-10-30 — endpoint palette unified
+
+Current maintainer instruction replaces the old endpoint text popup with the same ten-icon/two-row palette used by Insert node. Endpoint first slot means Move node; other commands reuse the existing shared pet session. Switching back restores the original endpoint drag, validation and reference-line snapping path. Left-click activates a command; hover never switches it. Escape dismisses; passive length text stays removed. No endpoint geometry or 3D entry semantics changed. Both endpoint/language event regressions and current native English/Chinese start-endpoint inspection passed; see [contract and current verification](wall-pet-palette/contract.md#endpoint-menu-delivered-and-verified--2026-10-30).

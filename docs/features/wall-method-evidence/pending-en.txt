@@ -1,0 +1,124 @@
+AXWindow | Untitled
+AXButton | Guides
+AXButton | Grids
+AXCheckBox | Trace
+AXButton | ▾
+AXButton | Measure
+AXCheckBox | Groups
+AXCheckBox | 3D Cutaway
+AXCheckBox | Floor plan · F2
+AXCheckBox | Perspective 3D · F3
+AXStaticText | EDIT
+AXStaticText | Workspace controls · viewport context
+AXStaticText | INFO BOX
+AXStaticText | Wall
+AXStaticText | Default Settings
+AXStaticText | Layer:
+AXPopUpButton | Archicad Layer
+AXStaticText | Geometry Method:
+AXCheckBox | Single
+AXCheckBox | Continuous
+AXCheckBox | Polygonal
+AXCheckBox | Rectangular
+AXStaticText | Reference Line:
+AXCheckBox | Center
+AXCheckBox | Inside
+AXCheckBox | Outside
+AXStaticText | Reference Offset
+AXIncrementor | 0.000 m
+AXStaticText | Structure:
+AXTextField | Generic Wall/Shell
+AXStaticText | Thickness
+AXIncrementor | 0.220 m
+AXStaticText | Height
+AXIncrementor | 3.000 m
+AXStaticText | Top Link:
+AXPopUpButton | 1. First floor (Home Story + 1)
+AXStaticText | Top Offset
+AXIncrementor | 0.000 m
+AXStaticText | Bottom Offset
+AXIncrementor | 0.000 m
+AXButton | Floor Plan and Section…
+AXButton | Settings…
+AXButton | Apply
+AXStaticText | Material
+AXPopUpButton | Warm plaster
+AXCheckBox | Snap
+AXCheckBox | Ortho
+AXStaticText | READY
+AXStaticText | Wall default settings applied · New walls use these values
+AXStaticText | X 7.500 m   Y -0.987 m   |   12 elements
+AXStaticText | TOOLBOX
+AXButton | ⋯
+AXStaticText | Selection & Region
+AXCheckBox | Arrow
+AXCheckBox | Marquee
+AXButton | Design
+AXCheckBox | Wall
+AXCheckBox | Slab
+AXCheckBox | Stair
+AXCheckBox | Door
+AXCheckBox | Window
+AXCheckBox | Column
+AXCheckBox | Beam
+AXCheckBox | Object
+AXCheckBox | Lamp
+AXCheckBox | Roof
+AXCheckBox | Shell
+AXCheckBox | Railing
+AXCheckBox | Curtain Wall
+AXCheckBox | Skylight
+AXCheckBox | Corner Window
+AXCheckBox | Opening
+AXCheckBox | Wall End
+AXCheckBox | Mesh
+AXCheckBox | Morph
+AXCheckBox | Zone
+AXButton | Viewpoint
+AXButton | Document
+AXButton | Structural Engineering
+AXButton | MEP Engineering
+AXStaticText | OPENARCHI
+Metres · Z up
+Apple Silicon / Metal
+AXStaticText | NAVIGATOR
+AXStaticText | Courtyard House
+AXButton | Stories
+AXCheckBox | 00  Ground floor     +0.00 m
+AXCheckBox | 01  First floor     +3.20 m
+AXCheckBox | 02  Roof level     +6.40 m
+AXButton | Sections
+AXButton | Elevations
+AXButton | Interior Elevations
+AXButton | Worksheets
+AXButton | Details
+AXButton | 3D Documents
+AXButton | 3D
+AXButton | Schedules
+AXButton | Project Indexes
+AXButton | Lists
+AXButton | Info
+AXButton | Help
+AXCheckBox | Show all stories in 3D
+AXCheckBox | Properties
+AXCheckBox | Library
+AXCheckBox | AI Assistant
+AXStaticText | Build with precision.
+AXStaticText | Select an element in either view to inspect and edit its properties.
+AXStaticText | PROJECT QUANTITIES
+AXStaticText | 12
+AXStaticText | elements / 9 walls / 0 stairs
+AXStaticText | 125.2 m²
+AXStaticText | total slab footprint
+AXButton | Elements on current story
+AXStaticText | TRACKER
+AXStaticText | Length
+AXIncrementor | 2.487 m
+AXStaticText | Angle
+AXIncrementor | -90.00 °
+AXCheckBox | Lock
+AXButton | Create [Enter]
+AXButton | Cancel
+AXStaticText | 12 elements
+AXUnknown | Floor plan canvas
+AXStaticText | Untitled

@@ -1,0 +1,2210 @@
+{
+  "recorded_at": "2026-10-28",
+  "target": "Archicad 29.0.0 v1 INT (5101), macOS",
+  "source_path": "/Applications/GRAPHISOFT/Archicad 29/Defaults/Archicad/WorkEnvironment/Shortcuts/Standard Shortcuts.xml",
+  "source_sha256": "367d16bf8773a80c6128e26b37c47ee88bdaa3777dc52fdd9292091acd831a2b",
+  "source_scheme": "Standard Shortcuts 29",
+  "evidence_type": "readable shipped configuration",
+  "active_user_scheme_verified": false,
+  "scope": "All 171 Shortcut records in this installed standard XML; excludes hard-coded/gesture-only/GDL shortcuts and user custom bindings not present in this file.",
+  "counts": {
+    "Global": 115,
+    "Non-Text": 47,
+    "Text": 9
+  },
+  "bindings": [
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "513-0x00000000-0x00000000",
+      "command_name": "New...",
+      "source_comment": "New...",
+      "character": "n",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘N"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "515-0x00000000-0x00000000",
+      "command_name": "Open...",
+      "source_comment": "&Open...",
+      "character": "o",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘O"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "534-0x00000000-0x00000000",
+      "command_name": "Place External Drawing from Teamwork Project …",
+      "source_comment": "&Place External Drawing from Teamwork Project …",
+      "character": "o",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌘⌥⇧O"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "537-0x00000000-0x00000000",
+      "command_name": "Close Project",
+      "source_comment": "&Close Project",
+      "character": "w",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥W"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2582-0x00000000-0x00000000",
+      "command_name": "Close Tab Project",
+      "source_comment": "&Close Tab Project",
+      "character": "w",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘W"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "518-0x00000000-0x00000000",
+      "command_name": "Save",
+      "source_comment": "&Save",
+      "character": "s",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘S"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "519-0x00000000-0x00000000",
+      "command_name": "Save as...",
+      "source_comment": "Save &as...",
+      "character": "s",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧S"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "526-0x00000000-0x00000000",
+      "command_name": "Page Setup...",
+      "source_comment": "Pa&ge Setup...",
+      "character": "p",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥P"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "527-0x00000000-0x00000000",
+      "command_name": "Print...",
+      "source_comment": "&Print...",
+      "character": "p",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘P"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "528-0x00000000-0x00000000",
+      "command_name": "Quit",
+      "source_comment": "Quit",
+      "character": "q",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Q"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "779-0x00000000-0x00000000",
+      "command_name": "Drag",
+      "source_comment": "&Drag",
+      "character": "d",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘D"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "780-0x00000000-0x00000000",
+      "command_name": "Rotate",
+      "source_comment": "&Rotate",
+      "character": "e",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘E"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "785-0x00000000-0x00000000",
+      "command_name": "Elevate...",
+      "source_comment": "Ele&vate...",
+      "character": "9",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘9"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "789-0x00000000-0x00000000",
+      "command_name": "Resize...",
+      "source_comment": "Resize...",
+      "character": "k",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘K"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "791-0x00000000-0x00000000",
+      "command_name": "Adjust",
+      "source_comment": "Ad&just",
+      "character": "-",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘-"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "792-0x00000000-0x00000000",
+      "command_name": "Crop to Single-plane Roof...",
+      "source_comment": "Crop to Single-plane Roof...",
+      "character": "0",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘0"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1282-0x00000000-0x00000000",
+      "command_name": "Ungroup",
+      "source_comment": "U&ngroup",
+      "character": "g",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥G"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1283-0x00000000-0x00000000",
+      "command_name": "Suspend Groups",
+      "source_comment": "&Suspend Groups",
+      "character": "g",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥G"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "6401-0x00000000-0x00000000",
+      "command_name": "Story Settings...",
+      "source_comment": "&Story Settings...",
+      "character": "7",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘7"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1794-0x00000000-0x00000000",
+      "command_name": "Filter and Cut Elements in 3D...",
+      "source_comment": "Filter and Cut &Elements in 3D...",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥A"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1795-0x00000000-0x00000000",
+      "command_name": "未提供名称（保留命令 ID，待核对）",
+      "source_comment": null,
+      "character": "y",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥Y"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16898-0x00000000-0x00000000",
+      "command_name": "Switch Construction Methods",
+      "source_comment": "Switch Construction Methods",
+      "character": "c",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "C"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16899-0x00000000-0x00000000",
+      "command_name": "Top Elevation",
+      "source_comment": "Top Elevation",
+      "character": "t",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "T"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16899-0x00000000-0x00000000",
+      "command_name": "Top Elevation",
+      "source_comment": "Top Elevation",
+      "character": "t",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧T"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16900-0x00000000-0x00000000",
+      "command_name": "Bottom Elevation",
+      "source_comment": "Bottom Elevation",
+      "character": "b",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "B"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16900-0x00000000-0x00000000",
+      "command_name": "Bottom Elevation",
+      "source_comment": "Bottom Elevation",
+      "character": "b",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧B"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16902-0x00000000-0x00000000",
+      "command_name": "X Coordinate",
+      "source_comment": "X Coordinate",
+      "character": "x",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "X"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16902-0x00000000-0x00000000",
+      "command_name": "X Coordinate",
+      "source_comment": "X Coordinate",
+      "character": "x",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧X"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16903-0x00000000-0x00000000",
+      "command_name": "Y Coordinate",
+      "source_comment": "Y Coordinate",
+      "character": "y",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "Y"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16903-0x00000000-0x00000000",
+      "command_name": "Y Coordinate",
+      "source_comment": "Y Coordinate",
+      "character": "y",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Y"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16904-0x00000000-0x00000000",
+      "command_name": "Z Coordinate",
+      "source_comment": "Z Coordinate",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "Z"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16904-0x00000000-0x00000000",
+      "command_name": "Z Coordinate",
+      "source_comment": "Z Coordinate",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Z"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16905-0x00000000-0x00000000",
+      "command_name": "Radius/Distance",
+      "source_comment": "Radius/Distance",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "R"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16905-0x00000000-0x00000000",
+      "command_name": "Radius/Distance",
+      "source_comment": "Radius/Distance",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧R"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16906-0x00000000-0x00000000",
+      "command_name": "Angle",
+      "source_comment": "Angle",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "A"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16906-0x00000000-0x00000000",
+      "command_name": "Angle",
+      "source_comment": "Angle",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧A"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16959-0x00000000-0x00000000",
+      "command_name": "Home Story",
+      "source_comment": "Home Story",
+      "character": "h",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "H"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16959-0x00000000-0x00000000",
+      "command_name": "Home Story",
+      "source_comment": "Home Story",
+      "character": "h",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧H"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16926-0x00000000-0x00000000",
+      "command_name": "Previous Tool in Toolbox",
+      "source_comment": "Previous Tool in Toolbox",
+      "character": null,
+      "special_key": "PageUp",
+      "modifiers": [],
+      "mac_display": "PageUp"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16927-0x00000000-0x00000000",
+      "command_name": "Next Tool in Toolbox",
+      "source_comment": "Next Tool in Toolbox",
+      "character": null,
+      "special_key": "PageDown",
+      "modifiers": [],
+      "mac_display": "PageDown"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16936-0x00000000-0x00000000",
+      "command_name": "Zoom Out",
+      "source_comment": "Zoom Out",
+      "character": "-",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "-"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16935-0x00000000-0x00000000",
+      "command_name": "Zoom In",
+      "source_comment": "Zoom In",
+      "character": "+",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "+"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16954-0x00000000-0x00000000",
+      "command_name": "Nudge Right (Larger)",
+      "source_comment": "Nudge Right (Larger)",
+      "character": null,
+      "special_key": "Right",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Right"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16953-0x00000000-0x00000000",
+      "command_name": "Nudge Left (Larger)",
+      "source_comment": "Nudge Left (Larger)",
+      "character": null,
+      "special_key": "Left",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Left"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16952-0x00000000-0x00000000",
+      "command_name": "Nudge Down (Larger)",
+      "source_comment": "Nudge Down (Larger)",
+      "character": null,
+      "special_key": "Down",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Down"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16951-0x00000000-0x00000000",
+      "command_name": "Nudge Up (Larger)",
+      "source_comment": "Nudge Up (Larger)",
+      "character": null,
+      "special_key": "Up",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Up"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16958-0x00000000-0x00000000",
+      "command_name": "Nudge Right",
+      "source_comment": "Nudge Right",
+      "character": null,
+      "special_key": "Right",
+      "modifiers": [],
+      "mac_display": "Right"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16957-0x00000000-0x00000000",
+      "command_name": "Nudge Left",
+      "source_comment": "Nudge Left",
+      "character": null,
+      "special_key": "Left",
+      "modifiers": [],
+      "mac_display": "Left"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16956-0x00000000-0x00000000",
+      "command_name": "Nudge Down",
+      "source_comment": "Nudge Down",
+      "character": null,
+      "special_key": "Down",
+      "modifiers": [],
+      "mac_display": "Down"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16955-0x00000000-0x00000000",
+      "command_name": "Nudge Up",
+      "source_comment": "Nudge Up",
+      "character": null,
+      "special_key": "Up",
+      "modifiers": [],
+      "mac_display": "Up"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2563-0x00000000-0x00000000",
+      "command_name": "Rebuild & Regenerate",
+      "source_comment": "Rebuild && Regenerate",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌘⌥⇧R"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1290-0x00000000-0x00000000",
+      "command_name": "Explode into Current View",
+      "source_comment": "&Explode into Current View",
+      "character": "=",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘="
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2567-0x00000000-0x00000000",
+      "command_name": "Zoom to Selection",
+      "source_comment": "&Zoom to Selection",
+      "character": "'",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧'"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2568-0x00000000-0x00000000",
+      "command_name": "Fit in Window",
+      "source_comment": "&Fit in Window",
+      "character": "'",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘'"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2575-0x00000000-0x00000000",
+      "command_name": "Previous Zoom",
+      "source_comment": "Previous &Zoom",
+      "character": "[",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘["
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2576-0x00000000-0x00000000",
+      "command_name": "Next Zoom",
+      "source_comment": "Ne&xt Zoom",
+      "character": "]",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘]"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2571-0x00000000-0x00000000",
+      "command_name": "Enter Full Screen",
+      "source_comment": "Enter Full &Screen",
+      "character": "f",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Ctrl"
+      ],
+      "mac_display": "⌘Ctrl+F"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1539-0x00000000-0x00000000",
+      "command_name": "Grid Snap",
+      "source_comment": "&Grid Snap",
+      "character": "s",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧S"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16930-0x00000000-0x00000000",
+      "command_name": "Change Grid Snap States",
+      "source_comment": "Change Grid Snap States",
+      "character": "s",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥S"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "782-0x00000000-0x00000000",
+      "command_name": "Drag a Copy",
+      "source_comment": "Dra&g a Copy",
+      "character": "d",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥D"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "783-0x00000000-0x00000000",
+      "command_name": "Rotate a Copy",
+      "source_comment": "R&otate a Copy",
+      "character": "e",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥E"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "783-0x00000000-0x00000000",
+      "command_name": "Rotate a Copy",
+      "source_comment": "R&otate a Copy",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥R"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "784-0x00000000-0x00000000",
+      "command_name": "Mirror a Copy",
+      "source_comment": "M&irror a Copy",
+      "character": "m",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥M"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2818-0x00000000-0x00000000",
+      "command_name": "Floor Plan",
+      "source_comment": "Floor Plan",
+      "character": null,
+      "special_key": "F2",
+      "modifiers": [],
+      "mac_display": "F2"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "6404-0x00000000-0x00000000",
+      "command_name": "Go to Story...",
+      "source_comment": "Go &to Story...",
+      "character": null,
+      "special_key": "F2",
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥F2"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2819-0x00000000-0x00000000",
+      "command_name": "3D Window",
+      "source_comment": "3D Window",
+      "character": null,
+      "special_key": "F3",
+      "modifiers": [],
+      "mac_display": "F3"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18698-0x00000000-0x00000000",
+      "command_name": "Axonometry",
+      "source_comment": "Axonometry",
+      "character": null,
+      "special_key": "F3",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘F3"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18697-0x00000000-0x00000000",
+      "command_name": "Perspective",
+      "source_comment": "Perspective",
+      "character": null,
+      "special_key": "F3",
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥F3"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "15108-0x00000000-0x00000000",
+      "command_name": "Hidden Line",
+      "source_comment": "&Hidden Line",
+      "character": null,
+      "special_key": "F6",
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧F6"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1793-0x00000000-0x00000000",
+      "command_name": "3D Projection Settings...",
+      "source_comment": "3D &Projection Settings...",
+      "character": null,
+      "special_key": "F3",
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥F3"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18694-0x00000000-0x00000000",
+      "command_name": "Orbit",
+      "source_comment": "Orbit",
+      "character": "o",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "O"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18955-0x00000000-0x00000000",
+      "command_name": "Gravity",
+      "source_comment": "Gravity",
+      "character": "v",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧V"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16914-0x00000000-0x00000000",
+      "command_name": "Gravity",
+      "source_comment": "Gravity",
+      "character": "v",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥V"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16939-0x00000000-0x00000000",
+      "command_name": "Switch to the Next Pet Palette Item",
+      "source_comment": "Switch to the Next Pet Palette Item",
+      "character": "p",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "P"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16940-0x00000000-0x00000000",
+      "command_name": "Switch to the Previous Pet Palette Item",
+      "source_comment": "Switch to the Previous Pet Palette Item",
+      "character": "p",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥P"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16940-0x00000000-0x00000000",
+      "command_name": "Switch to the Previous Pet Palette Item",
+      "source_comment": "Switch to the Previous Pet Palette Item",
+      "character": "p",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧P"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "17177-0x00000000-0x00000000",
+      "command_name": "Polyline",
+      "source_comment": "Polyline",
+      "character": "l",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥L"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18947-0x00000000-0x00000000",
+      "command_name": "Prefer X - Y coordinates in Tracker",
+      "source_comment": "Prefer X - Y coordinates in Tracker",
+      "character": "/",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "/"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18968-0x00000000-0x00000000",
+      "command_name": "Measure",
+      "source_comment": "Measure",
+      "character": "m",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "M"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18968-0x00000000-0x00000000",
+      "command_name": "Measure",
+      "source_comment": "Measure",
+      "character": "m",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧M"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "6403-0x00000000-0x00000000",
+      "command_name": "Go Down a Story",
+      "source_comment": "Go &Down a Story",
+      "character": null,
+      "special_key": "Down",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Down"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "6402-0x00000000-0x00000000",
+      "command_name": "Go Up a Story",
+      "source_comment": "Go &Up a Story",
+      "character": null,
+      "special_key": "Up",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Up"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16905-0x00000000-0x00000000",
+      "command_name": "Radius/Distance",
+      "source_comment": "Radius/Distance",
+      "character": "d",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧D"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16905-0x00000000-0x00000000",
+      "command_name": "Radius/Distance",
+      "source_comment": "Radius/Distance",
+      "character": "d",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "D"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18971-0x00000000-0x00000000",
+      "command_name": "Activate Previous Tracker Value",
+      "source_comment": "Activate Previous Tracker Value",
+      "character": "*",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥*"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16897-0x00000000-0x00000000",
+      "command_name": "Switch Geometry Methods",
+      "source_comment": "Switch Geometry Methods",
+      "character": "g",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "G"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16968-0x00000000-0x00000000",
+      "command_name": "Switch Geometry Methods Backward",
+      "source_comment": "Switch Geometry Methods Backward",
+      "character": "g",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧G"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1552-0x00000000-0x00000000",
+      "command_name": "Element Snap",
+      "source_comment": "&Element Snap",
+      "character": "e",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧E"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16929-0x00000000-0x00000000",
+      "command_name": "Arrow Tool/Last Tool Toggle",
+      "source_comment": "Arrow Tool/Last Tool Toggle",
+      "character": "w",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "W"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "16916-0x00000000-0x00000000",
+      "command_name": "Cursor Snap Variants",
+      "source_comment": "Cursor Snap Variants",
+      "character": "q",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧Q"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "18945-0x00000000-0x00000000",
+      "command_name": "Edit value in Tracker",
+      "source_comment": "Edit value in Tracker",
+      "character": "n",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "N"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "9986-0x00000000-0x00000000",
+      "command_name": "Last Section",
+      "source_comment": "Last Section",
+      "character": null,
+      "special_key": "F6",
+      "modifiers": [],
+      "mac_display": "F6"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "10008-0x00000000-0x00000000",
+      "command_name": "Last Layout",
+      "source_comment": "Last Layout",
+      "character": null,
+      "special_key": "F7",
+      "modifiers": [],
+      "mac_display": "F7"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "20743-0x00000000-0x00000000",
+      "command_name": "Go to Next Layout",
+      "source_comment": "Go to Next Layout",
+      "character": null,
+      "special_key": "F7",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧F7"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "20741-0x00000000-0x00000000",
+      "command_name": "Go to Previous Layout",
+      "source_comment": "Go to Previous Layout",
+      "character": null,
+      "special_key": "F7",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘F7"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "20743-0x00000000-0x00000000",
+      "command_name": "Go to Next Layout",
+      "source_comment": "Go to Next Layout",
+      "character": null,
+      "special_key": "Right",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Right"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "20741-0x00000000-0x00000000",
+      "command_name": "Go to Previous Layout",
+      "source_comment": "Go to Previous Layout",
+      "character": null,
+      "special_key": "Left",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Left"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "531-0x00000000-0x00000000",
+      "command_name": "Save View and Place on Layout",
+      "source_comment": "Save View and Place on Layout",
+      "character": null,
+      "special_key": "F7",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧F7"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "20740-0x00000000-0x00000000",
+      "command_name": "Go to First Layout",
+      "source_comment": "Go to First Layout",
+      "character": null,
+      "special_key": "Left",
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥Left"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "20744-0x00000000-0x00000000",
+      "command_name": "Go to Last Layout",
+      "source_comment": "Go to Last Layout",
+      "character": null,
+      "special_key": "Right",
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥Right"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1805-0x00000000-0x00000000",
+      "command_name": "Show All in 3D",
+      "source_comment": "Show All in 3D",
+      "character": null,
+      "special_key": "F4",
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘F4"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1807-0x00000000-0x00000000",
+      "command_name": "Show Selection/Marquee in 3D",
+      "source_comment": "Show Selection/Marquee in 3D",
+      "character": null,
+      "special_key": "F5",
+      "modifiers": [],
+      "mac_display": "F5"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1807-0x00000000-0x00000000",
+      "command_name": "Show Selection/Marquee in 3D",
+      "source_comment": "Show Selection/Marquee in 3D",
+      "character": null,
+      "special_key": "F4",
+      "modifiers": [],
+      "mac_display": "F4"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1829-0x00000000-0x00000000",
+      "command_name": "Hide Selection in 3D",
+      "source_comment": "Hide Selection in 3D",
+      "character": null,
+      "special_key": "F4",
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥F4"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2327-0x00000000-0x00000000",
+      "command_name": "Send Changes",
+      "source_comment": "&Send Changes",
+      "character": "s",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥S"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "533-0x00000000-0x00000000",
+      "command_name": "Open/Join Teamwork Project...",
+      "source_comment": "Open/Join Teamwork Project...",
+      "character": "o",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧O"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "14338-0x00000000-0x00000000",
+      "command_name": "Open Object...",
+      "source_comment": "&Open Object...",
+      "character": "o",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥O"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2838-0x00000000-0x00000000",
+      "command_name": "Show Next Tab",
+      "source_comment": "Show Next Tab",
+      "character": null,
+      "special_key": "Tab",
+      "modifiers": [
+        "Ctrl"
+      ],
+      "mac_display": "Ctrl+Tab"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2839-0x00000000-0x00000000",
+      "command_name": "Show Previous Tab",
+      "source_comment": "Show Previous Tab",
+      "character": null,
+      "special_key": "Tab",
+      "modifiers": [
+        "Shift",
+        "Ctrl"
+      ],
+      "mac_display": "⇧Ctrl+Tab"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2845-0x00000000-0x00000000",
+      "command_name": "Pop-up Navigator",
+      "source_comment": "Pop-up Navigator",
+      "character": "n",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧N"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2855-0x00000000-0x00000000",
+      "command_name": "Show/Hide Tab Overview",
+      "source_comment": "Show/Hide Tab Overview",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧A"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2853-0x00000000-0x00000000",
+      "command_name": "Select on Floor Plan",
+      "source_comment": "Select on Floor Plan",
+      "character": null,
+      "special_key": "F2",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧F2"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "2854-0x00000000-0x00000000",
+      "command_name": "Select in 3D",
+      "source_comment": "Select in 3D",
+      "character": null,
+      "special_key": "F4",
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧F4"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1025-0x47246d64-0xe1076b70",
+      "command_name": "Archicad Home",
+      "source_comment": "Archicad Home",
+      "character": "h",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧H"
+    },
+    {
+      "context": "Global",
+      "context_guid": "76D29F35-0E29-4DEF-ABFF-13E47B8DEF4E",
+      "command_id": "1027-0x47246d64-0x3bbe5ae9",
+      "command_name": "Select Connected Horizontal Routes",
+      "source_comment": "Select Connected Horizontal Routes",
+      "character": "c",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧C"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "514-0x00000000-0x00000000",
+      "command_name": "New & Reset All",
+      "source_comment": "&New && Reset All",
+      "character": "n",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥N"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16907-0x00000000-0x00000000",
+      "command_name": "Lock X Coordinate",
+      "source_comment": "Lock X Coordinate",
+      "character": "x",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥X"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16907-0x00000000-0x00000000",
+      "command_name": "Lock X Coordinate",
+      "source_comment": "Lock X Coordinate",
+      "character": "x",
+      "special_key": null,
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧X"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16908-0x00000000-0x00000000",
+      "command_name": "Lock Y Coordinate",
+      "source_comment": "Lock Y Coordinate",
+      "character": "y",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥Y"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16908-0x00000000-0x00000000",
+      "command_name": "Lock Y Coordinate",
+      "source_comment": "Lock Y Coordinate",
+      "character": "y",
+      "special_key": null,
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧Y"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16909-0x00000000-0x00000000",
+      "command_name": "Lock Z Coordinate",
+      "source_comment": "Lock Z Coordinate",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥Z"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16909-0x00000000-0x00000000",
+      "command_name": "Lock Z Coordinate",
+      "source_comment": "Lock Z Coordinate",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧Z"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16910-0x00000000-0x00000000",
+      "command_name": "Lock Radius/Distance",
+      "source_comment": "Lock Radius/Distance",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥R"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16910-0x00000000-0x00000000",
+      "command_name": "Lock Radius/Distance",
+      "source_comment": "Lock Radius/Distance",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧R"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16910-0x00000000-0x00000000",
+      "command_name": "Lock Radius/Distance",
+      "source_comment": "Lock Radius/Distance",
+      "character": "d",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥D"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16910-0x00000000-0x00000000",
+      "command_name": "Lock Radius/Distance",
+      "source_comment": "Lock Radius/Distance",
+      "character": "d",
+      "special_key": null,
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧D"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16911-0x00000000-0x00000000",
+      "command_name": "Lock Angle",
+      "source_comment": "Lock Angle",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥A"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16911-0x00000000-0x00000000",
+      "command_name": "Lock Angle",
+      "source_comment": "Lock Angle",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌥⇧A"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "1796-0x00000000-0x00000000",
+      "command_name": "3D Cutaway",
+      "source_comment": "3D &Cutaway",
+      "character": "y",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Y"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "772-0x00000000-0x00000000",
+      "command_name": "Cut",
+      "source_comment": "&Cut",
+      "character": "x",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘X"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "773-0x00000000-0x00000000",
+      "command_name": "Copy",
+      "source_comment": "Copy",
+      "character": "c",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘C"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "774-0x00000000-0x00000000",
+      "command_name": "Paste",
+      "source_comment": "Paste",
+      "character": "v",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘V"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "776-0x00000000-0x00000000",
+      "command_name": "Select All",
+      "source_comment": "Select &All",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘A"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "771-0x00000000-0x00000000",
+      "command_name": "Repeat Last Command",
+      "source_comment": "Re&peat Last Command",
+      "character": "b",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘B"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "770-0x00000000-0x00000000",
+      "command_name": "Redo",
+      "source_comment": "R&edo",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥Z"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "769-0x00000000-0x00000000",
+      "command_name": "Undo",
+      "source_comment": "&Undo",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Z"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "786-0x00000000-0x00000000",
+      "command_name": "Multiply...",
+      "source_comment": "Multipl&y...",
+      "character": "u",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘U"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "781-0x00000000-0x00000000",
+      "command_name": "Mirror",
+      "source_comment": "&Mirror",
+      "character": "m",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘M"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "6657-0x00000000-0x00000000",
+      "command_name": "Layer Settings (Model Views)...",
+      "source_comment": "&Layer Settings (Model Views)...",
+      "character": "l",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘L"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "797-0x00000000-0x00000000",
+      "command_name": "Wall Default Settings",
+      "source_comment": "Wall Default Settings",
+      "character": "t",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘T"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "796-0x00000000-0x00000000",
+      "command_name": "Edit Selection Set...",
+      "source_comment": "Edit Selectio&n Set...",
+      "character": "t",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥T"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "777-0x00000000-0x00000000",
+      "command_name": "Find & Select...",
+      "source_comment": "&Find && Select...",
+      "character": "f",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘F"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "1281-0x00000000-0x00000000",
+      "command_name": "Group",
+      "source_comment": "&Group",
+      "character": "g",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘G"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "18970-0x00000000-0x00000000",
+      "command_name": "Activate Next Tracker Value",
+      "source_comment": "Activate Next Tracker Value",
+      "character": "*",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "*"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "7947-0x00000000-0x00000000",
+      "command_name": "Lock to Guide Line / Snap Guide",
+      "source_comment": "Lock to Guide Line / Snap Guide",
+      "character": "§",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥§"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "799-0x00000000-0x00000000",
+      "command_name": "Pick Up Parameters",
+      "source_comment": "Pick Up Parameters",
+      "character": "c",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥C"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "800-0x00000000-0x00000000",
+      "command_name": "Inject Parameters",
+      "source_comment": "Inject Parameters",
+      "character": "c",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥C"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "21761-0x00000000-0x00000000",
+      "command_name": "Trace",
+      "source_comment": "Trace",
+      "character": null,
+      "special_key": "F2",
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥F2"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2580-0x00000000-0x00000000",
+      "command_name": "Rotate Orientation",
+      "source_comment": "Rotate Orientation",
+      "character": ",",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘,"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "1821-0x00000000-0x00000000",
+      "command_name": "Next Plane",
+      "source_comment": "Next Plane",
+      "character": "e",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "E"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "1809-0x00000000-0x00000000",
+      "command_name": "Horizontal",
+      "source_comment": "Horizontal",
+      "character": "e",
+      "special_key": null,
+      "modifiers": [
+        "Option"
+      ],
+      "mac_display": "⌥E"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "7937-0x00000000-0x00000000",
+      "command_name": "Guide Lines",
+      "source_comment": "Guide Lines",
+      "character": "l",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "L"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "7942-0x00000000-0x00000000",
+      "command_name": "Create Guide Line Segment",
+      "source_comment": "Create Guide Line Segment",
+      "character": "l",
+      "special_key": null,
+      "modifiers": [
+        "Shift"
+      ],
+      "mac_display": "⇧L"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16938-0x00000000-0x00000000",
+      "command_name": "Force Snap Reference",
+      "source_comment": "Force Snap Reference",
+      "character": "q",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "Q"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16967-0x00000000-0x00000000",
+      "command_name": "Change Flip Status",
+      "source_comment": "Change Flip Status",
+      "character": "f",
+      "special_key": null,
+      "modifiers": [],
+      "mac_display": "F"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2130706433-0x47732f64-0x08427fea",
+      "command_name": "IFC Project Manager...",
+      "source_comment": "IFC Project Manager...",
+      "character": "i",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥I"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "16973-0x00000000-0x00000000",
+      "command_name": "Open Favorite Popup for Tool in Toolbox",
+      "source_comment": "Open Favorite Popup for Tool in Toolbox",
+      "character": null,
+      "special_key": "Home",
+      "modifiers": [],
+      "mac_display": "Home"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2329-0x00000000-0x00000000",
+      "command_name": "Send & Receive",
+      "source_comment": "Send && Re&ceive",
+      "character": "s",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option",
+        "Shift"
+      ],
+      "mac_display": "⌘⌥⇧S"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2334-0x00000000-0x00000000",
+      "command_name": "Reserve Elements...",
+      "source_comment": "Reserve Elements...",
+      "character": "j",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘J"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2335-0x00000000-0x00000000",
+      "command_name": "Release All",
+      "source_comment": "Release All",
+      "character": "j",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧J"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2129985537-0x47732f52-0x1d169483",
+      "command_name": "Quick Rotate Clockwise",
+      "source_comment": "Quick Rotate Clockwise",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Shift"
+      ],
+      "mac_display": "⌘⇧R"
+    },
+    {
+      "context": "Non-Text",
+      "context_guid": "2085E4D3-5694-4BB9-ACAC-3AED5BE50091",
+      "command_id": "2129985538-0x47732f52-0x1d169483",
+      "command_name": "Quick Rotate Counter-Clockwise",
+      "source_comment": "Quick Rotate Counter-Clockwise",
+      "character": "r",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘R"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1025-0x00000000-0x00000000",
+      "command_name": "Undo",
+      "source_comment": "&Undo",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘Z"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1026-0x00000000-0x00000000",
+      "command_name": "Redo",
+      "source_comment": "R&edo",
+      "character": "z",
+      "special_key": null,
+      "modifiers": [
+        "Command",
+        "Option"
+      ],
+      "mac_display": "⌘⌥Z"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1027-0x00000000-0x00000000",
+      "command_name": "Repeat Last Command",
+      "source_comment": "Re&peat Last Command",
+      "character": "b",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘B"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1028-0x00000000-0x00000000",
+      "command_name": "Cut",
+      "source_comment": "&Cut",
+      "character": "x",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘X"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1029-0x00000000-0x00000000",
+      "command_name": "Copy",
+      "source_comment": "Copy",
+      "character": "c",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘C"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1030-0x00000000-0x00000000",
+      "command_name": "Paste",
+      "source_comment": "Paste",
+      "character": "v",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘V"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1032-0x00000000-0x00000000",
+      "command_name": "Select All",
+      "source_comment": "Select &All",
+      "character": "a",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘A"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1037-0x00000000-0x00000000",
+      "command_name": "Replace Again",
+      "source_comment": "&Replace Again",
+      "character": "t",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘T"
+    },
+    {
+      "context": "Text",
+      "context_guid": "2CAC215F-221C-420F-AAEB-8462A659B8D9",
+      "command_id": "1047-0x00000000-0x00000000",
+      "command_name": "Find...",
+      "source_comment": "&Find...",
+      "character": "f",
+      "special_key": null,
+      "modifiers": [
+        "Command"
+      ],
+      "mac_display": "⌘F"
+    }
+  ]
+}

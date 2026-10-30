@@ -1,5 +1,6 @@
+use crate::layers::{ARCHICAD_LAYER, ElementLayer};
 use crate::stairs::StairSpec;
-use crate::view_settings::{DesignOptions, Layer, PlanOptions, RenovationStatus};
+use crate::view_settings::{DesignOptions, PlanOptions, RenovationStatus};
 use crate::wall::WallSettings;
 use serde::{Deserialize, Serialize};
 
@@ -149,6 +150,59 @@ pub struct ArcSegment {
     pub clockwise: bool,
     pub large_arc: bool,
 }
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+pub struct SlabContour {
+    pub points: Vec<Point>,
+    #[serde(default)]
+    pub arcs: Vec<Option<ArcSegment>>,
+    #[serde(default)]
+    pub holes: Vec<SlabContour>,
+    #[serde(default)]
+    pub elevation: f32,
+    #[serde(default)]
+    pub edge_settings: Vec<SlabEdgeSettings>,
+}
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub struct SlabEdgeSettings {
+    #[serde(default = "slab_right_angle")]
+    pub angle_degrees: f32,
+    #[serde(default)]
+    pub surface: Option<Material>,
+}
+fn slab_right_angle() -> f32 {
+    90.
+}
+impl Default for SlabEdgeSettings {
+    fn default() -> Self {
+        Self {
+            angle_degrees: 90.,
+            surface: None,
+        }
+    }
+}
+
+fn positive_wall_side() -> bool {
+    true
+}
+
+/// Per-element reference/outer-side geometry, separate from transferable defaults.
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind")]
+pub enum WallContour {
+    Arc {
+        arc: ArcSegment,
+    },
+    Trapezoid {
+        outer_start: Point,
+        outer_end: Point,
+        #[serde(default)]
+        outer_nodes: Vec<Point>,
+        #[serde(default = "positive_wall_side")]
+        outer_positive: bool,
+    },
+}
+
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Element {
     pub id: u64,
@@ -156,7 +210,7 @@ pub struct Element {
     pub story: u32,
     pub material: Material,
     #[serde(default)]
-    pub layer: Layer,
+    pub layer: ElementLayer,
     #[serde(default)]
     pub renovation: RenovationStatus,
     /// Design option assignment; `None` belongs to the main model.
@@ -166,6 +220,11 @@ pub struct Element {
     /// valid and receive defaults when the settings UI first edits the wall.
     #[serde(default)]
     pub wall_settings: Option<WallSettings>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub wall_contour: Option<WallContour>,
+    /// Optional ordered straight perimeter; legacy slabs keep their rectangle.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub slab_contour: Option<SlabContour>,
     pub shape: Shape,
 }
 impl Element {
@@ -187,10 +246,8 @@ impl Element {
     }
     pub fn area(&self) -> f32 {
         match self.shape {
-            Shape::Wall {
-                start, end, height, ..
-            } => start.distance(end) * height,
-            Shape::Slab { min, max, .. } => (max.x - min.x) * (max.y - min.y),
+            Shape::Wall { height, .. } => crate::wall_geometry::reference_length(self) * height,
+            Shape::Slab { .. } => crate::slab_geometry::actual_area(self),
             Shape::Stair { ref spec } => spec.start.distance(spec.end) * spec.width,
             Shape::Polyline {
                 ref points,
@@ -209,6 +266,11 @@ impl Element {
         }
     }
     pub fn translate(&mut self, d: Point) {
+        crate::wall_geometry::transform(self, Point::default(), 1., 0., false, d);
+        if self.slab_contour.is_some() {
+            crate::slab_geometry::transform(self, |p| Point::new(p.x + d.x, p.y + d.y), 1., false);
+            return;
+        }
         match &mut self.shape {
             Shape::Wall { start, end, .. } => {
                 start.x += d.x;
@@ -243,6 +305,8 @@ impl Element {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
     #[serde(default)]
+    pub edit_state: crate::editing::EditState,
+    #[serde(default)]
     pub grid_settings: crate::grids::GridSettings,
     #[serde(default)]
     pub guide_settings: crate::guides::GuideSettings,
@@ -252,23 +316,33 @@ pub struct Project {
     pub plan_options: PlanOptions,
     #[serde(default)]
     pub design_options: DesignOptions,
+    /// AC29-style dynamic layers, categories and layer combinations.
+    #[serde(default = "crate::layers::LayerDocument::template")]
+    pub layers: crate::layers::LayerDocument,
     pub schema_version: u32,
     pub name: String,
     pub next_id: u64,
     pub stories: Vec<Story>,
     pub elements: Vec<Element>,
+    /// Named transfer sets for AC29-style pick up / inject; stored with the
+    /// project like the AC29 Element Transfer Settings dialog.
+    #[serde(default)]
+    pub transfer_settings: crate::transfer::TransferSettings,
 }
 impl Default for Project {
     fn default() -> Self {
         Self {
+            edit_state: crate::editing::EditState::default(),
             grid_settings: crate::grids::GridSettings::default(),
             guide_settings: crate::guides::GuideSettings::default(),
             guides: vec![],
             plan_options: PlanOptions::default(),
             design_options: DesignOptions::default(),
+            layers: crate::layers::LayerDocument::template(),
             schema_version: 1,
             name: "Courtyard House".into(),
             next_id: 1,
+            transfer_settings: crate::transfer::TransferSettings::default(),
             stories: vec![
                 Story {
                     id: 0,
@@ -311,11 +385,9 @@ impl Project {
             Shape::Polyline { .. } => "Polyline",
             Shape::Opening { kind, .. } => kind.name(),
         };
-        let layer = match kind {
-            "Slab" => Layer::Structural,
-            "Polyline" => Layer::Drafting,
-            _ => Layer::Architectural,
-        };
+        // AC29 places new elements on the active layer; the Archicad Layer
+        // is the template default until a tool picks another layer.
+        let layer = ElementLayer(ARCHICAD_LAYER);
         let wall_settings = matches!(shape, Shape::Wall { .. }).then(WallSettings::default);
         self.elements.push(Element {
             id,
@@ -326,6 +398,8 @@ impl Project {
             renovation,
             design_option: None,
             wall_settings,
+            wall_contour: None,
+            slab_contour: None,
             shape,
         });
         id
@@ -364,16 +438,16 @@ impl Project {
             let Some(host) = self.elements.iter().find(|host| host.id == host_wall) else {
                 continue;
             };
-            let Shape::Wall { start, end, .. } = host.shape else {
-                continue;
-            };
-            let length = start.distance(end);
-            if length > 1e-6 {
-                let dx = (end.x - start.x) / length;
-                let dy = (end.y - start.y) / length;
+            let length = crate::wall_geometry::reference_length(host);
+            if length > 1e-6
+                && let Some((center, _)) = crate::wall_geometry::point_tangent_at(host, offset)
+            {
+                let next_point = Point::new(center.x + delta.x, center.y + delta.y);
                 let half = width * 0.5;
                 let high = (length - half).max(half);
-                let next = (offset + delta.x * dx + delta.y * dy).clamp(half, high);
+                let next = crate::wall_geometry::project_station(host, next_point)
+                    .0
+                    .clamp(half, high);
                 opening_offsets.push((index, next));
             }
         }
@@ -409,7 +483,16 @@ impl Project {
         if !finite(start) || !finite(end) {
             return Err("Wall reference line must use finite points".into());
         }
-        let length = start.distance(end);
+        let mut candidate = wall.clone();
+        if let Shape::Wall {
+            start: a, end: b, ..
+        } = &mut candidate.shape
+        {
+            *a = start;
+            *b = end;
+        }
+        crate::wall_geometry::validate(&candidate)?;
+        let length = crate::wall_geometry::reference_length(&candidate);
         if length < 0.01 {
             return Err("Wall must stay at least 0.01 m long".into());
         }
@@ -467,6 +550,19 @@ impl Project {
             if e.id == 0 || e.id >= self.next_id || !ids.insert(e.id) || !stories.contains(&e.story)
             {
                 return Err("Invalid element identity or story".into());
+            }
+            if let Some(contour) = &e.slab_contour {
+                if !matches!(e.shape, Shape::Slab { .. }) {
+                    return Err("Invalid slab contour".into());
+                }
+                crate::slab_geometry::validate_contour(contour)?;
+                crate::slab_geometry::bottom_contour(e)?;
+                let (a, b) = crate::slab_geometry::contour_bounds(contour);
+                if let Shape::Slab { min, max, .. } = e.shape {
+                    if a.distance(min) > 1e-4 || b.distance(max) > 1e-4 {
+                        return Err("Invalid slab contour bounds".into());
+                    }
+                }
             }
             let point_ok = |p: Point| p.finite() && p.x.abs() < 100000. && p.y.abs() < 100000.;
             let valid = match e.shape {
@@ -548,6 +644,7 @@ impl Project {
             if !valid {
                 return Err(format!("Invalid geometry: {}", e.name));
             }
+            crate::wall_geometry::validate(e)?;
             if matches!(e.shape, Shape::Wall { .. })
                 && let Some(settings) = &e.wall_settings
             {
@@ -556,17 +653,20 @@ impl Project {
         }
         let mut walls = std::collections::HashMap::new();
         for element in &self.elements {
-            if let Shape::Wall {
-                start, end, height, ..
-            } = element.shape
-            {
+            if let Shape::Wall { height, .. } = element.shape {
                 let (bottom_offset, top_offset) = element
                     .wall_settings
                     .as_ref()
                     .map_or((0., 0.), |settings| settings.vertical_offsets());
                 walls.insert(
                     element.id,
-                    (element.story, start, end, height, bottom_offset, top_offset),
+                    (
+                        element.story,
+                        crate::wall_geometry::reference_length(element),
+                        height,
+                        bottom_offset,
+                        top_offset,
+                    ),
                 );
             }
         }
@@ -584,7 +684,7 @@ impl Project {
             else {
                 continue;
             };
-            let Some(&(host_story, start, end, wall_height, bottom_offset, top_offset)) =
+            let Some(&(host_story, length, wall_height, bottom_offset, top_offset)) =
                 walls.get(&host_wall)
             else {
                 return Err(format!(
@@ -598,7 +698,6 @@ impl Project {
                     element.name
                 ));
             }
-            let length = start.distance(end);
             let low = offset - width * 0.5;
             let high = offset + width * 0.5;
             if length < 1e-6 || low < -1e-4 || high > length + 1e-4 {
