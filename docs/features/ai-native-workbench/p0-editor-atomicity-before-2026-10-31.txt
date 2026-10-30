@@ -1,0 +1,23 @@
+旧实现失败回归的节选；完整输出含项目Debug dump，节选仅保留测试名称与失败原因。
+source log sha256: cb10df49cf49340c8d4ce80376aeee4052bed21a593ab916d24e8035acc3c8e0
+command: ./scripts/cargo.sh test --locked --test editor_atomicity
+exit: 101
+
+running 4 tests
+test restore_mixed_locked_layer_batch_is_rejected_atomically ... FAILED
+test maximum_element_id_is_rejected_without_panicking_or_mutating_history ... FAILED
+test legacy_invalid_candidates_restore_model_and_preserve_history ... FAILED
+test valid_legacy_and_typed_edits_share_exact_history_and_persistence ... ok
+failures:
+---- restore_mixed_locked_layer_batch_is_rejected_atomically stdout ----
+thread 'restore_mixed_locked_layer_batch_is_rejected_atomically' (49940400) panicked at tests/editor_atomicity.rs:84:5:
+assertion failed: editor.apply(ModelCommand::RestoreElements {
+---- maximum_element_id_is_rejected_without_panicking_or_mutating_history stdout ----
+thread 'maximum_element_id_is_rejected_without_panicking_or_mutating_history' (49940399) panicked at src/editor.rs:236:65:
+attempt to add with overflow
+---- legacy_invalid_candidates_restore_model_and_preserve_history stdout ----
+thread 'legacy_invalid_candidates_restore_model_and_preserve_history' (49940398) panicked at tests/editor_atomicity.rs:42:9:
+assertion `left == right` failed: invalid candidate 0
+failures:
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+error: test failed, to rerun pass `--test editor_atomicity`

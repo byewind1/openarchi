@@ -17,8 +17,8 @@
 
 | 入口 | 已确认路径/保护 | 缺口与后续 |
 |---|---|---|
-| Editor::apply | 类型化命令；locked检查；validate失败逆向还原；记录delta | 不是完整批事务/幂等接口；P1逐调用者迁移 |
-| Editor::commit(before) | 直接改项目后的差异提交；既有锁定元素变化会回退 | 无统一完整validate；新增到锁定层等须逐入口核对，不能仅以final guard宣称完整保护；本轮不在无契约时扩大行为 |
+| Editor::apply | 类型化命令；Add/Remove/Update/Move及RestoreElements放置预检；validate失败逆向还原；记录delta；最大ID检查防溢出 | 不是完整批事务/幂等接口；P1逐调用者迁移 |
+| Editor::commit(before) | 直接改项目后的差异提交；既有锁定元素变化会回退 | 2026-10-31第二切片已加完整Project::validate，失败恢复before且不改历史/revision；新增到锁定层等仍须逐入口核对，不能仅以final guard宣称完整保护 |
 | editor创建/属性/粘贴/变换 | 多处先clone/候选、validate，再commit | 保留共同行为；下一切片补非法输入、锁定、历史与重开矩阵 |
 | app/dialogs、quick_options、shell、native_menu | 仍直接写选项/属性并commit | 迁移前分别区分项目设置与纯显示设置；避免修改dirty/历史语义 |
 | app/plan交互拖动 | 预览与before快照、release提交 | 与私有候选路径并存；不得机械禁止当前项目预览，先保留cancel/失焦回归 |
@@ -26,3 +26,5 @@
 | storage::save/recovery::write | JSON先validate；本轮独占临时文件+同步后rename | 共享恢复位置、多实例覆盖、目录断电耐久、外部文件基线冲突仍未解决 |
 
 标题栏语言选择器按 [2026-10-25原生标题契约](../native-menu-title/contract.md) 移除；当前入口为 View > Language。这是已有批准的呈现差异，不能为了满足旧双入口检查擅自恢复。
+
+第二切片新增 `tests/editor_atomicity.rs`：非法legacy候选、最大ID、混合锁定批次拒绝及合法legacy/typed/restore的历史和JSON回归。详见[执行记录](p0-execution-2026-10-31.md)。调用者将错误状态覆盖成成功提示的问题尚未逐项审完，本次不把void commit迁移为Result接口。
