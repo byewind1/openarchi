@@ -114,7 +114,7 @@ mod mass_footprint_product_path {
         p.drawings
             .pages
             .push(crate::drawings::import(&image, &root.join("source-assets"), 1).unwrap());
-        let mut plan = super::intent_product_path::fixture_mass_plan(&p.drawings.pages[0]);
+        let mut plan = super::intent_fixture::mass_plan(&p.drawings.pages[0]);
         for group in plan["draft"]["candidates"].as_array_mut().unwrap() {
             for seed in group.as_array_mut().unwrap() {
                 seed["material"] = serde_json::json!(Material::Plaster);

@@ -1,5 +1,4 @@
 // Public shared-command fixture; these checks do not claim actual Agent or OS execution.
-#[cfg(unix)]
 mod object_nearby_product_path {
     use super::*;
     use crate::{

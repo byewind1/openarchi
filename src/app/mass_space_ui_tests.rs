@@ -332,6 +332,7 @@ mod mass_space_product_path {
             assert!(app.mass_spaces_ui.dirty);
             assert!(app.pending_design_parameters());
             #[cfg(unix)]
+            #[cfg(unix)]
             default_gui_poll_protects_pending_parameters(&mut app, &ctx, &root.join("journal"));
             let path = root.join("continued.openarchi.json");
             app.path = path.to_string_lossy().into();
@@ -588,7 +589,7 @@ mod mass_space_product_path {
                     )
                     .unwrap(),
                 );
-                let mut plan = super::intent_product_path::fixture_mass_plan(&p.drawings.pages[0]);
+                let mut plan = super::intent_fixture::mass_plan(&p.drawings.pages[0]);
                 // Progressive wire material names differ from the typed Rust draft.
                 for group in plan["draft"]["candidates"].as_array_mut().unwrap() {
                     for seed in group.as_array_mut().unwrap() {
@@ -1068,7 +1069,7 @@ mod mass_space_product_path {
                     )
                     .unwrap(),
                 );
-                let mut plan = super::intent_product_path::fixture_mass_plan(&p.drawings.pages[0]);
+                let mut plan = super::intent_fixture::mass_plan(&p.drawings.pages[0]);
                 for group in plan["draft"]["candidates"].as_array_mut().unwrap() {
                     for seed in group.as_array_mut().unwrap() {
                         seed["material"] = serde_json::json!(Material::Plaster);
@@ -1227,6 +1228,7 @@ mod mass_space_product_path {
             let history = app.host.document.editor.undo.len();
             canvas_number(&ctx, &mut app, "2.70");
             assert!(app.mass_spaces_ui.dirty);
+            #[cfg(unix)]
             default_gui_poll_protects_pending_parameters(&mut app, &ctx, &root.join("journal"));
             click(&ctx, &mut app, "Cancel space parameters");
             assert!(!app.mass_spaces_ui.dirty);

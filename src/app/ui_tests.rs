@@ -23357,6 +23357,7 @@ fn v4_l1_actual_explore_controls_preview_cancel_edit_choose_and_reopen_bilingual
         app.host
             .configure_operation_journal(Some(journal_root.join("journal")))
             .unwrap();
+        #[cfg(unix)]
         assert!(app.automation.is_none());
         let original = app.host.document.editor.project.clone();
         app.dispatch_workbench(WorkbenchCommand::Explore);
@@ -23796,6 +23797,7 @@ fn v4_native_task_unknown_result_retains_identity_and_reconciles_without_mcp_bil
         click(&ctx, &mut app, "Close and retain operation", false);
         assert!(app.process_ui.preview.is_none());
         assert_eq!(app.host.document.editor.project, after);
+        #[cfg(unix)]
         assert!(app.automation.is_none());
         let saved = root.join("latest-user-state.json");
         storage::save_document(&after, &saved, app.host.document.editor.project_identity())
@@ -23828,6 +23830,7 @@ fn v4_native_task_unknown_result_retains_identity_and_reconciles_without_mcp_bil
                 .authorization_status(&app.host.document.editor)["status"],
             "read_only"
         );
+        #[cfg(unix)]
         assert!(app.automation.is_none());
         drop(app);
         std::fs::remove_dir_all(root).unwrap();
@@ -24435,6 +24438,8 @@ fn v4_default_gui_source_reader_retains_current_project_selection_and_read_permi
     }
 }
 
+#[path = "intent_fixture.rs"]
+mod intent_fixture;
 #[cfg(unix)]
 include!("intent_ui_tests.rs");
 

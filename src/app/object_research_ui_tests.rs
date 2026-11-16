@@ -1673,7 +1673,10 @@ mod object_research_product_path {
             );
             assert_eq!(app.host.document.editor.project, before);
             button(&ctx, &mut app, "Cancel");
+            #[cfg(target_os = "macos")]
             app.perform_menu_action(crate::app::native_menu::MenuAction::Quit, &ctx);
+            #[cfg(not(target_os = "macos"))]
+            assert!(app.block_report_draft_close(&ctx));
             assert!(!app.allow_close && !app.close_prompt);
             assert_eq!(app.host.document.editor.project, before);
             assert_eq!(
@@ -1877,7 +1880,6 @@ mod object_research_product_path {
         .unwrap();
         response
     }
-    #[cfg(unix)]
     fn visible_agent_reply(ctx: &Context, app: &mut AtelierApp, question: &str) {
         let output = layers_frame_output(ctx, app, vec![]);
         let _ = output;

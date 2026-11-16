@@ -330,6 +330,7 @@ mod linked_figure_product_path {
                 "FIGURE_PRODUCT_WALK={}",
                 root.join("walkthrough.json").display()
             );
+            #[cfg(unix)]
             drop(app.automation.take());
             if input.is_none() {
                 std::fs::remove_dir_all(root).unwrap();
@@ -775,6 +776,7 @@ mod linked_figure_product_path {
                 "FUNCTION_PRODUCT_WALK={}",
                 root.join("walkthrough.json").display()
             );
+            #[cfg(unix)]
             drop(app.automation.take());
             if input.is_none() {
                 std::fs::remove_dir_all(root).unwrap();
@@ -1834,7 +1836,8 @@ mod linked_figure_product_path {
             } else {
                 // Fixed native19 input keeps this the create path; current
                 // bundled startup's existing graph is separately verified.
-                let mut p=crate::samples::concept_study(); p.drawings.diagrams.clear();
+                let mut p = crate::samples::concept_study();
+                p.drawings.diagrams.clear();
                 storage::save(&p, &file).unwrap();
             }
             app.host
@@ -2225,8 +2228,9 @@ mod linked_figure_product_path {
                 let e = Editor::from_stored_document(source).unwrap();
                 storage::save_document(&e.project, &file, e.project_identity()).unwrap();
             } else {
-                let mut author =
-                    crate::application_host::ApplicationHost::new(storage::synthetic_building_fixture());
+                let mut author = crate::application_host::ApplicationHost::new(
+                    storage::synthetic_building_fixture(),
+                );
                 let editor = &author.document.editor;
                 let sources = editor
                     .project

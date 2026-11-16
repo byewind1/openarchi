@@ -162,14 +162,12 @@ fn grain_discussion_header_and_input_remain_inside_inspector() {
     }
 }
 
-#[cfg(unix)]
 fn task_scroll_point(ctx: &Context) -> Pos2 {
     let rect = ctx
         .data(|d| d.get_temp::<Rect>(Id::new("inspector_scroll_rect")))
         .expect("measured current assistant scroll body");
     pos2(rect.right() - 4., rect.top() + 8.)
 }
-#[cfg(unix)]
 fn task_scroll(ctx: &Context, app: &mut AtelierApp, dy: f32) {
     layers_frame_output(
         ctx,
@@ -185,7 +183,6 @@ fn task_scroll(ctx: &Context, app: &mut AtelierApp, dy: f32) {
         ],
     );
 }
-#[cfg(unix)]
 fn task_visible_button(ctx: &Context, app: &mut AtelierApp, label: &str) {
     // Latest-first task history can contain the same question from an older task.
     // Start at the top and advance less than the measured visible height.
