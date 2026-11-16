@@ -5,7 +5,7 @@ impl AtelierApp {
         let Some(mut element) = self.element_settings.clone() else {
             return;
         };
-        let stories = self.editor.project.stories.clone();
+        let stories = self.host.document.editor.project.stories.clone();
         let mut apply = false;
         let mut accept = false;
         let mut cancel = false;
@@ -70,20 +70,23 @@ impl AtelierApp {
         let Some(mut dialog) = self.wall_settings_dialog.take() else {
             return;
         };
-        let stories = self.editor.project.stories.clone();
-        let layers = self.editor.project.layers.clone();
+        let stories = self.host.document.editor.project.stories.clone();
+        let layers = self.host.document.editor.project.layers.clone();
         let action = dialog.show(ctx, self.language, &stories, &layers);
         if action == WallDialogAction::None {
             self.wall_settings_dialog = Some(dialog);
             return;
         }
         if action == WallDialogAction::Cancel {
-            self.editor.status = self.language.translate("Wall Settings cancelled").into();
+            self.host.document.editor.status =
+                self.language.translate("Wall Settings cancelled").into();
             return;
         }
         let result = match dialog.mode {
             crate::wall_ui::WallSettingsMode::Selected(id) => {
                 let Some(mut element) = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -91,7 +94,7 @@ impl AtelierApp {
                     .find(|element| element.id == id)
                     .cloned()
                 else {
-                    self.editor.status = self
+                    self.host.document.editor.status = self
                         .language
                         .translate("Wall Settings · The selected wall no longer exists")
                         .into();
@@ -100,7 +103,7 @@ impl AtelierApp {
                 dialog
                     .draft
                     .apply_to_element(&mut element)
-                    .and_then(|()| self.editor.replace_element(element))
+                    .and_then(|()| self.host.document.editor.replace_element(element))
             }
             crate::wall_ui::WallSettingsMode::Default => dialog
                 .draft
@@ -111,11 +114,11 @@ impl AtelierApp {
             Ok(()) => {
                 match dialog.mode {
                     crate::wall_ui::WallSettingsMode::Selected(_) => {
-                        self.editor.status =
+                        self.host.document.editor.status =
                             "Wall settings applied · Plan and 3D synchronized".into()
                     }
                     crate::wall_ui::WallSettingsMode::Default => {
-                        self.editor.status =
+                        self.host.document.editor.status =
                             "Wall default settings applied · New walls use these values".into()
                     }
                 }
@@ -181,10 +184,13 @@ impl AtelierApp {
                         &mut self.stair_settings_draft.handrail_height,
                     );
                 });
-            ui.label(format!(
-                "Rise per step: {:.0} mm",
-                self.stair_settings_draft.total_rise * 1000.
-                    / f32::from(self.stair_settings_draft.risers.max(1))
+            ui.label(self.language.translate("Rise per step: {rise} mm").replace(
+                "{rise}",
+                &format!(
+                    "{:.0}",
+                    self.stair_settings_draft.total_rise * 1000.
+                        / f64::from(self.stair_settings_draft.risers.max(1))
+                ),
             ));
             if !self.stair_settings_error.is_empty() {
                 ui.colored_label(Color32::from_rgb(224, 125, 105), &self.stair_settings_error);
@@ -213,9 +219,9 @@ impl AtelierApp {
         if apply {
             match self.stair_settings_draft.validate() {
                 Ok(()) => {
-                    self.editor.stair_spec = self.stair_settings_draft.clone();
+                    self.host.document.editor.stair_spec = self.stair_settings_draft.clone();
                     self.stair_settings_error.clear();
-                    self.editor.status =
+                    self.host.document.editor.status =
                         "Stair settings applied · click start and end points in plan".into();
                 }
                 Err(error) => self.stair_settings_error = error.into(),
@@ -225,7 +231,7 @@ impl AtelierApp {
         if (close && self.stair_settings_error.is_empty()) || dismissed {
             self.stair_settings_open = false;
             if dismissed {
-                self.editor.set_tool(Tool::Select);
+                self.host.document.editor.set_tool(Tool::Select);
             }
         }
     }
@@ -253,7 +259,7 @@ impl AtelierApp {
                         Grid::new("command_preview_general").num_columns(2).spacing([14., 9.]).show(ui, |ui| {
                             ui.label(self.language.translate("Name")); ui.add(TextEdit::singleline(&mut self.command_dialog_name).desired_width(360.)); ui.end_row();
                             ui.label(self.language.translate("Element ID")); ui.add(TextEdit::singleline(&mut self.preview_element_id).desired_width(180.)); ui.end_row();
-                            ui.label(self.language.translate("Home Story")); ComboBox::from_id_salt("command_preview_story").selected_text(self.language.translate("Current Story")).show_ui(ui, |ui| { for story in self.editor.project.stories.clone() { let _ = ui.selectable_label(story.id == self.editor.story, format!("{} · {}", story.id, story.name)); } }); ui.end_row();
+                            ui.label(self.language.translate("Home Story")); ComboBox::from_id_salt("command_preview_story").selected_text(self.language.translate("Current Story")).show_ui(ui, |ui| { for story in self.host.document.editor.project.stories.clone() { let _ = ui.selectable_label(story.id == self.host.document.editor.story, format!("{} · {}", story.id, story.name)); } }); ui.end_row();
                             ui.label(self.language.translate("Layer")); ComboBox::from_id_salt("command_preview_layer").selected_text(&self.preview_layer).show_ui(ui, |ui| { for layer in ["01 Site", "02 Drafting", "03 Plans - Preliminary", "04 Plans - Approval", "05 Plans - Detailed", "06 Plans - Mechanical", "07 Plans - Structural", "08 Rendering", "09 Layouting"] { ui.selectable_value(&mut self.preview_layer, layer.to_owned(), layer); } }); ui.end_row();
                             ui.label(self.language.translate("State")); ui.checkbox(&mut self.command_dialog_enabled, self.language.translate("Visible and enabled")); ui.end_row();
                         });
@@ -288,7 +294,8 @@ impl AtelierApp {
             });
         });
         if applied {
-            self.editor.status = format!("{} · preview values applied locally", title);
+            self.host.document.editor.status =
+                format!("{} · preview values applied locally", title);
         }
         if close || modal.should_close() {
             self.command_dialog = None;
@@ -308,9 +315,53 @@ impl AtelierApp {
         let mut cancel = false;
         let modal = Modal::new(Id::new(("plan_options_dialog", kind as u8))).show(ctx, |ui| {
             ui.set_min_width(430.);
+            ui.set_max_width(520.);
             ui.heading(Self::plan_option_title(language, kind));
             ui.separator();
             match kind {
+                PlanOptionKind::FloorPlanCut => {
+                    ui.label(language.translate("Currently applied to inclined columns"));
+                    let cut = &mut options.floor_plan_cut;
+                    Grid::new("floor_plan_cut_fields")
+                        .num_columns(2)
+                        .show(ui, |ui| {
+                            for (key, value) in [
+                                ("Cut height above current story", &mut cut.height),
+                                ("Lower range elevation offset", &mut cut.lower_offset),
+                                ("Upper range elevation offset", &mut cut.upper_offset),
+                                ("Absolute lower display limit", &mut cut.absolute_lower),
+                            ] {
+                                let label = ui.label(language.translate(key));
+                                ui.add(
+                                    DragValue::new(value)
+                                        .speed(0.1)
+                                        .fixed_decimals(3)
+                                        .suffix(" m"),
+                                )
+                                .labelled_by(label.id);
+                                ui.end_row();
+                            }
+                            for (key, value) in [
+                                ("Lower range story offset", &mut cut.lower_story_offset),
+                                ("Upper range story offset", &mut cut.upper_story_offset),
+                            ] {
+                                let label = ui.label(language.translate(key));
+                                ui.add(DragValue::new(value).speed(1.))
+                                    .labelled_by(label.id);
+                                ui.end_row();
+                            }
+                        });
+                    ui.label(
+                        language
+                            .translate("Story offsets: 0 current, positive above, negative below"),
+                    );
+                    if let Err(error) = cut.validate() {
+                        ui.colored_label(
+                            Color32::from_rgb(190, 65, 55),
+                            language.translate(&error),
+                        );
+                    }
+                }
                 PlanOptionKind::Scale => {
                     ui.horizontal(|ui| {
                         ui.label("1 :");
@@ -431,15 +482,32 @@ impl AtelierApp {
             });
         });
         self.plan_dialog_options = options;
-        if apply {
-            let before = self.editor.project.clone();
-            self.editor.project.plan_options = self.plan_dialog_options.clone();
-            match self.editor.project.plan_options.validate() {
+        if apply && kind == PlanOptionKind::FloorPlanCut {
+            match self
+                .host
+                .document
+                .editor
+                .apply(crate::command::ModelCommand::SetOptions {
+                    plan: Some(self.plan_dialog_options.clone()),
+                    design: None,
+                    guide: None,
+                    grid: None,
+                }) {
+                Ok(_) => {
+                    self.host.document.editor.status = "Floor plan cut settings updated".into();
+                    self.plan_option_dialog = None;
+                }
+                Err(error) => self.host.document.editor.status = error,
+            }
+        } else if apply {
+            let before = self.host.document.editor.project.clone();
+            self.host.document.editor.project.plan_options = self.plan_dialog_options.clone();
+            match self.host.document.editor.project.plan_options.validate() {
                 Ok(()) => {
-                    if self.editor.project.plan_options != before.plan_options {
-                        self.editor.commit(before);
+                    if self.host.document.editor.project.plan_options != before.plan_options {
+                        self.host.document.editor.commit(before);
                     }
-                    self.editor.status = format!(
+                    self.host.document.editor.status = format!(
                         "{} {}",
                         Self::plan_option_title(self.language, kind),
                         self.language.translate("updated")
@@ -447,8 +515,8 @@ impl AtelierApp {
                     self.plan_option_dialog = None;
                 }
                 Err(error) => {
-                    self.editor.project.plan_options = before.plan_options;
-                    self.editor.status = error;
+                    self.host.document.editor.project.plan_options = before.plan_options;
+                    self.host.document.editor.status = error;
                 }
             }
         }
@@ -481,7 +549,13 @@ impl AtelierApp {
                 .color(MUTED),
             );
             ui.separator();
-            let active = self.editor.project.plan_options.active_design_option;
+            let active = self
+                .host
+                .document
+                .editor
+                .project
+                .plan_options
+                .active_design_option;
             if ui
                 .radio(active.is_none(), language.translate("Main Model Only"))
                 .clicked()
@@ -490,6 +564,8 @@ impl AtelierApp {
             }
             ui.add_space(4.);
             let options: Vec<(u32, String)> = self
+                .host
+                .document
                 .editor
                 .project
                 .design_options
@@ -499,6 +575,8 @@ impl AtelierApp {
                 .collect();
             for (id, name) in options {
                 let count = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -572,72 +650,116 @@ impl AtelierApp {
             match action {
                 DesignAction::SetActive(option) => self.set_active_design_option(option),
                 DesignAction::Delete(id) => {
-                    let before = self.editor.project.clone();
-                    self.editor.project.design_options.remove(id);
-                    if self.editor.project.plan_options.active_design_option == Some(id) {
-                        self.editor.project.plan_options.active_design_option = None;
+                    let before = self.host.document.editor.project.clone();
+                    self.host.document.editor.project.design_options.remove(id);
+                    if self
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .plan_options
+                        .active_design_option
+                        == Some(id)
+                    {
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .active_design_option = None;
                     }
-                    for element in &mut self.editor.project.elements {
+                    for element in &mut self.host.document.editor.project.elements {
                         if element.design_option == Some(id) {
                             element.design_option = None;
                         }
                     }
-                    self.editor.commit(before);
-                    self.editor.status = language.translate("Design option deleted").into();
+                    if self.host.document.editor.commit_checked(before) {
+                        self.host.document.editor.status =
+                            language.translate("Design option deleted").into();
+                    }
                 }
                 DesignAction::Create => {
-                    let before = self.editor.project.clone();
-                    let next = self.editor.project.design_options.next_id.max(1);
+                    let before = self.host.document.editor.project.clone();
+                    let next = self
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .design_options
+                        .next_id
+                        .max(1);
                     let name = if self.design_option_new_name.trim().is_empty() {
                         format!("{} {next}", language.translate("Design Option"))
                     } else {
                         self.design_option_new_name.trim().to_owned()
                     };
-                    let id = self.editor.project.design_options.create(name.clone());
-                    self.editor.project.plan_options.active_design_option = Some(id);
-                    self.editor.commit(before);
+                    let id = self
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .design_options
+                        .create(name.clone());
+                    self.host
+                        .document
+                        .editor
+                        .project
+                        .plan_options
+                        .active_design_option = Some(id);
+                    self.host.document.editor.commit(before);
                     self.design_option_new_name.clear();
-                    self.editor.status =
+                    self.host.document.editor.status =
                         format!("{} · {name}", language.translate("Design option created"));
                 }
                 DesignAction::AssignSelected => {
-                    let Some(active) = self.editor.project.plan_options.active_design_option else {
-                        self.editor.status =
+                    let Some(active) = self
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .plan_options
+                        .active_design_option
+                    else {
+                        self.host.document.editor.status =
                             language.translate("Select a design option first").into();
                         continue;
                     };
-                    let selection: Vec<u64> = self.editor.selection_ids();
+                    let selection: Vec<u64> = self.host.document.editor.selection_ids();
                     if selection.is_empty() {
-                        self.editor.status = language.translate("Select elements to assign").into();
+                        self.host.document.editor.status =
+                            language.translate("Select elements to assign").into();
                         continue;
                     }
-                    let before = self.editor.project.clone();
-                    for element in &mut self.editor.project.elements {
+                    let before = self.host.document.editor.project.clone();
+                    for element in &mut self.host.document.editor.project.elements {
                         if selection.contains(&element.id) {
                             element.design_option = Some(active);
                         }
                     }
-                    self.editor.commit(before);
-                    self.editor.status = language
-                        .translate("Selected elements assigned to design option")
-                        .into();
+                    if self.host.document.editor.commit_checked(before) {
+                        self.host.document.editor.status = language
+                            .translate("Selected elements assigned to design option")
+                            .into();
+                    }
                 }
                 DesignAction::MoveSelectedToMain => {
-                    let selection: Vec<u64> = self.editor.selection_ids();
+                    let selection: Vec<u64> = self.host.document.editor.selection_ids();
                     if selection.is_empty() {
-                        self.editor.status = language.translate("Select elements to move").into();
+                        self.host.document.editor.status =
+                            language.translate("Select elements to move").into();
                         continue;
                     }
-                    let before = self.editor.project.clone();
-                    for element in &mut self.editor.project.elements {
+                    let before = self.host.document.editor.project.clone();
+                    for element in &mut self.host.document.editor.project.elements {
                         if selection.contains(&element.id) {
                             element.design_option = None;
                         }
                     }
-                    self.editor.commit(before);
-                    self.editor.status = language
-                        .translate("Selected elements moved to Main Model")
-                        .into();
+                    if self.host.document.editor.commit_checked(before) {
+                        self.host.document.editor.status = language
+                            .translate("Selected elements moved to Main Model")
+                            .into();
+                    }
                 }
             }
         }

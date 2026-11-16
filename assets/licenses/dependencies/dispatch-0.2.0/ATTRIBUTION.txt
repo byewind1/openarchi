@@ -1,0 +1,4 @@
+dispatch 0.2.0
+Steven Sheldon
+http://github.com/SSheldon/rust-dispatch
+https://crates.io/api/v1/crates/dispatch/0.2.0/download

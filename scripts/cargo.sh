@@ -1,13 +1,11 @@
 #!/bin/sh
-# Prefer rustup's installed stable toolchain over older Homebrew binaries.
+# Keep cargo, rustc, rustdoc and formatter on one installed stable toolchain.
 set -eu
-if [ -x "$HOME/.cargo/bin/rustup" ]; then
-  OPENARCHI_RUSTC=$("$HOME/.cargo/bin/rustup" which --toolchain stable rustc)
-  OPENARCHI_CARGO=$("$HOME/.cargo/bin/rustup" which --toolchain stable cargo)
-  export RUSTC="$OPENARCHI_RUSTC"
-  export RUSTDOC="$(dirname "$OPENARCHI_RUSTC")/rustdoc"
-  # cargo resolves cargo-clippy/rustfmt through PATH; keep it on the same stable toolchain.
-  export PATH="$(dirname "$OPENARCHI_RUSTC"):$PATH"
-  exec "$OPENARCHI_CARGO" "$@"
+if command -v rustup >/dev/null 2>&1; then
+    RUSTC=$(rustup which --toolchain stable rustc)
+    RUSTDOC=$(rustup which --toolchain stable rustdoc)
+    export RUSTC RUSTDOC
+    export PATH="$(dirname "$RUSTC"):$PATH"
+    exec "$(rustup which --toolchain stable cargo)" "$@"
 fi
 exec cargo "$@"

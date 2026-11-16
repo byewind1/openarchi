@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "id": "openarchi.site-concept",
+  "mode": "SiteConcept",
+  "commands": [
+    "Explore",
+    "Conditions",
+    "Select",
+    "ConceptMass",
+    "Zone",
+    "Spaces",
+    "Plan",
+    "Model",
+    "Save"
+  ]
+}

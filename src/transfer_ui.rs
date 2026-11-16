@@ -18,7 +18,9 @@ impl AtelierApp {
     }
 
     fn element_name(&self, id: u64) -> String {
-        self.editor
+        self.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -31,11 +33,11 @@ impl AtelierApp {
     /// transfer happens immediately; without one the next plan/3D click
     /// performs it and the mode disarms.
     pub(super) fn pick_up_command(&mut self) {
-        let ids = self.editor.selection_ids();
+        let ids = self.host.document.editor.selection_ids();
         if ids.len() == 1 {
             let id = ids[0];
-            let set = self.editor.project.transfer_settings.clone();
-            match self.editor.pick_up_from(id, &set) {
+            let set = self.host.document.editor.project.transfer_settings.clone();
+            match self.host.document.editor.pick_up_from(id, &set) {
                 Ok(transfer_type) => {
                     let name = self.element_name(id);
                     let type_label = self
@@ -45,40 +47,43 @@ impl AtelierApp {
                     let template = self
                         .language
                         .translate("Picked up {type} parameters from {name}");
-                    self.editor.status = template
+                    self.host.document.editor.status = template
                         .replace("{type}", &type_label)
                         .replace("{name}", &name);
                 }
-                Err(error) => self.editor.status = self.transfer_status(&error),
+                Err(error) => self.host.document.editor.status = self.transfer_status(&error),
             }
         } else {
             self.pick_armed = true;
             self.inject_armed = false;
-            self.editor.status =
+            self.host.document.editor.status =
                 self.transfer_status("Pick up parameters · click a source element");
         }
     }
 
     pub(super) fn inject_command(&mut self) {
-        let ids = self.editor.selection_ids();
+        let ids = self.host.document.editor.selection_ids();
         if ids.is_empty() {
-            if self.editor.pick_up_buffer.entries.is_empty() {
-                self.editor.status = self.transfer_status("Pick up parameters before injecting");
+            if self.host.document.editor.pick_up_buffer.entries.is_empty() {
+                self.host.document.editor.status =
+                    self.transfer_status("Pick up parameters before injecting");
                 return;
             }
             self.inject_armed = true;
             self.pick_armed = false;
-            self.editor.status = self.transfer_status("Inject parameters · click a target element");
+            self.host.document.editor.status =
+                self.transfer_status("Inject parameters · click a target element");
         } else {
-            let set = self.editor.project.transfer_settings.clone();
-            match self.editor.inject_into(&ids, &set) {
+            let set = self.host.document.editor.project.transfer_settings.clone();
+            match self.host.document.editor.inject_into(&ids, &set) {
                 Ok(count) => {
                     let template = self
                         .language
                         .translate("Injected parameters into {count} element(s)");
-                    self.editor.status = template.replace("{count}", &count.to_string());
+                    self.host.document.editor.status =
+                        template.replace("{count}", &count.to_string());
                 }
-                Err(error) => self.editor.status = self.transfer_status(&error),
+                Err(error) => self.host.document.editor.status = self.transfer_status(&error),
             }
         }
     }
@@ -88,7 +93,7 @@ impl AtelierApp {
     /// consumed the mode.
     pub(super) fn execute_transfer(&mut self, inject: bool, hit: Option<u64>) {
         let Some(id) = hit else {
-            self.editor.status = self.transfer_status(if inject {
+            self.host.document.editor.status = self.transfer_status(if inject {
                 "No element to inject into"
             } else {
                 "No element to pick up from"
@@ -96,19 +101,20 @@ impl AtelierApp {
             return;
         };
         if inject {
-            let set = self.editor.project.transfer_settings.clone();
-            match self.editor.inject_into(&[id], &set) {
+            let set = self.host.document.editor.project.transfer_settings.clone();
+            match self.host.document.editor.inject_into(&[id], &set) {
                 Ok(count) => {
                     let template = self
                         .language
                         .translate("Injected parameters into {count} element(s)");
-                    self.editor.status = template.replace("{count}", &count.to_string());
+                    self.host.document.editor.status =
+                        template.replace("{count}", &count.to_string());
                 }
-                Err(error) => self.editor.status = self.transfer_status(&error),
+                Err(error) => self.host.document.editor.status = self.transfer_status(&error),
             }
         } else {
-            let set = self.editor.project.transfer_settings.clone();
-            match self.editor.pick_up_from(id, &set) {
+            let set = self.host.document.editor.project.transfer_settings.clone();
+            match self.host.document.editor.pick_up_from(id, &set) {
                 Ok(transfer_type) => {
                     let name = self.element_name(id);
                     let type_label = self
@@ -118,11 +124,11 @@ impl AtelierApp {
                     let template = self
                         .language
                         .translate("Picked up {type} parameters from {name}");
-                    self.editor.status = template
+                    self.host.document.editor.status = template
                         .replace("{type}", &type_label)
                         .replace("{name}", &name);
                 }
-                Err(error) => self.editor.status = self.transfer_status(&error),
+                Err(error) => self.host.document.editor.status = self.transfer_status(&error),
             }
         }
     }
@@ -131,12 +137,12 @@ impl AtelierApp {
         if self.pick_armed || self.inject_armed {
             self.pick_armed = false;
             self.inject_armed = false;
-            self.editor.status = self.transfer_status("Parameter transfer cancelled");
+            self.host.document.editor.status = self.transfer_status("Parameter transfer cancelled");
         }
     }
 
     pub(super) fn open_transfer_settings(&mut self) {
-        self.transfer_dialog = Some(self.editor.project.transfer_settings.clone());
+        self.transfer_dialog = Some(self.host.document.editor.project.transfer_settings.clone());
     }
 
     pub(super) fn transfer_settings_dialog(&mut self, ctx: &Context) {
@@ -154,6 +160,7 @@ impl AtelierApp {
             egui::Window::new(RichText::new(title).strong())
                 .open(&mut open)
                 .resizable(false)
+                .vscroll(true)
                 .collapsible(false)
                 .show(ctx, |ui| {
                     ui.set_min_width(340.);
@@ -208,7 +215,11 @@ impl AtelierApp {
                         RichText::new(self.language.translate("Transferred parameters")).strong(),
                     );
                     for transfer_type in [
+                        TransferType::ConceptMass,
                         TransferType::Wall,
+                        TransferType::Column,
+                        TransferType::Beam,
+                        TransferType::Roof,
                         TransferType::Slab,
                         TransferType::Stair,
                         TransferType::Polyline,
@@ -250,7 +261,7 @@ impl AtelierApp {
         }
         if apply {
             if let Some(settings) = self.transfer_dialog.take() {
-                self.editor.set_transfer_settings(settings);
+                self.host.document.editor.set_transfer_settings(settings);
             }
         } else if cancel || !open {
             self.transfer_dialog = None;
@@ -283,6 +294,8 @@ impl AtelierApp {
             let transferable = match kind {
                 crate::transfer_cursor::TransferCursor::PickUp => true,
                 crate::transfer_cursor::TransferCursor::Inject => self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -290,7 +303,12 @@ impl AtelierApp {
                     .find(|element| element.id == id)
                     .and_then(crate::transfer::TransferType::of)
                     .is_some_and(|transfer_type| {
-                        self.editor.pick_up_buffer.get(transfer_type).is_some()
+                        self.host
+                            .document
+                            .editor
+                            .pick_up_buffer
+                            .get(transfer_type)
+                            .is_some()
                     }),
             };
             if transferable {
@@ -313,7 +331,7 @@ impl AtelierApp {
             }
             return;
         }
-        let outline = geometry::element_footprint(&self.editor.project, element);
+        let outline = geometry::element_footprint(&self.host.document.editor.project, element);
         let path: Vec<Pos2> = outline.iter().map(|point| self.screen(r, *point)).collect();
         p.add(egui::Shape::convex_polygon(
             path.clone(),

@@ -5,7 +5,7 @@ use atelier_bim::{
     storage::{self, JsonAdapter},
     wall::{WallGeometryMethod, WallReferenceLine},
 };
-fn p(x: f32, y: f32) -> Point {
+fn p(x: f64, y: f64) -> Point {
     Point::new(x, y)
 }
 fn empty() -> Editor {
@@ -110,7 +110,7 @@ fn wall_reference_line_edit_drives_geometry_and_roundtrips() {
         .unwrap();
     assert_eq!(wall_segment(wall), (p(1., 1.), p(5., 1.)));
     let footprint = geometry::footprint(wall);
-    let center_y = footprint.iter().map(|point| point.y).sum::<f32>() / 4.;
+    let center_y = footprint.iter().map(|point| point.y).sum::<f64>() / 4.;
     assert!((center_y - 1.).abs() < 1e-5);
 
     editor.commit(before);
@@ -205,7 +205,7 @@ fn polygonal_wall_method_closes_a_counter_clockwise_ring() {
             let (start, end) = wall_segment(element);
             start.x * end.y - end.x * start.y
         })
-        .sum::<f32>()
+        .sum::<f64>()
         * 0.5;
     assert!(
         signed_area > 0.,
@@ -283,7 +283,7 @@ fn polyline_domain_validation_hit_snap_persistence_and_undo() {
     let id = editor.finish_polyline(None).unwrap().unwrap();
     assert_eq!(
         editor.project.elements[0].area(),
-        2. * 2_f32.sqrt() + 2. * 2_f32.sqrt()
+        2. * 2_f64.sqrt() + 2. * 2_f64.sqrt()
     );
     assert_eq!(
         geometry::hit_plan(&editor.project, 0, p(1., 1.), 0.02),
@@ -432,7 +432,7 @@ fn invalid_ids_and_stories_rejected() {
     p.elements[0].story = 999;
     assert!(p.validate().is_err());
     let mut p = Project::demo();
-    p.stories[0].elevation = f32::NAN;
+    p.stories[0].elevation = f64::NAN;
     assert!(p.validate().is_err());
 }
 #[test]
@@ -632,7 +632,7 @@ fn ray_pick_matches_projected_wall_and_story_visibility() {
         },
     );
     let c = Camera::default();
-    let ndc = c.matrix(1.).project_point3(glam::Vec3::new(2., 0., 4.5));
+    let ndc = c.matrix(1.).project_point3(glam::DVec3::new(2., 0., 4.5));
     assert_eq!(c.pick(&p, [ndc.x, ndc.y], 1., None), Some(id));
     assert_eq!(c.pick(&p, [ndc.x, ndc.y], 1., Some(0)), None);
     assert_eq!(c.pick(&p, [0.99, 0.99], 1., None), None);
@@ -669,10 +669,10 @@ fn demo_valid_and_all_mesh_corners_finite() {
 fn non_finite_creation_is_rejected_without_mutation() {
     let mut e = empty();
     e.set_tool(Tool::Wall);
-    e.click(p(f32::NAN, 0.), 0.);
+    e.click(p(f64::NAN, 0.), 0.);
     assert!(e.anchor.is_none());
     e.click(p(0., 0.), 0.);
-    e.click(p(f32::INFINITY, 3.), 0.);
+    e.click(p(f64::INFINITY, 3.), 0.);
     assert!(e.project.elements.is_empty());
     e.height = -1.;
     e.click(p(4., 0.), 0.);
@@ -748,7 +748,7 @@ fn wall_settings_edit_geometry_undo_persistence_and_new_wall_defaults() {
         .find(|element| element.id == id)
         .unwrap();
     let footprint = geometry::footprint(wall);
-    let center_y = footprint.iter().map(|point| point.y).sum::<f32>() / 4.;
+    let center_y = footprint.iter().map(|point| point.y).sum::<f64>() / 4.;
     assert!((center_y - 0.1).abs() < 1e-5);
     let base = editor.project.elevation(0);
     let corners = geometry::corners(&editor.project, wall);

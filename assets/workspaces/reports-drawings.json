@@ -1,0 +1,13 @@
+{
+  "schema_version": 1,
+  "id": "openarchi.reports-drawings",
+  "mode": "ReportsDrawings",
+  "commands": [
+    "Drawings",
+    "Reports",
+    "Conditions",
+    "Plan",
+    "Model",
+    "Save"
+  ]
+}

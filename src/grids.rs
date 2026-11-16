@@ -8,7 +8,7 @@
 use crate::model::Point;
 use serde::{Deserialize, Serialize};
 
-pub const MIN_SCREEN_GAP: f32 = 3.0;
+pub const MIN_SCREEN_GAP: f64 = 3.0;
 const MAX_LINES: usize = 20_000;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,23 +33,23 @@ impl GridSnapMode {
 #[serde(default)]
 pub struct GridSettings {
     pub show_construction_grid: bool,
-    pub main_spacing_x: f32,
-    pub main_spacing_y: f32,
+    pub main_spacing_x: f64,
+    pub main_spacing_y: f64,
     pub main_steps_x: u32,
     pub main_steps_y: u32,
-    pub aux_spacing_x: f32,
-    pub aux_spacing_y: f32,
+    pub aux_spacing_x: f64,
+    pub aux_spacing_y: f64,
     pub aux_steps_x: u32,
     pub aux_steps_y: u32,
     pub grid_snap_enabled: bool,
     pub snap_mode: GridSnapMode,
-    pub snap_spacing_x: f32,
-    pub snap_spacing_y: f32,
+    pub snap_spacing_x: f64,
+    pub snap_spacing_y: f64,
     pub rotate_enabled: bool,
     pub rotated_display: bool,
-    pub origin_x: f32,
-    pub origin_y: f32,
-    pub rotation_deg: f32,
+    pub origin_x: f64,
+    pub origin_y: f64,
+    pub rotation_deg: f64,
     pub origin_display: bool,
     pub background: [u8; 4],
     pub grid_line_color: [u8; 4],
@@ -104,20 +104,20 @@ pub struct GridLine {
 
 #[derive(Clone, Debug, PartialEq)]
 struct GridPattern {
-    period: f32,
-    offsets: Vec<(f32, bool)>,
+    period: f64,
+    offsets: Vec<(f64, bool)>,
 }
 
 impl GridPattern {
-    fn nearest(&self, value: f32) -> Option<(f32, bool)> {
+    fn nearest(&self, value: f64) -> Option<(f64, bool)> {
         let period = self.period;
         if !period.is_finite() || period <= 0.0 || self.offsets.is_empty() {
             return None;
         }
         let base = (value / period).floor();
-        let mut best: Option<(f32, f32, bool)> = None;
+        let mut best: Option<(f64, f64, bool)> = None;
         for shift in -1..=1 {
-            let period_start = (base + shift as f32) * period;
+            let period_start = (base + shift as f64) * period;
             for (offset, main) in &self.offsets {
                 let candidate = period_start + *offset;
                 let error = (candidate - value).abs();
@@ -129,7 +129,7 @@ impl GridPattern {
         best.map(|(_, position, main)| (position, main))
     }
 
-    fn between(&self, min: f32, max: f32) -> Vec<(f32, bool)> {
+    fn between(&self, min: f64, max: f64) -> Vec<(f64, bool)> {
         if !min.is_finite() || !max.is_finite() || max < min {
             return Vec::new();
         }
@@ -137,7 +137,7 @@ impl GridPattern {
         let end_k = (max / self.period).ceil() as i64 + 1;
         let mut out = Vec::new();
         for k in start_k..=end_k {
-            let base = k as f32 * self.period;
+            let base = k as f64 * self.period;
             for (offset, main) in &self.offsets {
                 let position = base + *offset;
                 if position >= min - 1e-4 && position <= max + 1e-4 {
@@ -154,7 +154,7 @@ impl GridPattern {
 }
 
 impl GridSettings {
-    pub fn active_angle_radians(&self) -> f32 {
+    pub fn active_angle_radians(&self) -> f64 {
         if self.rotate_enabled && self.rotated_display {
             self.rotation_deg.to_radians()
         } else {
@@ -170,7 +170,7 @@ impl GridSettings {
         Point::new(dx * cos + dy * sin, -dx * sin + dy * cos)
     }
 
-    pub fn world_point(&self, u: f32, v: f32) -> Point {
+    pub fn world_point(&self, u: f64, v: f64) -> Point {
         let angle = self.active_angle_radians();
         let (sin, cos) = angle.sin_cos();
         Point::new(
@@ -179,7 +179,7 @@ impl GridSettings {
         )
     }
 
-    fn cycle(&self, x_axis: bool) -> Vec<(f32, bool)> {
+    fn cycle(&self, x_axis: bool) -> Vec<(f64, bool)> {
         let (main_spacing, main_steps, aux_spacing, aux_steps) = if x_axis {
             (
                 self.main_spacing_x,
@@ -214,7 +214,7 @@ impl GridSettings {
         if cycle.is_empty() {
             return None;
         }
-        let period: f32 = cycle.iter().map(|(spacing, _)| *spacing).sum();
+        let period: f64 = cycle.iter().map(|(spacing, _)| *spacing).sum();
         if !period.is_finite() || period <= 0.0 {
             return None;
         }
@@ -233,14 +233,14 @@ impl GridSettings {
         Some(GridPattern { period, offsets })
     }
 
-    pub fn minimum_gap(&self, x_axis: bool) -> Option<f32> {
+    pub fn minimum_gap(&self, x_axis: bool) -> Option<f64> {
         self.cycle(x_axis)
             .into_iter()
             .map(|(spacing, _)| spacing)
-            .reduce(f32::min)
+            .reduce(f64::min)
     }
 
-    pub fn grid_visible_at(&self, pixels_per_meter: f32) -> bool {
+    pub fn grid_visible_at(&self, pixels_per_meter: f64) -> bool {
         if !self.show_construction_grid || !pixels_per_meter.is_finite() {
             return false;
         }
@@ -253,7 +253,7 @@ impl GridSettings {
         x_ok && y_ok
     }
 
-    pub fn lines_in_local(&self, min_u: f32, max_u: f32, min_v: f32, max_v: f32) -> Vec<GridLine> {
+    pub fn lines_in_local(&self, min_u: f64, max_u: f64, min_v: f64, max_v: f64) -> Vec<GridLine> {
         if !self.show_construction_grid {
             return Vec::new();
         }
@@ -310,7 +310,7 @@ impl GridSettings {
         }
     }
 
-    pub fn nudge_distance(&self, x_axis: bool, large: bool) -> f32 {
+    pub fn nudge_distance(&self, x_axis: bool, large: bool) -> f64 {
         if large {
             if x_axis {
                 self.main_spacing_x
@@ -331,12 +331,12 @@ impl GridSettings {
     pub fn line_color(&self, main: bool) -> [u8; 4] {
         let mut color = self.grid_line_color;
         if !main {
-            color[3] = (color[3] as f32 * 0.55).round() as u8;
+            color[3] = (color[3] as f64 * 0.55).round() as u8;
         }
         color
     }
 
-    pub fn angle_from_vector(start: Point, end: Point) -> Option<f32> {
+    pub fn angle_from_vector(start: Point, end: Point) -> Option<f64> {
         let delta = Point::new(end.x - start.x, end.y - start.y);
         if delta.x.hypot(delta.y) < 1e-6 {
             return None;
@@ -402,7 +402,7 @@ impl GridSettings {
     }
 }
 
-pub fn normalize_angle(degrees: f32) -> f32 {
+pub fn normalize_angle(degrees: f64) -> f64 {
     let mut angle = degrees % 360.0;
     if angle <= -180.0 {
         angle += 360.0;

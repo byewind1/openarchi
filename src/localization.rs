@@ -9,6 +9,65 @@ pub enum UiLanguage {
 }
 
 impl UiLanguage {
+    /// Presentation only: the original structured reason remains in the report.
+    pub fn geometry_diagnostic_message(
+        self,
+        diagnostic: &crate::derived_geometry::GeometryDiagnostic,
+    ) -> String {
+        let code = diagnostic.code.as_str();
+        let key = if code == "COMPARISON_STALE" {
+            "Comparison objects changed; reopen the current comparison"
+        } else if code == "COMPARISON_BOUNDS" {
+            "Comparison geometry has no bounds"
+        } else if code == "COMPARISON_SOURCE_INVALID" {
+            match diagnostic.message.as_str() {
+                "Candidate 3D preview needs 1–32 unique ascending object IDs" => {
+                    "Candidate 3D preview needs 1–32 unique ascending object IDs"
+                }
+                "Comparison object is missing" => "Comparison object is missing",
+                "Candidate 3D preview supports concept masses and Zones only" => {
+                    "Candidate 3D preview supports concept masses and Zones only"
+                }
+                _ => "Cannot generate the geometry. Check the element parameters and story.",
+            }
+        } else if code.contains("CLIP") {
+            "Cannot display the clipping region. Check its outline and height limits."
+        } else if code.contains("POLYLINE") {
+            "Cannot generate the polyline. Check its nodes and arc radii."
+        } else if code.contains("OPENING") {
+            "Cannot generate the opening. Check its host wall and dimensions."
+        } else if code.contains("WALL") {
+            "Cannot generate the wall. Check its dimensions, connections and openings."
+        } else if code.contains("SLAB") {
+            "Cannot generate the slab. Check its outline, holes and edge slopes."
+        } else if code.contains("ROOF") {
+            "Cannot generate the roof. Check its outline, pivot and pitch."
+        } else if code == "INVALID_COLUMN_PLAN_CONTEXT" {
+            "Cannot display the column plan. Check the cut plane and projection range."
+        } else if code.contains("COLUMN") {
+            "Cannot generate the column. Check its section, height and inclination."
+        } else if code.contains("BEAM") {
+            "Cannot generate the beam. Check its axis, section and slope."
+        } else if code.contains("STAIR") {
+            "Cannot generate the stair. Check its run, rise and steps."
+        } else {
+            "Cannot generate the geometry. Check the element parameters and story."
+        };
+        let reason = self.translate(key);
+        if diagnostic.element_id == 0 {
+            reason.to_owned()
+        } else {
+            self.translate("Element {id}: {reason}")
+                .replace("{id}", &diagnostic.element_id.to_string())
+                .replace("{reason}", reason)
+        }
+    }
+
+    pub(crate) fn geometry_error_message(self, message: &str) -> Option<String> {
+        crate::geometry_validation::diagnostic_from_message(message)
+            .map(|d| self.geometry_diagnostic_message(&d))
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             Self::English => "English",
@@ -61,6 +120,39 @@ static ENGLISH: OnceLock<Value> = OnceLock::new();
 #[cfg(test)]
 mod tests {
     use super::{EN, UiLanguage, ZH_CN};
+
+    #[test]
+    fn view_option_labels_have_bilingual_translations() {
+        for (english, chinese) in [
+            ("Axonometry", "轴测图"),
+            ("Basic", "基本"),
+            ("Vectorial", "矢量"),
+            ("Simple Shading", "简单着色"),
+            ("Technical", "技术"),
+            ("Detailed", "详细"),
+            ("Shadows", "阴影"),
+            ("White Model", "白模"),
+            ("Wireframe", "线框"),
+            ("Orbit", "轨道旋转"),
+            ("Explore Model", "漫游模型"),
+        ] {
+            assert_eq!(UiLanguage::English.translate(english), english);
+            assert_eq!(UiLanguage::SimplifiedChinese.translate(english), chinese);
+        }
+    }
+
+    #[test]
+    fn all_model_material_display_names_have_bilingual_entries() {
+        let english: serde_json::Value = serde_json::from_str(EN).unwrap();
+        let chinese: serde_json::Value = serde_json::from_str(ZH_CN).unwrap();
+        for material in crate::model::Material::ALL {
+            let key = material.name();
+            assert_eq!(english.get(key).and_then(|v| v.as_str()), Some(key));
+            assert!(chinese.get(key).and_then(|v| v.as_str()).is_some());
+            assert_ne!(UiLanguage::SimplifiedChinese.translate(key), key);
+            assert_eq!(UiLanguage::English.translate(key), key);
+        }
+    }
 
     #[test]
     fn both_language_packs_resolve_core_labels_and_fallback_unknown_keys() {
@@ -367,6 +459,56 @@ mod tests {
                 expected,
                 "missing or stale Simplified Chinese label for {key}"
             );
+        }
+    }
+}
+
+#[cfg(test)]
+mod save_menu_translation_tests {
+    #[test]
+    fn save_as_label_resolves_in_both_languages() {
+        use super::UiLanguage;
+        assert_eq!(UiLanguage::English.translate("Save As…"), "Save As…");
+        assert_eq!(
+            UiLanguage::SimplifiedChinese.translate("Save As…"),
+            "另存为…"
+        );
+    }
+}
+
+#[cfg(test)]
+mod geometry_diagnostic_translation_tests {
+    use super::*;
+    #[test]
+    fn every_supported_geometry_family_and_clip_has_actionable_bilingual_errors() {
+        for family in [
+            "POLYLINE",
+            "WALL",
+            "SLAB",
+            "ROOF",
+            "COLUMN",
+            "COLUMN_PLAN_CONTEXT",
+            "BEAM",
+            "STAIR",
+            "OPENING",
+            "VIEW_CLIP",
+            "UNKNOWN",
+        ] {
+            let d = crate::derived_geometry::GeometryDiagnostic::error(
+                17,
+                format!("INVALID_{family}"),
+                "body",
+                "raw backend reason",
+            );
+            let en = UiLanguage::English.geometry_diagnostic_message(&d);
+            let zh = UiLanguage::SimplifiedChinese.geometry_diagnostic_message(&d);
+            assert_ne!(en, zh);
+            assert!(en.starts_with("Element 17:"));
+            assert!(zh.starts_with("构件 17："));
+            assert!(!en.contains("backend"));
+            assert!(!zh.contains("backend"));
+            assert!(en.contains("Check"));
+            assert!(zh.contains("请检查"));
         }
     }
 }

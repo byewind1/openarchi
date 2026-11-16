@@ -1,0 +1,110 @@
+{
+  "schema_version": 1,
+  "name": "Synthetic roof geometry",
+  "next_id": 2,
+  "stories": [
+    {
+      "id": 0,
+      "name": "Ground floor",
+      "elevation": 0.0
+    },
+    {
+      "id": 1,
+      "name": "First floor",
+      "elevation": 3.2
+    },
+    {
+      "id": 2,
+      "name": "Roof level",
+      "elevation": 6.4
+    }
+  ],
+  "elements": [
+    {
+      "id": 1,
+      "name": "Synthetic roof",
+      "story": 0,
+      "material": "Concrete",
+      "layer": 0,
+      "renovation": "Existing",
+      "design_option": null,
+      "wall_settings": null,
+      "shape": {
+        "kind": "Roof",
+        "spec": {
+          "pivot_start": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "pivot_end": {
+            "x": 6.0,
+            "y": 0.0
+          },
+          "rise_left": true,
+          "min": {
+            "x": 0.0,
+            "y": 0.0
+          },
+          "max": {
+            "x": 6.0,
+            "y": 6.0
+          },
+          "pitch": 30.0,
+          "thickness": 0.2,
+          "pivot_offset": 3.0,
+          "contour": {
+            "outer": [
+              {
+                "x": 0,
+                "y": 0
+              },
+              {
+                "x": 6,
+                "y": 0
+              },
+              {
+                "x": 6,
+                "y": 2
+              },
+              {
+                "x": 2,
+                "y": 2
+              },
+              {
+                "x": 2,
+                "y": 6
+              },
+              {
+                "x": 0,
+                "y": 6
+              }
+            ],
+            "holes": [
+              [
+                {
+                  "x": 0.5,
+                  "y": 0.5
+                },
+                {
+                  "x": 1.5,
+                  "y": 0.5
+                },
+                {
+                  "x": 1.5,
+                  "y": 1.5
+                },
+                {
+                  "x": 0.5,
+                  "y": 1.5
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "wall_contour": null,
+      "slab_contour": null,
+      "worksheet": null
+    }
+  ]
+}

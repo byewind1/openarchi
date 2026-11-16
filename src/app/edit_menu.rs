@@ -134,11 +134,11 @@ pub(super) struct EditDialog {
     name: String,
     ids: Vec<u64>,
     revision: u64,
-    x: f32,
-    y: f32,
+    x: f64,
+    y: f64,
     origin: Point,
-    angle: f32,
-    scale: f32,
+    angle: f64,
+    scale: f64,
     copies: usize,
     story: u32,
     query: String,
@@ -188,6 +188,15 @@ impl EditDialog {
 }
 impl AtelierApp {
     pub(super) fn edit_command_enabled(&self, name: &str) -> bool {
+        if self.navigation.mode != viewport_navigation::Mode::Edit {
+            return false;
+        }
+        if matches!(self.view, View::Figure(_)) && !matches!(name, "Undo" | "Redo") {
+            return false;
+        }
+        if name == "Delete" && self.drawings_ui.canvas_selected && self.drawings_ui.mode.is_none() {
+            return true;
+        }
         if super::reshape_ui::COMMANDS.contains(&name) {
             return self.reshape_enabled(name);
         }
@@ -198,12 +207,13 @@ impl AtelierApp {
             return false;
         }
         match name {
-            "Undo" => !self.editor.undo.is_empty(),
-            "Redo" => !self.editor.redo.is_empty(),
+            "Undo" => !self.host.document.editor.undo.is_empty(),
+            "Redo" => !self.host.document.editor.redo.is_empty(),
             "Repeat Last Command" => {
-                self.editor.last_edit.is_some() && !self.editor.selection_ids().is_empty()
+                self.host.document.editor.last_edit.is_some()
+                    && !self.host.document.editor.selection_ids().is_empty()
             }
-            "Paste" => !self.editor.clipboard.is_empty(),
+            "Paste" => !self.host.document.editor.clipboard.is_empty(),
             "Select All"
             | "Find & Select…"
             | "Suspend Groups"
@@ -213,7 +223,7 @@ impl AtelierApp {
             | "Pick Up Parameters"
             | "Inject Parameters"
             | "Element Transfer Settings…" => true,
-            _ => !self.editor.selection_ids().is_empty(),
+            _ => !self.host.document.editor.selection_ids().is_empty(),
         }
     }
     pub(super) fn edit_menu(&mut self, ui: &mut Ui) {
@@ -231,8 +241,8 @@ impl AtelierApp {
         for &name in items {
             let enabled = self.edit_command_enabled(name);
             let checked = match name {
-                "Suspend Groups" => self.editor.project.edit_state.suspend_groups,
-                "Autogroup" => self.editor.project.edit_state.autogroup,
+                "Suspend Groups" => self.host.document.editor.project.edit_state.suspend_groups,
+                "Autogroup" => self.host.document.editor.project.edit_state.autogroup,
                 _ => false,
             };
             let response = ui.add_enabled(
@@ -262,19 +272,22 @@ impl AtelierApp {
             return;
         }
         if matches!(name, "Drag" | "Drag a Copy" | "Drag Multiple Copies") {
-            self.editor.set_tool(Tool::Select);
+            self.host.document.editor.set_tool(Tool::Select);
             self.wall_edit = None;
 
             self.drag = None;
-            self.editor.status = "Enter Drag Reference Point".into();
+            self.host.document.editor.status = "Enter Drag Reference Point".into();
             self.pointer_drag = Some(PointerDrag {
                 origin: None,
+                model_plane: None,
+                shift_suppressed: false,
                 reference_button_down: false,
                 tracker: super::drag_tracker::DragTracker::default(),
                 placed_ids: Vec::new(),
                 last_placement: None,
-                ids: self.editor.selection_ids(),
-                revision: self.editor.revision,
+                ids: self.host.document.editor.selection_ids(),
+                input_scope: self.drag_input_scope(),
+                revision: self.host.document.editor.revision,
                 mode: if name == "Drag Multiple Copies" {
                     2
                 } else if name == "Drag a Copy" {
@@ -292,53 +305,64 @@ impl AtelierApp {
         }
         let command = match name {
             "Undo" => {
-                self.editor.undo();
+                self.dispatch_history(false);
                 return;
             }
             "Redo" => {
-                self.editor.redo();
+                self.dispatch_history(true);
                 return;
             }
             "Cut" => {
-                self.editor.cut_selection();
-                self.clipboard_write_pending = !self.editor.clipboard.is_empty();
+                self.host.document.editor.cut_selection();
+                self.clipboard_write_pending = !self.host.document.editor.clipboard.is_empty();
                 return;
             }
             "Copy" => {
-                self.editor.copy_selection();
-                self.clipboard_write_pending = !self.editor.clipboard.is_empty();
+                self.host.document.editor.copy_selection();
+                self.clipboard_write_pending = !self.host.document.editor.clipboard.is_empty();
                 return;
             }
             "Paste" => {
-                self.editor.paste(Point::new(0.5, 0.5));
+                self.host.document.editor.paste(Point::new(0.5, 0.5));
                 return;
             }
             "Delete" => {
-                self.editor.delete();
+                if self.drawings_ui.canvas_selected {
+                    self.delete_selected_drawing();
+                    return;
+                }
+                self.host.document.editor.delete();
                 return;
             }
             "Select All" => {
-                if self.editor.tool == Tool::Marquee && self.editor.marquee.is_some() {
-                    let count = self.editor.select_all_in_marquee();
-                    self.editor.status = format!("Selected {count} element(s) in Marquee");
+                if self.host.document.editor.tool == Tool::Marquee
+                    && self.host.document.editor.marquee.is_some()
+                {
+                    let count = self.host.document.editor.select_all_in_marquee();
+                    self.host.document.editor.status =
+                        format!("Selected {count} element(s) in Marquee");
                     return;
                 }
                 let ids = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
                     .iter()
                     .filter(|e| {
-                        e.story == self.editor.story
+                        e.story == self.host.document.editor.story
                             && self
+                                .host
+                                .document
                                 .editor
                                 .project
                                 .plan_options
-                                .element_visible(e, &self.editor.project.layers)
+                                .element_visible(e, &self.host.document.editor.project.layers)
                     })
                     .map(|e| e.id)
                     .collect();
-                self.editor.set_selection(ids);
+                self.host.document.editor.set_selection(ids);
                 return;
             }
             "Tool Settings" => {
@@ -357,7 +381,7 @@ impl AtelierApp {
                 self.open_transfer_settings();
                 return;
             }
-            "Repeat Last Command" => self.editor.last_edit.clone(),
+            "Repeat Last Command" => self.host.document.editor.last_edit.clone(),
             "Intersect" => Some(EditCommand::Intersect),
             "Merge Walls" => Some(EditCommand::MergeWalls),
             "Group" => Some(EditCommand::Group),
@@ -388,31 +412,33 @@ impl AtelierApp {
             _ => None,
         };
         if let Some(command) = command {
-            if let Err(error) = self.editor.edit(command) {
-                self.editor.status = error;
+            if let Err(error) = self.host.document.editor.edit(command) {
+                self.host.document.editor.status = error;
             }
             return;
         }
-        let ids = self.editor.selection_ids();
+        let ids = self.host.document.editor.selection_ids();
         let points: Vec<_> = self
+            .host
+            .document
             .editor
             .project
             .elements
             .iter()
             .filter(|e| ids.contains(&e.id))
-            .flat_map(|e| geometry::element_footprint(&self.editor.project, e))
+            .flat_map(|e| geometry::element_footprint(&self.host.document.editor.project, e))
             .collect();
         let origin = if points.is_empty() {
             Point::default()
         } else {
             let lo = points
                 .iter()
-                .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
+                .fold(Point::new(f64::INFINITY, f64::INFINITY), |a, p| {
                     Point::new(a.x.min(p.x), a.y.min(p.y))
                 });
             let hi = points
                 .iter()
-                .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
+                .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |a, p| {
                     Point::new(a.x.max(p.x), a.y.max(p.y))
                 });
             Point::new((lo.x + hi.x) / 2., (lo.y + hi.y) / 2.)
@@ -420,14 +446,14 @@ impl AtelierApp {
         let mut d = EditDialog {
             name: name.into(),
             ids,
-            revision: self.editor.revision,
+            revision: self.host.document.editor.revision,
             x: 0.,
             y: 0.,
             origin,
             angle: 0.,
             scale: 1.,
             copies: 0,
-            story: self.editor.story,
+            story: self.host.document.editor.story,
             query: String::new(),
             kind: "All".into(),
             error: String::new(),
@@ -466,8 +492,8 @@ impl AtelierApp {
                     90.
                 };
             }
-            if let Err(error) = self.editor.edit(command) {
-                self.editor.status = error;
+            if let Err(error) = self.host.document.editor.edit(command) {
+                self.host.document.editor.status = error;
             }
             return;
         }
@@ -566,7 +592,9 @@ impl AtelierApp {
                         ui.label(lang.translate("Home Story"));
                         ComboBox::from_id_salt("edit_story")
                             .selected_text(
-                                self.editor
+                                self.host
+                                    .document
+                                    .editor
                                     .project
                                     .stories
                                     .iter()
@@ -575,7 +603,7 @@ impl AtelierApp {
                                     .unwrap_or(""),
                             )
                             .show_ui(ui, |ui| {
-                                for s in &self.editor.project.stories {
+                                for s in &self.host.document.editor.project.stories {
                                     ui.selectable_value(&mut d.story, s.id, &s.name);
                                 }
                             });
@@ -583,7 +611,7 @@ impl AtelierApp {
                     }
                 });
                 ui.label(lang.translate("One operation · Undo restores all affected elements"));
-                if self.editor.revision != d.revision {
+                if self.host.document.editor.revision != d.revision {
                     d.error = "Project changed; reopen this command".into();
                 }
             }
@@ -598,12 +626,12 @@ impl AtelierApp {
                     let points: Vec<_> = d.preview.iter().flatten().copied().collect();
                     let lo = points
                         .iter()
-                        .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
+                        .fold(Point::new(f64::INFINITY, f64::INFINITY), |a, p| {
                             Point::new(a.x.min(p.x), a.y.min(p.y))
                         });
                     let hi = points
                         .iter()
-                        .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
+                        .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |a, p| {
                             Point::new(a.x.max(p.x), a.y.max(p.y))
                         });
                     let scale = (420. / (hi.x - lo.x).max(0.1)).min(140. / (hi.y - lo.y).max(0.1));
@@ -630,7 +658,7 @@ impl AtelierApp {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 apply = ui
                     .add_enabled(
-                        find || self.editor.revision == d.revision,
+                        find || self.host.document.editor.revision == d.revision,
                         Button::new(lang.translate(if find { "Select" } else { "OK" })),
                     )
                     .clicked();
@@ -641,7 +669,7 @@ impl AtelierApp {
             return;
         }
         if preview {
-            let mut draft = Editor::new(self.editor.project.clone());
+            let mut draft = Editor::new(self.host.document.editor.project.clone());
             draft.set_selection(d.ids.clone());
             match draft.edit(d.command()) {
                 Ok(_) => {
@@ -652,16 +680,12 @@ impl AtelierApp {
                         .iter()
                         .filter(|e| ids.contains(&e.id))
                         .take(256)
-                        .map(|e| match &e.shape {
-                            Shape::Polyline { points, arcs } => {
-                                geometry::polyline_path(points, arcs)
-                            }
-                            _ => {
-                                let mut path =
-                                    geometry::element_footprint(&draft.project, e).to_vec();
-                                path.push(path[0]);
-                                path
-                            }
+                        .flat_map(|e| {
+                            geometry::element_plan_paths_on_story(
+                                &draft.project,
+                                e,
+                                self.host.document.editor.story,
+                            )
                         })
                         .collect();
                     d.error.clear();
@@ -676,31 +700,35 @@ impl AtelierApp {
             if find {
                 let query = d.query.to_lowercase();
                 let ids = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
                     .iter()
                     .filter(|e| {
-                        e.story == self.editor.story
+                        e.story == self.host.document.editor.story
                             && (d.kind == "All" || e.kind() == d.kind)
                             && e.name.to_lowercase().contains(&query)
                             && self
+                                .host
+                                .document
                                 .editor
                                 .project
                                 .plan_options
-                                .element_visible(e, &self.editor.project.layers)
+                                .element_visible(e, &self.host.document.editor.project.layers)
                     })
                     .map(|e| e.id)
                     .collect();
-                self.editor.set_selection(ids);
+                self.host.document.editor.set_selection(ids);
                 return;
             }
-            let original = self.editor.selection_ids();
-            self.editor.set_selection(d.ids.clone());
-            match self.editor.edit(d.command()) {
+            let original = self.host.document.editor.selection_ids();
+            self.host.document.editor.set_selection(d.ids.clone());
+            match self.host.document.editor.edit(d.command()) {
                 Ok(_) => return,
                 Err(error) => {
-                    self.editor.set_selection(original);
+                    self.host.document.editor.set_selection(original);
                     d.error = error;
                 }
             }
@@ -712,6 +740,9 @@ impl AtelierApp {
 /// A click-to-place command; previews never mutate the document or undo stack.
 #[derive(Clone, Debug, PartialEq)]
 pub(super) struct PointerDrag {
+    shift_suppressed: bool,
+    model_plane: Option<bool>,
+    input_scope: (View, u32, Option<u64>, crate::view_settings::DimensionStyle),
     origin: Option<Point>,
     // Consume the release belonging to the reference-point press.
     reference_button_down: bool,
@@ -731,12 +762,15 @@ impl AtelierApp {
         self.drag = None;
         self.pointer_drag = Some(PointerDrag {
             origin: Some(origin),
+            model_plane: None,
+            shift_suppressed: false,
             reference_button_down: false,
             tracker: super::drag_tracker::DragTracker::default(),
             last_placement: None,
             placed_ids: Vec::new(),
-            ids: self.editor.selection_ids(),
-            revision: self.editor.revision,
+            ids: self.host.document.editor.selection_ids(),
+            input_scope: self.drag_input_scope(),
+            revision: self.host.document.editor.revision,
             mode: 0,
             modifiers: Modifiers::NONE,
         });
@@ -749,6 +783,11 @@ impl AtelierApp {
         response: &Response,
         model: bool,
     ) {
+        // Text widgets, modal windows and background input retain their keys.
+        // Keep the transient drag intact until the canvas owns input again.
+        if self.pointer_drag_ime_owns_input(ui.ctx()) || self.canvas_keyboard_blocked(ui) {
+            return;
+        }
         let pointer = ui
             .input(|i| i.pointer.hover_pos())
             .filter(|p| r.contains(*p));
@@ -758,7 +797,11 @@ impl AtelierApp {
                     &self.camera,
                     r,
                     p,
-                    self.editor.project.elevation(self.editor.story),
+                    self.host
+                        .document
+                        .editor
+                        .project
+                        .elevation(self.host.document.editor.story),
                 )
             } else {
                 Some(self.world(r, p))
@@ -772,7 +815,12 @@ impl AtelierApp {
         let Some(mut drag) = self.pointer_drag.take() else {
             return;
         };
-        if drag.revision != self.editor.revision {
+        if drag.input_scope != self.drag_input_scope() {
+            self.complete_pointer_drag(drag);
+            self.host.document.editor.status = "Edit cancelled after view or unit change".into();
+            return;
+        }
+        if drag.revision != self.host.document.editor.revision {
             return;
         }
         let Some(point) = point else {
@@ -788,19 +836,41 @@ impl AtelierApp {
             if response.is_pointer_button_down_on()
                 && ui.input(|i| i.pointer.button_pressed(PointerButton::Primary))
             {
-                drag.origin = reference_point.or(Some(point));
+                let reference = reference_point.unwrap_or(point);
+                drag.origin = Some(if !model && self.host.document.editor.snap {
+                    self.input_origin_node(reference).unwrap_or(reference)
+                } else {
+                    reference
+                });
+                drag.model_plane = Some(model);
                 drag.reference_button_down = true;
                 drag.modifiers = ui.input(|i| i.modifiers);
-                self.editor.status = "Enter Drag-to Point".into();
+                self.host.document.editor.status = "Enter Drag-to Point".into();
             }
             self.pointer_drag = Some(drag);
             return;
         };
+        if drag.model_plane.is_some_and(|plane| plane != model) {
+            self.complete_pointer_drag(drag);
+            self.host.document.editor.status = "Edit cancelled after view or unit change".into();
+            return;
+        }
+        drag.model_plane = Some(model);
+        let pointer_on_tracker = pointer.is_some_and(|pos| drag.tracker.owns_pointer(pos));
+        let point = pointer
+            .and_then(|pos| drag.tracker.pointer_offset(pos))
+            .map_or(point, |offset| {
+                Point::new(origin.x + offset.x, origin.y + offset.y)
+            });
         // The reference press owns its release, including tiny motions that egui
         // still classifies as a click. It must never also place the element.
         let reference_press = drag.reference_button_down;
         drag.reference_button_down &= ui.input(|i| i.pointer.button_down(PointerButton::Primary));
         let modifiers = ui.input(|i| i.modifiers);
+        if !modifiers.shift {
+            drag.shift_suppressed = false;
+        }
+        let constrain_shift = modifiers.shift && !drag.shift_suppressed;
         // Read transitions as well as final state: a quick tap can begin and end in one frame.
         let changes = ui.input(|i| {
             i.events
@@ -821,14 +891,34 @@ impl AtelierApp {
             }
             drag.modifiers = value;
         }
-        self.editor.status = match drag.mode {
+        self.host.document.editor.status = match drag.mode {
             1 => "Enter Drag-to Point · Drag a Copy",
             2 => "Enter Drag-to Point · Drag Multiple Copies",
             _ => "Enter Drag-to Point",
         }
         .into();
-        let mut offset = Point::new(point.x - origin.x, point.y - origin.y);
-        if modifiers.shift {
+        if modifiers.shift && drag.shift_suppressed {
+            self.host
+                .document
+                .editor
+                .status
+                .push_str(" · Direction constraint released");
+        }
+        let mut offset = if model {
+            Point::new(point.x - origin.x, point.y - origin.y)
+        } else {
+            self.drag_guide_feedback(ui, r, point, origin);
+            let source_ids = drag
+                .ids
+                .iter()
+                .chain(&drag.placed_ids)
+                .copied()
+                .collect::<Vec<_>>();
+            let (target, _) =
+                self.precise_drag_target_for_sources(point, origin, constrain_shift, &source_ids);
+            Point::new(target.x - origin.x, target.y - origin.y)
+        };
+        if model && constrain_shift {
             if offset.x.abs() >= offset.y.abs() {
                 offset.y = 0.;
             } else {
@@ -836,11 +926,25 @@ impl AtelierApp {
             }
         }
         let (unit_scale, unit) = super::drag_tracker::DragTracker::unit(
-            self.editor.project.plan_options.dimension_style,
+            self.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .dimension_style,
         );
         let events = ui.input(|i| i.events.clone());
-        let (offset, tracker_confirm, tracker_valid) =
-            drag.tracker.update(&events, offset, unit_scale);
+        let overrides = self.shortcut_overrides().to_vec();
+        let (offset, tracker_confirm, tracker_valid) = drag.tracker.update(
+            &events,
+            offset,
+            unit_scale,
+            unit,
+            origin,
+            self.host.document.editor.project.plan_options.user_origin,
+            !model,
+            &overrides,
+        );
         let destination = Point::new(origin.x + offset.x, origin.y + offset.y);
         let command = EditCommand::Transform {
             offset,
@@ -850,18 +954,26 @@ impl AtelierApp {
             mirror: false,
             copies: usize::from(drag.mode != 0),
         };
-        let mut draft = Editor::new(self.editor.project.clone());
+        let mut draft = Editor::new(self.host.document.editor.project.clone());
         draft.set_selection(drag.ids.clone());
         let preview = draft.edit(command.clone());
+        if let Err(error) = &preview {
+            self.host.document.editor.status = error.clone();
+        }
         let painter = ui.painter_at(r);
-        let matrix = self.camera.matrix(r.aspect_ratio());
-        let elevation = self.editor.project.elevation(self.editor.story);
+        let matrix = self.camera.matrix(r.aspect_ratio().into());
+        let elevation = self
+            .host
+            .document
+            .editor
+            .project
+            .elevation(self.host.document.editor.story);
         let screen = |point: Point| {
             if model {
-                let q = matrix.project_point3(glam::Vec3::new(point.x, point.y, elevation));
+                let q = matrix.project_point3(glam::DVec3::new(point.x, point.y, elevation));
                 pos2(
-                    r.left() + (q.x + 1.) * r.width() * 0.5,
-                    r.top() + (1. - q.y) * r.height() * 0.5,
+                    f64::from(r.left()) + (q.x + 1.) * f64::from(r.width()) * 0.5,
+                    f64::from(r.top()) + (1. - q.y) * f64::from(r.height()) * 0.5,
                 )
             } else {
                 self.screen(r, point)
@@ -879,21 +991,31 @@ impl AtelierApp {
                 .iter()
                 .filter(|e| ids.contains(&e.id))
             {
-                let mut path = match &e.shape {
-                    Shape::Polyline { points, arcs } => geometry::polyline_path(points, arcs),
-                    _ => {
-                        let mut p = geometry::element_footprint(&draft.project, e).to_vec();
-                        if let Some(first) = p.first().copied() {
-                            p.push(first);
-                        }
-                        p
+                if !model
+                    && let Some(plan) = crate::column_plan::for_element(
+                        &draft.project,
+                        e,
+                        self.host.document.editor.story,
+                    )
+                {
+                    if let Ok(plan) = plan {
+                        Self::paint_column_plan_geometry_mapped(
+                            &painter,
+                            &plan,
+                            screen,
+                            Color32::TRANSPARENT,
+                            Stroke::new(2., ACCENT),
+                        );
                     }
-                };
-                if path.len() > 1 {
-                    painter.add(egui::Shape::line(
-                        path.drain(..).map(screen).collect(),
-                        Stroke::new(2., ACCENT),
-                    ));
+                    continue;
+                }
+                for path in geometry::element_plan_paths(&draft.project, e) {
+                    if path.len() > 1 {
+                        painter.add(egui::Shape::line(
+                            path.into_iter().map(screen).collect(),
+                            Stroke::new(2., ACCENT),
+                        ));
+                    }
                 }
             }
         }
@@ -908,9 +1030,12 @@ impl AtelierApp {
                 unit,
                 self.language,
                 drag.mode,
+                !model,
+                &overrides,
             );
         }
         if !reference_press
+            && !pointer_on_tracker
             && response.double_clicked()
             && drag.mode == 2
             && drag
@@ -923,24 +1048,25 @@ impl AtelierApp {
         }
         if !reference_press
             && tracker_valid
-            && (response.clicked() || tracker_confirm)
+            && ((!pointer_on_tracker && response.clicked()) || tracker_confirm)
             && offset.distance(Point::default()) > 1e-6
         {
-            self.editor.set_selection(drag.ids.clone());
-            match self.editor.edit(command) {
+            self.host.document.editor.set_selection(drag.ids.clone());
+            match self.host.document.editor.edit(command) {
                 Ok(_) if drag.mode != 2 => {
                     self.draft_id = None;
                     return;
                 }
                 Ok(_) => {
                     drag.tracker = super::drag_tracker::DragTracker::default();
-                    drag.revision = self.editor.revision;
+                    drag.revision = self.host.document.editor.revision;
                     drag.last_placement = pointer;
-                    drag.placed_ids.extend(self.editor.selection_ids());
-                    self.editor.set_selection(drag.ids.clone());
+                    drag.placed_ids
+                        .extend(self.host.document.editor.selection_ids());
+                    self.host.document.editor.set_selection(drag.ids.clone());
                     self.draft_id = None;
                 }
-                Err(error) => self.editor.status = error,
+                Err(error) => self.host.document.editor.status = error,
             }
         }
         self.pointer_drag = Some(drag);
@@ -952,18 +1078,248 @@ impl AtelierApp {
         if !drag.placed_ids.is_empty() {
             let mut ids = drag.ids;
             ids.extend(drag.placed_ids);
-            self.editor.set_selection(ids);
+            self.host.document.editor.set_selection(ids);
         }
-        self.editor.status = "READY".into();
+        self.host.document.editor.status = "READY".into();
     }
-    pub(super) fn cancel_pointer_drag_input(&mut self) -> bool {
+    pub(super) fn cancel_pointer_drag_input(&mut self, shift_held: bool) -> bool {
+        let Some(drag) = self.pointer_drag.as_mut() else {
+            return false;
+        };
+        if drag.tracker.cancel_input() {
+            return true;
+        }
+        if shift_held && !drag.shift_suppressed {
+            drag.shift_suppressed = true;
+            self.host.document.editor.status = "Direction constraint released".into();
+            return true;
+        }
+        false
+    }
+    pub(super) fn pointer_drag_has_input(&self) -> bool {
+        self.pointer_drag
+            .as_ref()
+            .is_some_and(|drag| drag.tracker.has_input())
+    }
+    pub(super) fn pointer_drag_origin(&self) -> Option<Point> {
+        self.pointer_drag.as_ref().and_then(|drag| drag.origin)
+    }
+    pub(super) fn pointer_drag_origin_changed(&mut self) {
+        if let Some(drag) = self.pointer_drag.as_mut() {
+            // Only the coordinate reference changed; the source geometry is identical.
+            drag.revision = self.host.document.editor.revision;
+        }
+    }
+    pub(super) fn request_pointer_drag_field(&mut self, index: usize) -> Result<(), String> {
+        let drag = self
+            .pointer_drag
+            .as_mut()
+            .filter(|drag| drag.origin.is_some())
+            .ok_or("Coordinate input requires an active precision input field")?;
+        if index >= 2 && drag.model_plane == Some(true) {
+            return Err("Coordinate input requires an active precision input field".into());
+        }
+        drag.tracker.request_field(index);
+        Ok(())
+    }
+    fn drag_input_scope(&self) -> (View, u32, Option<u64>, crate::view_settings::DimensionStyle) {
+        let editor = &self.host.document.editor;
+        (
+            self.view,
+            editor.story,
+            editor.project.plan_options.active_worksheet,
+            editor.project.plan_options.dimension_style,
+        )
+    }
+    pub(super) fn cancel_pointer_drag_outside_scope(&mut self) {
+        if self
+            .pointer_drag
+            .as_ref()
+            .is_some_and(|drag| drag.input_scope != self.drag_input_scope())
+        {
+            self.finish_pointer_drag();
+            self.host.document.editor.status = "Edit cancelled after view or unit change".into();
+        }
+    }
+    pub(super) fn pointer_drag_ime_owns_input(&mut self, ctx: &Context) -> bool {
         self.pointer_drag
             .as_mut()
-            .is_some_and(|drag| drag.tracker.cancel_input())
+            .is_some_and(|drag| ctx.input(|i| drag.tracker.ime_owns_input(&i.events, i.focused)))
     }
     pub(super) fn finish_pointer_drag(&mut self) {
         if let Some(drag) = self.pointer_drag.take() {
             self.complete_pointer_drag(drag);
+        }
+    }
+}
+
+#[cfg(test)]
+mod column_preview_event_tests {
+    use super::*;
+
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 900.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn label(shapes: &[egui::epaint::ClippedShape], text: &str) -> Pos2 {
+        fn find(shape: &egui::Shape, text: &str) -> Option<Pos2> {
+            match shape {
+                egui::Shape::Text(t) if t.galley.text() == text => {
+                    Some(t.pos + t.galley.size() * 0.5)
+                }
+                egui::Shape::Vec(shapes) => shapes.iter().find_map(|s| find(s, text)),
+                _ => None,
+            }
+        }
+        shapes
+            .iter()
+            .find_map(|s| find(&s.shape, text))
+            .expect(text)
+    }
+    fn click(ctx: &Context, app: &mut AtelierApp, text: &str) {
+        let out = frame(ctx, app, vec![]);
+        let pos = label(&out.shapes, text);
+        frame(ctx, app, vec![Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+        }
+    }
+
+    #[test]
+    fn column_numeric_preview_uses_view_story_and_cancel_keeps_real_redo_bilingual() {
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            for circular in [false, true] {
+                let ctx = Context::default();
+                AtelierApp::style(&ctx);
+                let mut app = AtelierApp::from_renderer(None, "Headless test".into());
+                app.recovery_slot = None;
+                app.in_window_menus = true;
+                app.language = language;
+                app.host.document.editor = Editor::new(Project::default());
+                app.host.document.editor.column_plan.display =
+                    crate::column_plan::ColumnPlanDisplay::ProjectedWithOverhead;
+                let section = if circular {
+                    crate::column::ColumnSection::Circular { diameter: 0.6 }
+                } else {
+                    crate::column::ColumnSection::Rectangular {
+                        width: 0.4,
+                        depth: 0.6,
+                    }
+                };
+                let id = app
+                    .host
+                    .document
+                    .editor
+                    .place_column_with_inclination(
+                        Point::default(),
+                        section,
+                        6.,
+                        Some(crate::column_inclination::ColumnInclination {
+                            slant_degrees: 60.,
+                            direction_degrees: 30.,
+                        }),
+                    )
+                    .unwrap();
+                app.host.document.editor.set_selection(vec![id]);
+                app.host.document.editor.move_selection(Point::new(2., 0.));
+                let redo_target = app.host.document.editor.project.clone();
+                app.host.document.editor.undo();
+                app.host.document.editor.switch_story(1);
+                app.host.document.editor.set_selection(vec![id]);
+                let before = app.host.document.editor.project.clone();
+                let history = (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len(),
+                    app.host.document.editor.revision,
+                );
+                assert_eq!(history.1, 1);
+                let plan = crate::column_plan::for_element(&before, &before.elements[0], 1)
+                    .unwrap()
+                    .unwrap();
+                let mut expected = vec![plan.cut, plan.uncut, plan.overhead];
+                expected.retain(|p| !p.is_empty());
+                for path in &mut expected {
+                    if path.first() != path.last() {
+                        path.push(path[0]);
+                    }
+                }
+                // Multiply's existing defaults create three copies at +1m intervals.
+                let expected: Vec<Vec<Point>> = (1..=3)
+                    .flat_map(|copy| {
+                        expected.iter().map(move |path| {
+                            path.iter()
+                                .map(|p| Point::new(p.x + copy as f64, p.y))
+                                .collect()
+                        })
+                    })
+                    .collect();
+                app.dispatch_edit("Multiply…");
+                frame(&ctx, &mut app, vec![]);
+                click(&ctx, &mut app, language.translate("Preview"));
+                let dialog = app.edit_dialog.as_ref().unwrap();
+                assert!(dialog.error.is_empty(), "{}", dialog.error);
+                assert_eq!(dialog.preview.len(), expected.len());
+                for (actual, expected) in dialog.preview.iter().zip(&expected) {
+                    assert_eq!(actual.first(), actual.last());
+                    // Translation can change redundant collinear hull vertices by f64
+                    // rounding. Compare the two closed boundaries in both directions.
+                    for (points, boundary) in [(actual, expected), (expected, actual)] {
+                        for point in points {
+                            assert!(
+                                boundary.windows(2).any(|edge| geometry::segment_distance(
+                                    *point, edge[0], edge[1]
+                                ) < 0.00001)
+                            );
+                        }
+                    }
+                }
+                assert_ne!(
+                    dialog.preview,
+                    geometry::element_plan_paths(&before, &before.elements[0])
+                );
+                assert_eq!(app.host.document.editor.project, before);
+                assert_eq!(
+                    (
+                        app.host.document.editor.undo.len(),
+                        app.host.document.editor.redo.len(),
+                        app.host.document.editor.revision
+                    ),
+                    history
+                );
+                // Render the new thumbnail before locating the moved footer.
+                frame(&ctx, &mut app, vec![]);
+                click(&ctx, &mut app, language.translate("Cancel"));
+                assert!(app.edit_dialog.is_none());
+                assert_eq!(app.host.document.editor.project, before);
+                assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+                assert_eq!(
+                    (
+                        app.host.document.editor.undo.len(),
+                        app.host.document.editor.redo.len(),
+                        app.host.document.editor.revision
+                    ),
+                    history
+                );
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, redo_target);
+            }
         }
     }
 }

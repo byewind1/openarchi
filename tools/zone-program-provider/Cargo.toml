@@ -1,0 +1,9 @@
+[package]
+name = "openarchi-zone-program-provider"
+version = "0.1.0"
+edition = "2024"
+license = "Apache-2.0"
+description = "Original standalone OpenArchi declared Zone/program review provider"
+
+[dependencies]
+serde_json = { version = "=1.0.154", features = ["float_roundtrip"] }

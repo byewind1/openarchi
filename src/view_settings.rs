@@ -83,11 +83,11 @@ impl PenSet {
 pub struct PenPalette {
     pub line: [u8; 3],
     pub fill_tint: Option<[u8; 3]>,
-    pub line_scale: f32,
+    pub line_scale: f64,
 }
 
 impl PenPalette {
-    const fn new(line: [u8; 3], fill_tint: Option<[u8; 3]>, line_scale: f32) -> Self {
+    const fn new(line: [u8; 3], fill_tint: Option<[u8; 3]>, line_scale: f64) -> Self {
         Self {
             line,
             fill_tint,
@@ -105,7 +105,7 @@ impl PenPalette {
         }
     }
 
-    pub fn width_mm(self, part: PlanPart) -> f32 {
+    pub fn width_mm(self, part: PlanPart) -> f64 {
         let base = match part {
             PlanPart::Wall => 0.35,
             PlanPart::Slab => 0.18,
@@ -344,7 +344,7 @@ impl DimensionStyle {
         }
     }
 
-    pub fn format_length(self, meters: f32) -> String {
+    pub fn format_length(self, meters: f64) -> String {
         let meters = meters.max(0.);
         match self {
             Self::Din => format!("{:.0} mm", meters * 1000.),
@@ -361,7 +361,7 @@ impl DimensionStyle {
         }
     }
 
-    pub fn format_signed_length(self, meters: f32) -> String {
+    pub fn format_signed_length(self, meters: f64) -> String {
         if meters < 0. {
             format!("-{}", self.format_length(-meters))
         } else {
@@ -374,6 +374,33 @@ impl DimensionStyle {
 pub struct DesignOption {
     pub id: u32,
     pub name: String,
+}
+
+/// Explicit membership scope shared by view filtering and authored-space analysis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum DesignOptionScope {
+    All {},
+    Main {},
+    Option { id: u32 },
+}
+impl DesignOptionScope {
+    pub fn active(id: Option<u32>) -> Self {
+        id.map_or(Self::Main {}, |id| Self::Option { id })
+    }
+    pub fn contains(self, membership: Option<u32>) -> bool {
+        match self {
+            Self::All {} => true,
+            Self::Main {} => membership.is_none(),
+            Self::Option { id } => membership.is_none() || membership == Some(id),
+        }
+    }
+}
+
+impl Default for DesignOptionScope {
+    fn default() -> Self {
+        Self::All {}
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -416,8 +443,12 @@ pub enum PlanPart {
 impl Element {
     pub fn plan_part(&self) -> PlanPart {
         match self.shape {
+            crate::model::Shape::Beam { .. } | crate::model::Shape::Column { .. } => PlanPart::Wall,
             crate::model::Shape::Wall { .. } => PlanPart::Wall,
-            crate::model::Shape::Slab { .. } => PlanPart::Slab,
+            crate::model::Shape::ConceptMass { .. }
+            | crate::model::Shape::Zone { .. }
+            | crate::model::Shape::Roof { .. }
+            | crate::model::Shape::Slab { .. } => PlanPart::Slab,
             crate::model::Shape::Stair { .. } => PlanPart::Stair,
             crate::model::Shape::Polyline { .. } => PlanPart::Polyline,
             crate::model::Shape::Opening { .. } => PlanPart::Opening,
@@ -429,16 +460,63 @@ impl Element {
 pub struct PlanElementStyle {
     pub fill: Option<[u8; 3]>,
     pub line: [u8; 3],
-    pub line_width_mm: f32,
+    pub line_width_mm: f64,
     pub draw_treads: bool,
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize, schemars::JsonSchema,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum Model3dStyle {
+    Wireframe,
+    Shaded,
+    #[default]
+    ShadedWithEdges,
+}
+impl Model3dStyle {
+    pub fn is_default(&self) -> bool {
+        *self == Self::default()
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Wireframe => "Wireframe",
+            Self::Shaded => "Shaded",
+            Self::ShadedWithEdges => "Shaded with edges",
+        }
+    }
+    pub fn command(self, project: &crate::model::Project) -> crate::command::ModelCommand {
+        let mut plan = project.plan_options.clone();
+        plan.model_3d_style = self;
+        crate::command::ModelCommand::SetOptions {
+            plan: Some(plan),
+            design: None,
+            guide: None,
+            grid: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct PlanOptions {
+    /// A coordinate reference only. Geometry and the grid retain project coordinates.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_origin: Option<crate::model::Point>,
+    #[serde(default, skip_serializing_if = "Model3dStyle::is_default")]
+    pub model_3d_style: Model3dStyle,
+    /// Currently consumed by inclined columns; legacy elements keep their display.
+    #[serde(
+        default,
+        skip_serializing_if = "crate::column_plan::FloorPlanCutSettings::is_default"
+    )]
+    pub floor_plan_cut: crate::column_plan::FloorPlanCutSettings,
+    /// Runtime canvas scope. Never serialized or recorded as a document edit.
+    #[serde(skip)]
+    pub active_worksheet: Option<u64>,
     #[serde(default = "default_drawing_scale")]
     pub drawing_scale: u32,
     #[serde(default)]
-    pub orientation_degrees: f32,
+    pub orientation_degrees: f64,
     #[serde(default)]
     pub pen_set: PenSet,
     #[serde(default)]
@@ -463,6 +541,10 @@ const fn default_drawing_scale() -> u32 {
 impl Default for PlanOptions {
     fn default() -> Self {
         Self {
+            user_origin: None,
+            model_3d_style: Default::default(),
+            floor_plan_cut: Default::default(),
+            active_worksheet: None,
             drawing_scale: default_drawing_scale(),
             orientation_degrees: 0.,
             pen_set: PenSet::default(),
@@ -479,11 +561,18 @@ impl Default for PlanOptions {
 pub const SCALE_PRESETS: [u32; 16] = [
     300, 75, 30, 150, 1, 2, 5, 10, 20, 50, 100, 200, 500, 1000, 2000, 5000,
 ];
-pub const ORIENTATION_PRESETS: [f32; 6] = [3.22, 183.22, 0., 90., 180., 270.];
+pub const ORIENTATION_PRESETS: [f64; 6] = [3.22, 183.22, 0., 90., 180., 270.];
 pub const ZOOM_PRESETS: [u32; 7] = [1000, 500, 200, 100, 50, 20, 10];
 
 impl PlanOptions {
     pub fn validate(&self) -> Result<(), String> {
+        if self
+            .user_origin
+            .is_some_and(|point| !crate::precision::GeometryContext::point_in_range(point))
+        {
+            return Err("Invalid user origin".into());
+        }
+        self.floor_plan_cut.validate()?;
         if !self.orientation_degrees.is_finite()
             || !(-3600. ..=3600.).contains(&self.orientation_degrees)
         {
@@ -495,20 +584,18 @@ impl PlanOptions {
         Ok(())
     }
 
-    pub fn normalized_orientation(&self) -> f32 {
+    pub fn normalized_orientation(&self) -> f64 {
         let value = self.orientation_degrees % 360.;
         if value < 0. { value + 360. } else { value }
     }
 
     pub fn element_visible(&self, element: &Element, layers: &LayerDocument) -> bool {
-        layers.is_visible(element.layer.0)
+        element.worksheet == self.active_worksheet
+            && layers.is_visible(element.layer.0)
             && self.partial_structure.shows(element.material)
             && self.renovation_filter.shows(element.renovation)
             && self.model_view.shows(element.plan_part())
-            && match self.active_design_option {
-                None => element.design_option.is_none(),
-                Some(id) => element.design_option.is_none() || element.design_option == Some(id),
-            }
+            && DesignOptionScope::active(self.active_design_option).contains(element.design_option)
     }
 
     pub fn style_for(
@@ -597,12 +684,12 @@ impl PlanOptions {
     }
 }
 
-fn mix(a: [u8; 3], b: [u8; 3], amount: f32) -> [u8; 3] {
+fn mix(a: [u8; 3], b: [u8; 3], amount: f64) -> [u8; 3] {
     let amount = amount.clamp(0., 1.);
     [
-        (a[0] as f32 * (1. - amount) + b[0] as f32 * amount) as u8,
-        (a[1] as f32 * (1. - amount) + b[1] as f32 * amount) as u8,
-        (a[2] as f32 * (1. - amount) + b[2] as f32 * amount) as u8,
+        (a[0] as f64 * (1. - amount) + b[0] as f64 * amount) as u8,
+        (a[1] as f64 * (1. - amount) + b[1] as f64 * amount) as u8,
+        (a[2] as f64 * (1. - amount) + b[2] as f64 * amount) as u8,
     ]
 }
 
@@ -614,6 +701,7 @@ mod tests {
 
     fn wall(layer: u32, renovation: RenovationStatus) -> Element {
         Element {
+            worksheet: None,
             id: 1,
             name: "Wall 001".into(),
             story: 0,
@@ -623,6 +711,7 @@ mod tests {
             design_option: None,
             wall_contour: None,
             slab_contour: None,
+            opening_joinery: None,
             wall_settings: None,
             shape: Shape::Wall {
                 start: Point::new(0., 0.),

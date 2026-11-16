@@ -2,11 +2,13 @@ use super::*;
 
 impl AtelierApp {
     pub(super) fn selected_single_wall(&self) -> Option<Element> {
-        let selected = self.editor.selection_ids();
+        let selected = self.host.document.editor.selection_ids();
         if selected.len() != 1 {
             return None;
         }
-        self.editor
+        self.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -56,6 +58,8 @@ impl AtelierApp {
             return false;
         };
         let Some(mut element) = self
+            .host
+            .document
             .editor
             .project
             .elements
@@ -74,10 +78,12 @@ impl AtelierApp {
         match state
             .draft
             .apply_to_element(&mut element)
-            .and_then(|()| self.editor.replace_element(element))
+            .and_then(|()| self.host.document.editor.replace_element(element))
         {
             Ok(()) => {
                 if let Some(updated) = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -89,7 +95,7 @@ impl AtelierApp {
                 }
                 state.dirty = false;
                 state.error.clear();
-                self.editor.status = self
+                self.host.document.editor.status = self
                     .language
                     .translate("Info Box wall settings applied · Plan and 3D synchronized")
                     .into();
@@ -106,28 +112,39 @@ impl AtelierApp {
     }
     pub(super) fn apply_wall_default_draft(&mut self, draft: &WallSettingsDraft) {
         let method = draft.settings.geometry.geometry_method;
-        if self.editor.wall_settings.geometry.geometry_method != method {
-            self.editor.set_wall_geometry_method(method);
+        if self
+            .host
+            .document
+            .editor
+            .wall_settings
+            .geometry
+            .geometry_method
+            != method
+        {
+            self.host.document.editor.set_wall_geometry_method(method);
             self.tracker_locked = false;
         }
-        self.editor.wall_settings = draft.settings.clone();
-        self.editor.thickness = draft.thickness;
-        self.editor.height = draft.height;
-        self.editor.wall_layer = draft.layer;
-        self.editor.wall_renovation = draft.renovation;
+        self.host.document.editor.wall_settings = draft.settings.clone();
+        self.host.document.editor.thickness = draft.thickness;
+        self.host.document.editor.height = draft.height;
+        self.host.document.editor.wall_layer = draft.layer;
+        self.host.document.editor.wall_renovation = draft.renovation;
         if self
+            .host
+            .document
             .editor
             .project
             .stories
             .iter()
             .any(|story| story.id == draft.story)
         {
-            self.editor.story = draft.story;
+            self.host.document.editor.story = draft.story;
         }
-        self.editor.refresh_wall_status();
+        self.host.document.editor.refresh_wall_status();
     }
     pub(super) fn sync_info_box_wall_tool(&mut self) {
-        let active = self.editor.tool == Tool::Wall && self.editor.selection_ids().is_empty();
+        let active = self.host.document.editor.tool == Tool::Wall
+            && self.host.document.editor.selection_ids().is_empty();
         if !active {
             if self
                 .info_box_wall_tool
@@ -140,12 +157,12 @@ impl AtelierApp {
             return;
         }
         let current = WallSettingsDraft::defaults(
-            &self.editor.wall_settings,
-            self.editor.thickness,
-            self.editor.height,
-            self.editor.story,
-            self.editor.wall_layer,
-            self.editor.wall_renovation,
+            &self.host.document.editor.wall_settings,
+            self.host.document.editor.thickness,
+            self.host.document.editor.height,
+            self.host.document.editor.story,
+            self.host.document.editor.wall_layer,
+            self.host.document.editor.wall_renovation,
         );
         let refresh = match &self.info_box_wall_tool {
             Some(state) => !state.dirty && state.draft != current,
@@ -168,7 +185,7 @@ impl AtelierApp {
                 self.apply_wall_default_draft(&state.draft);
                 state.dirty = false;
                 state.error.clear();
-                self.editor.status = self
+                self.host.document.editor.status = self
                     .language
                     .translate("Wall default settings applied · New walls use these values")
                     .into();
@@ -215,14 +232,14 @@ impl AtelierApp {
         {
             return;
         }
-        if self.editor.tool == Tool::Wall && self.selected_single_wall().is_none() {
+        if self.host.document.editor.tool == Tool::Wall && self.selected_single_wall().is_none() {
             let mut dialog = WallSettingsDialog::defaults(
-                &self.editor.wall_settings,
-                self.editor.thickness,
-                self.editor.height,
-                self.editor.story,
-                self.editor.wall_layer,
-                self.editor.wall_renovation,
+                &self.host.document.editor.wall_settings,
+                self.host.document.editor.thickness,
+                self.host.document.editor.height,
+                self.host.document.editor.story,
+                self.host.document.editor.wall_layer,
+                self.host.document.editor.wall_renovation,
             );
             if floor_plan {
                 dialog.sections.floor_plan = true;
@@ -230,7 +247,7 @@ impl AtelierApp {
             self.wall_settings_dialog = Some(dialog);
             self.element_settings = None;
             self.element_settings_error.clear();
-            self.editor.status = self
+            self.host.document.editor.status = self
                 .language
                 .translate("Wall Default Settings · New walls use these values")
                 .into();
@@ -248,7 +265,7 @@ impl AtelierApp {
         self.wall_settings_dialog = Some(dialog);
         self.element_settings = None;
         self.element_settings_error.clear();
-        self.editor.status = format!(
+        self.host.document.editor.status = format!(
             "Wall Settings · {} {:03}",
             self.language.translate("Wall"),
             element.id
@@ -258,7 +275,7 @@ impl AtelierApp {
         ui: &mut Ui,
         language: UiLanguage,
         label: &str,
-        value: &mut f32,
+        value: &mut f64,
         dirty: &mut bool,
         commit: &mut bool,
     ) {
@@ -280,7 +297,7 @@ impl AtelierApp {
         ui: &mut Ui,
         language: UiLanguage,
         label: &str,
-        value: &mut f32,
+        value: &mut f64,
         dirty: &mut bool,
         commit: &mut bool,
     ) {
@@ -298,7 +315,7 @@ impl AtelierApp {
     }
     pub(super) fn info_box_wall_properties(&mut self, ui: &mut Ui) {
         let language = self.language;
-        let stories = self.editor.project.stories.clone();
+        let stories = self.host.document.editor.project.stories.clone();
         let selection_label = format!("{}: 1", language.translate("All Selected"));
         let mut commit = false;
         let mut open_settings = false;
@@ -319,7 +336,7 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Layer:"));
             let before_layer = draft.layer;
-            let layers = &self.editor.project.layers;
+            let layers = &self.host.document.editor.project.layers;
             ComboBox::from_id_salt("info_box_wall_layer")
                 .selected_text(crate::wall_ui::wall_layer_label(
                     language,
@@ -362,17 +379,15 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Geometry Method:"));
             let before_method = draft.settings.geometry.geometry_method;
-            ui.horizontal(|ui| {
-                for choice in crate::wall::WallGeometryMethod::ALL {
-                    let selected = draft.settings.geometry.geometry_method == *choice;
-                    if ui
-                        .add(Button::new(language.translate(choice.name())).selected(selected))
-                        .clicked()
-                    {
-                        draft.settings.geometry.geometry_method = *choice;
-                    }
+            for choice in crate::wall::WallGeometryMethod::ALL {
+                let selected = draft.settings.geometry.geometry_method == *choice;
+                if ui
+                    .add(Button::new(language.translate(choice.name())).selected(selected))
+                    .clicked()
+                {
+                    draft.settings.geometry.geometry_method = *choice;
                 }
-            });
+            }
             if draft.settings.geometry.geometry_method != before_method {
                 dirty = true;
                 commit = true;
@@ -380,17 +395,15 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Reference Line:"));
             let before_line = draft.settings.geometry.reference_line;
-            ui.horizontal(|ui| {
-                for choice in crate::wall::WallReferenceLine::ALL {
-                    let selected = draft.settings.geometry.reference_line == *choice;
-                    if ui
-                        .add(Button::new(language.translate(choice.name())).selected(selected))
-                        .clicked()
-                    {
-                        draft.settings.geometry.reference_line = *choice;
-                    }
+            for choice in crate::wall::WallReferenceLine::ALL {
+                let selected = draft.settings.geometry.reference_line == *choice;
+                if ui
+                    .add(Button::new(language.translate(choice.name())).selected(selected))
+                    .clicked()
+                {
+                    draft.settings.geometry.reference_line = *choice;
                 }
-            });
+            }
             if draft.settings.geometry.reference_line != before_line {
                 dirty = true;
                 commit = true;
@@ -483,9 +496,6 @@ impl AtelierApp {
             {
                 commit = true;
             }
-            if !state.error.is_empty() {
-                ui.colored_label(Color32::from_rgb(224, 125, 105), &state.error);
-            }
             state.dirty = dirty;
         }
         if commit && self.info_box_wall.as_ref().is_some_and(|state| state.dirty) {
@@ -500,7 +510,7 @@ impl AtelierApp {
     }
     pub(super) fn info_box_wall_tool_properties(&mut self, ui: &mut Ui) {
         let language = self.language;
-        let stories = self.editor.project.stories.clone();
+        let stories = self.host.document.editor.project.stories.clone();
         let mut commit = false;
         let mut open_settings = false;
         let mut open_floor_plan = false;
@@ -516,7 +526,7 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Layer:"));
             let before_layer = draft.layer;
-            let layers = &self.editor.project.layers;
+            let layers = &self.host.document.editor.project.layers;
             ComboBox::from_id_salt("info_box_wall_tool_layer")
                 .selected_text(crate::wall_ui::wall_layer_label(
                     language,
@@ -540,17 +550,15 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Geometry Method:"));
             let before_method = draft.settings.geometry.geometry_method;
-            ui.horizontal(|ui| {
-                for choice in crate::wall::WallGeometryMethod::ALL {
-                    let selected = draft.settings.geometry.geometry_method == *choice;
-                    if ui
-                        .add(Button::new(language.translate(choice.name())).selected(selected))
-                        .clicked()
-                    {
-                        draft.settings.geometry.geometry_method = *choice;
-                    }
+            for choice in crate::wall::WallGeometryMethod::ALL {
+                let selected = draft.settings.geometry.geometry_method == *choice;
+                if ui
+                    .add(Button::new(language.translate(choice.name())).selected(selected))
+                    .clicked()
+                {
+                    draft.settings.geometry.geometry_method = *choice;
                 }
-            });
+            }
             if draft.settings.geometry.geometry_method != before_method {
                 dirty = true;
                 commit = true;
@@ -558,17 +566,15 @@ impl AtelierApp {
 
             ui.label(Self::t(language, "Reference Line:"));
             let before_line = draft.settings.geometry.reference_line;
-            ui.horizontal(|ui| {
-                for choice in crate::wall::WallReferenceLine::ALL {
-                    let selected = draft.settings.geometry.reference_line == *choice;
-                    if ui
-                        .add(Button::new(language.translate(choice.name())).selected(selected))
-                        .clicked()
-                    {
-                        draft.settings.geometry.reference_line = *choice;
-                    }
+            for choice in crate::wall::WallReferenceLine::ALL {
+                let selected = draft.settings.geometry.reference_line == *choice;
+                if ui
+                    .add(Button::new(language.translate(choice.name())).selected(selected))
+                    .clicked()
+                {
+                    draft.settings.geometry.reference_line = *choice;
                 }
-            });
+            }
             if draft.settings.geometry.reference_line != before_line {
                 dirty = true;
                 commit = true;
@@ -685,11 +691,13 @@ impl AtelierApp {
 
 impl AtelierApp {
     pub(super) fn selected_single_opening(&self) -> Option<Element> {
-        let selected = self.editor.selection_ids();
+        let selected = self.host.document.editor.selection_ids();
         if selected.len() != 1 {
             return None;
         }
-        self.editor
+        self.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -728,6 +736,8 @@ impl AtelierApp {
             Some(state) => {
                 state.element_id != element.id
                     || (!state.dirty
+                        && state.joinery != element.opening_joinery.unwrap_or_default())
+                    || (!state.dirty
                         && (state.width != width
                             || state.height != height
                             || state.sill != sill
@@ -737,6 +747,7 @@ impl AtelierApp {
         };
         if refresh {
             self.info_box_opening = Some(InfoBoxOpeningState {
+                joinery: element.opening_joinery.unwrap_or_default(),
                 element_id: element.id,
                 host_wall,
                 kind,
@@ -755,6 +766,8 @@ impl AtelierApp {
             return false;
         };
         let Some(mut element) = self
+            .host
+            .document
             .editor
             .project
             .elements
@@ -783,9 +796,14 @@ impl AtelierApp {
             *sill = state.sill;
             *offset = state.offset;
         }
-        match self.editor.replace_element(element) {
+        if element.opening_joinery.is_some() || state.joinery != Default::default() {
+            element.opening_joinery = Some(state.joinery);
+        }
+        match self.host.document.editor.replace_element(element) {
             Ok(()) => {
                 if let Some(updated) = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -806,7 +824,7 @@ impl AtelierApp {
                 }
                 state.dirty = false;
                 state.error.clear();
-                self.editor.status = self
+                self.host.document.editor.status = self
                     .language
                     .translate("Info Box opening settings applied · Plan and 3D synchronized")
                     .into();
@@ -815,7 +833,7 @@ impl AtelierApp {
             }
             Err(error) => {
                 state.dirty = true;
-                state.error = localized_error(self.language, &error);
+                state.error = error;
                 self.info_box_opening = Some(state);
                 false
             }
@@ -823,12 +841,12 @@ impl AtelierApp {
     }
 
     pub(super) fn sync_info_box_opening_tool(&mut self) {
-        let kind = match self.editor.tool {
+        let kind = match self.host.document.editor.tool {
             Tool::Door => Some(OpeningKind::Door),
             Tool::Window => Some(OpeningKind::Window),
             _ => None,
         };
-        let active = kind.is_some() && self.editor.selection_ids().is_empty();
+        let active = kind.is_some() && self.host.document.editor.selection_ids().is_empty();
         if !active {
             if self
                 .info_box_opening_tool
@@ -841,13 +859,14 @@ impl AtelierApp {
             return;
         }
         let Some(kind) = kind else { return };
-        let defaults = self.editor.opening_defaults(kind);
+        let defaults = self.host.document.editor.opening_defaults(kind);
         let refresh = match &self.info_box_opening_tool {
             Some(state) => state.kind != kind || (!state.dirty && state.defaults != defaults),
             None => true,
         };
         if refresh {
             self.info_box_opening_tool = Some(InfoBoxOpeningToolState {
+                joinery: self.host.document.editor.opening_joinery,
                 kind,
                 defaults,
                 dirty: false,
@@ -862,10 +881,14 @@ impl AtelierApp {
         };
         match state.defaults.validate() {
             Ok(()) => {
-                self.editor.set_opening_defaults(state.kind, state.defaults);
+                self.host
+                    .document
+                    .editor
+                    .set_opening_defaults(state.kind, state.defaults);
+                self.host.document.editor.opening_joinery = state.joinery;
                 state.dirty = false;
                 state.error.clear();
-                self.editor.status = self
+                self.host.document.editor.status = self
                     .language
                     .translate("Opening defaults applied · New openings use these values")
                     .into();
@@ -874,7 +897,7 @@ impl AtelierApp {
             }
             Err(error) => {
                 state.dirty = true;
-                state.error = localized_error(self.language, &error);
+                state.error = error;
                 self.info_box_opening_tool = Some(state);
                 false
             }
@@ -883,6 +906,10 @@ impl AtelierApp {
 
     pub(super) fn info_box_opening_properties(&mut self, ui: &mut Ui) {
         let language = self.language;
+        let editable = self
+            .info_box_opening
+            .as_ref()
+            .is_some_and(|state| !self.host.document.editor.locked_element(state.element_id));
         let mut commit = false;
         {
             let Some(state) = self.info_box_opening.as_mut() else {
@@ -908,48 +935,63 @@ impl AtelierApp {
                 .color(MUTED),
             );
             ui.separator();
-            Self::info_box_drag(
-                ui,
-                language,
-                "Width",
-                &mut state.width,
-                &mut dirty,
-                &mut commit,
-            );
-            Self::info_box_drag(
-                ui,
-                language,
-                "Height",
-                &mut state.height,
-                &mut dirty,
-                &mut commit,
-            );
-            Self::info_box_drag(
-                ui,
-                language,
-                "Sill Height",
-                &mut state.sill,
-                &mut dirty,
-                &mut commit,
-            );
-            Self::info_box_drag(
-                ui,
-                language,
-                "Offset",
-                &mut state.offset,
-                &mut dirty,
-                &mut commit,
-            );
+            ui.add_enabled_ui(editable, |ui| {
+                if state.kind == OpeningKind::Door
+                    && Self::opening_joinery_controls(ui, language, &mut state.joinery)
+                {
+                    dirty = true;
+                    commit = true;
+                }
+                Self::info_box_drag(
+                    ui,
+                    language,
+                    "Width",
+                    &mut state.width,
+                    &mut dirty,
+                    &mut commit,
+                );
+                Self::info_box_drag(
+                    ui,
+                    language,
+                    "Height",
+                    &mut state.height,
+                    &mut dirty,
+                    &mut commit,
+                );
+                Self::info_box_drag(
+                    ui,
+                    language,
+                    "Sill Height",
+                    &mut state.sill,
+                    &mut dirty,
+                    &mut commit,
+                );
+                Self::info_box_drag(
+                    ui,
+                    language,
+                    "Offset",
+                    &mut state.offset,
+                    &mut dirty,
+                    &mut commit,
+                );
+            })
+            .response
+            .on_disabled_hover_text(language.translate("Selection contains locked elements"));
             if !state.error.is_empty() {
                 ui.label(
-                    RichText::new(&state.error)
+                    RichText::new(localized_error(language, &state.error))
                         .small()
                         .color(Color32::LIGHT_RED),
                 );
             }
             state.dirty = dirty;
         }
-        if commit {
+        if commit
+            && self
+                .info_box_opening
+                .as_ref()
+                .is_some_and(|state| state.dirty)
+        {
             let _ = self.commit_info_box_opening();
         }
     }
@@ -971,6 +1013,16 @@ impl AtelierApp {
                 ))
                 .strong(),
             );
+            let old_style = state.joinery.door_style;
+            if state.kind == OpeningKind::Door
+                && Self::opening_joinery_controls(ui, language, &mut state.joinery)
+            {
+                if old_style != state.joinery.door_style {
+                    state.defaults.width = state.joinery.default_width();
+                }
+                dirty = true;
+                commit = true;
+            }
             Self::info_box_drag(
                 ui,
                 language,
@@ -997,7 +1049,7 @@ impl AtelierApp {
             );
             if !state.error.is_empty() {
                 ui.label(
-                    RichText::new(&state.error)
+                    RichText::new(localized_error(language, &state.error))
                         .small()
                         .color(Color32::LIGHT_RED),
                 );

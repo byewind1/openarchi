@@ -1,0 +1,56 @@
+{
+  "blocker_ids": [
+    133,
+    134,
+    135,
+    136
+  ],
+  "assumed_north": {
+    "type": "design_assumption",
+    "clockwise_from_model_y_deg": 0.0,
+    "note": "Synthetic software reference; not project north"
+  },
+  "request": {
+    "location": {
+      "latitude_deg": 39.742476,
+      "longitude_deg": -105.1786
+    },
+    "location_basis": {
+      "type": "design_assumption",
+      "note": "Synthetic Golden benchmark location only, not this model actual location"
+    },
+    "start_utc": {
+      "year": 2003,
+      "month": 10,
+      "day": 17,
+      "hour": 18,
+      "minute": 0,
+      "second": 0
+    },
+    "end_utc": {
+      "year": 2003,
+      "month": 10,
+      "day": 17,
+      "hour": 19,
+      "minute": 0,
+      "second": 0
+    },
+    "step_seconds": 600,
+    "ray_offset_m": 0.0001,
+    "receivers": [
+      {
+        "id": "synthetic-point-above-envelope",
+        "point_m": [
+          0,
+          0,
+          100
+        ],
+        "outward_normal": [
+          0,
+          0,
+          1
+        ]
+      }
+    ]
+  }
+}

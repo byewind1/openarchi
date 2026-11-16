@@ -119,3 +119,44 @@ impl CursorFeedback {
         }
     }
 }
+
+/// Original face-and-normal glyph. The cross at `pos` is the exact pick hotspot.
+pub fn paint_push_pull(painter: &Painter, pos: Pos2, active: bool) {
+    let ink = Color32::from_rgb(28, 37, 43);
+    let accent = if active {
+        Color32::from_rgb(22, 149, 198)
+    } else {
+        ink
+    };
+    let halo = |a, b, w| {
+        painter.line_segment([a, b], Stroke::new(w + 2.5, Color32::WHITE));
+        painter.line_segment([a, b], Stroke::new(w, accent));
+    };
+    halo(pos + vec2(-3., 0.), pos + vec2(3., 0.), 1.);
+    halo(pos + vec2(0., -3.), pos + vec2(0., 3.), 1.);
+    let o = pos + vec2(15., -9.);
+    painter.add(Shape::convex_polygon(
+        vec![
+            o + vec2(-8., 0.),
+            o + vec2(0., -4.),
+            o + vec2(8., 0.),
+            o + vec2(0., 4.),
+        ],
+        Color32::WHITE,
+        Stroke::new(2.5, Color32::WHITE),
+    ));
+    painter.add(Shape::closed_line(
+        vec![
+            o + vec2(-8., 0.),
+            o + vec2(0., -4.),
+            o + vec2(8., 0.),
+            o + vec2(0., 4.),
+        ],
+        Stroke::new(1.2, ink),
+    ));
+    halo(o + vec2(0., -14.), o + vec2(0., 11.), 1.5);
+    for (tip, base) in [(-14., -10.), (11., 7.)] {
+        halo(o + vec2(0., tip), o + vec2(-3., base), 1.5);
+        halo(o + vec2(0., tip), o + vec2(3., base), 1.5);
+    }
+}

@@ -114,7 +114,7 @@ wall_choice!(WallConstructionTechnology, Undefined => "Undefined" {
 });
 
 impl WallReferenceLine {
-    pub fn preset_offset(self, thickness: f32) -> f32 {
+    pub fn preset_offset(self, thickness: f64) -> f64 {
         match self {
             Self::Center => 0.,
             Self::Inside => -thickness * 0.5,
@@ -144,12 +144,12 @@ impl WallGeometryMethod {
 #[serde(default)]
 pub struct WallGeometrySettings {
     pub top_link_offset: i32,
-    pub top_offset: f32,
-    pub bottom_offset: f32,
-    pub to_project_zero: f32,
+    pub top_offset: f64,
+    pub bottom_offset: f64,
+    pub to_project_zero: f64,
     pub geometry_method: WallGeometryMethod,
     pub reference_line: WallReferenceLine,
-    pub reference_offset: f32,
+    pub reference_offset: f64,
 }
 
 impl Default for WallGeometrySettings {
@@ -171,12 +171,12 @@ impl Default for WallGeometrySettings {
 pub struct WallProfileSettings {
     pub name: String,
     pub origin: WallProfileOrigin,
-    pub horizontal_offset: f32,
+    pub horizontal_offset: f64,
     pub modifier_enabled: bool,
-    pub modifier_top: f32,
-    pub modifier_bottom: f32,
-    pub modifier_left: f32,
-    pub modifier_right: f32,
+    pub modifier_top: f64,
+    pub modifier_bottom: f64,
+    pub modifier_left: f64,
+    pub modifier_right: f64,
 }
 
 impl Default for WallProfileSettings {
@@ -203,7 +203,7 @@ pub struct WallFloorPlanSettings {
     pub override_cut_fill_pens: bool,
     pub cut_fill_pen: String,
     pub uncut_lines: WallUncutLines,
-    pub uncut_line_weight_mm: f32,
+    pub uncut_line_weight_mm: f64,
     pub uncut_line_pen_index: u8,
     pub wall_end_lines: WallEndLines,
 }
@@ -234,9 +234,9 @@ pub struct WallModelSettings {
     pub junction_order: u16,
     pub end_surfaces_override_using_adjoining_walls: bool,
     pub align_texture_to_wall_edges: bool,
-    pub texture_alignment_x: f32,
-    pub texture_alignment_y: f32,
-    pub texture_alignment_rotation: f32,
+    pub texture_alignment_x: f64,
+    pub texture_alignment_y: f64,
+    pub texture_alignment_rotation: f64,
     pub relation_to_zones: WallZoneRelation,
 }
 
@@ -266,7 +266,7 @@ pub struct WallStructuralSettings {
     pub ignore_small_openings: bool,
     pub stretch_and_cutback: bool,
     pub offset_to_structural_model: bool,
-    pub structural_offset_ez: f32,
+    pub structural_offset_ez: f64,
     pub model_type: StructuralModelType,
     pub allow_rule_based_modifications: bool,
     pub supports: [SupportCondition; 6],
@@ -297,32 +297,32 @@ pub struct WallClassificationSettings {
     pub show_on_renovation_filter: RenovationFilterVisibility,
     pub fire_resistance_rating: String,
     pub combustible: CombustibleRating,
-    pub thermal_transmittance: f32,
+    pub thermal_transmittance: f64,
     pub sound_transmission_class: String,
     pub construction_type: WallConstructionType,
     pub technology: WallConstructionTechnology,
-    pub concrete_cover_at_main_bars: f32,
-    pub lifting_weight: f32,
+    pub concrete_cover_at_main_bars: f64,
+    pub lifting_weight: f64,
     pub environmental_class: String,
     pub service_life_years: u32,
-    pub stored_energy_kwh_m3: f32,
+    pub stored_energy_kwh_m3: f64,
     pub brick_type: String,
-    pub brick_h_size: f32,
-    pub brick_w_size: f32,
-    pub brick_l_size: f32,
-    pub mortar_thickness: f32,
-    pub brick_volume: f32,
+    pub brick_h_size: f64,
+    pub brick_w_size: f64,
+    pub brick_l_size: f64,
+    pub mortar_thickness: f64,
+    pub brick_volume: f64,
     pub bricks_to_purchase: u32,
-    pub sub_ceiling_thickness: f32,
-    pub sub_floor_thickness: f32,
-    pub suspended_ceiling_level: f32,
-    pub raised_floor_level: f32,
-    pub interior_height: f32,
-    pub interior_height_detailed: f32,
-    pub cost_per_volume: f32,
-    pub total_cost_of_volume: f32,
-    pub total_cost_usd: f32,
-    pub total_cost_symbol: f32,
+    pub sub_ceiling_thickness: f64,
+    pub sub_floor_thickness: f64,
+    pub suspended_ceiling_level: f64,
+    pub raised_floor_level: f64,
+    pub interior_height: f64,
+    pub interior_height_detailed: f64,
+    pub cost_per_volume: f64,
+    pub total_cost_of_volume: f64,
+    pub total_cost_usd: f64,
+    pub total_cost_symbol: f64,
     pub dynamic_id_by_classification: bool,
     pub dynamic_id_value: String,
     pub classification_id: String,
@@ -394,7 +394,7 @@ pub struct WallSettings {
 }
 
 impl WallSettings {
-    pub fn reference_offset(&self) -> f32 {
+    pub fn reference_offset(&self) -> f64 {
         self.geometry.reference_offset
     }
 
@@ -402,23 +402,23 @@ impl WallSettings {
     /// location selects the default inside/outside offset; the numeric
     /// reference offset is added to it. The line itself stays on the model's
     /// start-end anchors, matching Archicad's fixed reference line.
-    pub fn body_offset(&self, thickness: f32) -> f32 {
+    pub fn body_offset(&self, thickness: f64) -> f64 {
         self.geometry.reference_line.preset_offset(thickness) + self.geometry.reference_offset
     }
 
-    pub fn vertical_offsets(&self) -> (f32, f32) {
+    pub fn vertical_offsets(&self) -> (f64, f64) {
         (self.geometry.bottom_offset, self.geometry.top_offset)
     }
 
     pub fn validate(&self) -> Result<(), String> {
-        let finite = |value: f32, label: &str| {
+        let finite = |value: f64, label: &str| {
             if value.is_finite() {
                 Ok(())
             } else {
                 Err(format!("Wall setting {label} must be finite"))
             }
         };
-        let in_range = |value: f32, min: f32, max: f32, label: &str| {
+        let in_range = |value: f64, min: f64, max: f64, label: &str| {
             finite(value, label)?;
             if (min..=max).contains(&value) {
                 Ok(())
@@ -601,7 +601,7 @@ mod tests {
         let partial: WallSettings = serde_json::from_str("{}").unwrap();
         assert_eq!(partial, WallSettings::default());
         let mut settings = WallSettings::default();
-        settings.geometry.reference_offset = f32::NAN;
+        settings.geometry.reference_offset = f64::NAN;
         assert!(settings.validate().is_err());
         settings.geometry.reference_offset = 0.;
         settings.classification.property_id = "x".repeat(257);

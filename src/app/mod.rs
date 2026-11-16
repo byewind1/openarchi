@@ -1,3 +1,4 @@
+mod native_metrics;
 #[cfg(test)]
 use crate::layers::ARCHICAD_LAYER;
 use crate::{
@@ -22,24 +23,77 @@ use eframe::egui::{self, *};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
+mod ai_workspace_ui;
+mod automation_ui;
+mod beam_ui;
+mod cad_ui;
+mod canvas_selection;
+mod cloud_drawing;
+mod column_ui;
+mod comparison_3d_ui;
+mod design_process_ui;
+mod diagram_ui;
 mod dialogs;
 mod drag_tracker;
+mod drawing_input;
+mod drawing_preview;
+mod drawings_ui;
 mod edit_menu;
 mod edit_shortcuts;
+mod evidence_ui;
+mod external_content;
 mod file_io;
 mod info_box;
+mod input_origins;
 mod inspector;
 mod layers_ui;
+mod mass_edit_ui;
+mod mass_push_pull_ui;
+mod mass_spaces_ui;
+mod mcp_settings;
 mod model_view;
 #[cfg(target_os = "macos")]
 mod native_menu;
+mod object_research_ui;
+mod object_task_ui;
+mod opening_ui;
+mod parametric_ui;
+mod personal_shortcuts;
 mod plan;
+mod plugins_ui;
+mod program_ui;
+mod project_conditions_ui;
+mod project_sources_ui;
+mod viewport_navigation;
+use project_conditions_ui::{ConditionsGroup, ProjectConditionsUi};
+mod checks_ui;
 mod quick_options;
+mod report_ui;
 mod reshape_ui;
+mod roof_ui;
+mod rule_register_ui;
+mod rules_ui;
 mod shell;
+mod site_ui;
+mod slab_ui;
+mod solar_ui;
+mod source_review_ui;
+mod surfaces_ui;
+mod terrain_ui;
 #[cfg(test)]
 mod ui_tests;
 mod wall_node_ui;
+mod workbench_ui;
+mod workspace_ui;
+mod zones_ui;
+
+// Screen coordinates are the only 2D precision narrowing boundary.
+fn pos2(x: impl Into<f64>, y: impl Into<f64>) -> Pos2 {
+    egui::pos2(x.into() as f32, y.into() as f32)
+}
+fn vec2(x: impl Into<f64>, y: impl Into<f64>) -> Vec2 {
+    egui::vec2(x.into() as f32, y.into() as f32)
+}
 
 const INK: Color32 = Color32::from_rgb(225, 229, 230);
 const MUTED: Color32 = Color32::from_rgb(155, 164, 167);
@@ -98,6 +152,7 @@ fn file_display_name(path: &str) -> Option<String> {
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum View {
+    Figure(u64),
     Plan,
     Split,
     Model,
@@ -123,6 +178,7 @@ enum FileAction {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlanOptionKind {
+    FloorPlanCut,
     PenSets,
     PartialStructure,
     ModelView,
@@ -145,13 +201,15 @@ struct WallSnap {
 #[derive(Clone, Debug)]
 struct WallEdit {
     element_id: u64,
+    /// Bound when the palette first runs; the other split pane must not render it.
+    model_canvas: Option<bool>,
     /// `0` is the reference-line start, `1` is its end. `None` means the whole
     /// line was grabbed rather than one of its handles.
     node: Option<usize>,
     command: WallEditCommand,
     palette_at: Pos2,
     insert_anchor: Point,
-    elevation: Option<f32>,
+    elevation: Option<f64>,
     drag: Option<(Project, Point)>,
     snap: Option<WallSnap>,
     error: String,
@@ -171,40 +229,77 @@ struct InfoBoxWallToolState {
 }
 #[derive(Clone, Debug)]
 struct InfoBoxOpeningState {
+    joinery: crate::opening_joinery::OpeningJoinery,
     element_id: u64,
     host_wall: u64,
     kind: OpeningKind,
-    width: f32,
-    height: f32,
-    sill: f32,
-    offset: f32,
+    width: f64,
+    height: f64,
+    sill: f64,
+    offset: f64,
     dirty: bool,
     error: String,
 }
 #[derive(Clone, Debug)]
 struct InfoBoxOpeningToolState {
+    joinery: crate::opening_joinery::OpeningJoinery,
     kind: OpeningKind,
     defaults: OpeningDefaults,
     dirty: bool,
     error: String,
 }
 pub struct AtelierApp {
-    pub editor: Editor,
+    native_metrics: native_metrics::Metrics,
+    ai_workspace: ai_workspace_ui::AiWorkspaceUi,
+    automation_window: bool,
+    mcp_settings: mcp_settings::McpSettings,
+    process_ui: design_process_ui::ProcessUi,
+    research_ui: object_research_ui::ObjectResearchUi,
+    zone_analysis_open: bool,
+    zone_analysis_cache: Option<(
+        u64,
+        u64,
+        u32,
+        crate::view_settings::DesignOptionScope,
+        Result<crate::zones::analysis::SpaceAnalysis, String>,
+    )>,
+    automation_feedback: String,
+    #[cfg(unix)]
+    automation: Option<crate::automation_ipc::Endpoint>,
+    drawings_ui: drawings_ui::DrawingsUi,
+    cad_ui: cad_ui::CadUi,
+    mass_spaces_ui: mass_spaces_ui::MassSpaceUi,
+    reference_ui: external_content::ReferenceUi,
+    cloud_drawing: cloud_drawing::CloudDrawingUi,
+    pub host: crate::application_host::ApplicationHost,
+    workbench: workbench_ui::WorkbenchUi,
+    plugins_ui: plugins_ui::PluginUi,
+    source_ui: project_sources_ui::ProjectSourcesUi,
+    project_conditions_ui: ProjectConditionsUi,
+    program_ui: program_ui::ProgramUi,
+    evidence_ui: evidence_ui::EvidenceUi,
+    rules_ui: rules_ui::RulesUi,
+    checks_ui: checks_ui::ChecksUi,
+    terrain_ui: terrain_ui::TerrainUi,
+    site_dialog: Option<site_ui::SiteDialog>,
     renderer: Option<SceneRenderer>,
     camera: Camera,
+    navigation: viewport_navigation::Navigation,
     view: View,
     tab: Tab,
     preview_tool: Option<String>,
     preview_element_id: String,
     preview_layer: String,
-    preview_offset: f32,
+    preview_offset: f64,
     navigator_view: NavigatorView,
     navigator_search: String,
     plan_center: Point,
-    plan_scale: f32,
-    split: f32,
+    plan_scale: f64,
+    split: f64,
     show_left: bool,
     show_right: bool,
+    standard_toolbar_visible: bool,
+    edit_toolbar_visible: bool,
     quick_options_visible: bool,
     quick_options_palette_visible: bool,
     plan_option_dialog: Option<PlanOptionKind>,
@@ -212,14 +307,15 @@ pub struct AtelierApp {
     orientation_pick_active: bool,
     orientation_pick_start: Option<Point>,
     design_option_new_name: String,
-    saved_zooms: Vec<(String, f32)>,
+    saved_zooms: Vec<(String, f64)>,
     guide_ui: GuideUi,
     grid_dialog: Option<crate::grids::GridSettings>,
     grid_dialog_error: String,
     grid_dialog_just_opened: bool,
-    grid_preview_zoom: f32,
+    grid_preview_zoom: f64,
     rotated_grid_tool: Option<RotatedGridTool>,
     trace: crate::trace::TraceState,
+    trace_view: crate::trace_document::TraceView,
     groups_enabled: bool,
     cutaway_enabled: bool,
     select_sub_elements: bool,
@@ -231,18 +327,29 @@ pub struct AtelierApp {
     show_marquee_3d: bool,
     marquee_points: Vec<Point>,
     marquee_preview: Option<(Point, Point)>,
-    marquee_dx: f32,
-    marquee_dy: f32,
-    marquee_height: f32,
+    marquee_dx: f64,
+    marquee_dy: f64,
+    marquee_height: f64,
     marquee_3d_preview: Option<(Pos2, Pos2)>,
     marquee_3d_points: Vec<Pos2>,
     marquee_3d_cursor: Option<Pos2>,
-    tracker_a: f32,
-    tracker_b: f32,
+    canvas_selection_box: Option<canvas_selection::SelectionBox>,
+    canvas_pick: canvas_selection::CanvasPickState,
+    polygon_creation_length: f64,
+    polygon_creation_angle: f64,
+    tracker_a: f64,
+    tracker_b: f64,
     tracker_locked: bool,
+    drawing_ime_composing: bool,
+    user_origin_gesture: bool,
     hover_point: Point,
     draft: Option<Element>,
+    mass_parameters: Option<mass_edit_ui::MassParameters>,
+    mass_push_pull: mass_push_pull_ui::MassPushPull,
     draft_id: Option<u64>,
+    /// Model element from which the inspector draft was created. Track the
+    /// element itself so unrelated document edits preserve pending fields.
+    draft_source: Option<Element>,
     element_settings: Option<Element>,
     element_settings_error: String,
     wall_settings_dialog: Option<WallSettingsDialog>,
@@ -252,6 +359,7 @@ pub struct AtelierApp {
     info_box_wall_tool: Option<InfoBoxWallToolState>,
     info_box_opening: Option<InfoBoxOpeningState>,
     info_box_opening_tool: Option<InfoBoxOpeningToolState>,
+    opening_resize: Option<opening_ui::OpeningResize>,
     stair_settings_open: bool,
     stair_settings_draft: crate::stairs::StairSpec,
     stair_settings_error: String,
@@ -263,7 +371,7 @@ pub struct AtelierApp {
     command_dialog: Option<String>,
     command_dialog_tab: usize,
     command_dialog_name: String,
-    command_dialog_number: f32,
+    command_dialog_number: f64,
     command_dialog_enabled: bool,
     command_dialog_method: String,
     command_dialog_reference: String,
@@ -274,11 +382,15 @@ pub struct AtelierApp {
     wall_insert: Option<wall_node_ui::WallInsert>,
     wall_edit_palette_rect: Option<Rect>,
     file_action: Option<FileAction>,
+    project_open: file_io::ProjectOpenUi,
+    /// File-dialog input only; failed or cancelled operations never rebind `path`.
+    file_dialog_path: Option<String>,
     path: String,
     /// True once a project file has actually been opened or saved at `path`;
     /// until then the window title shows the localized "Untitled" even though
     /// `path` already carries a suggested location.
     path_confirmed: bool,
+    file_baseline: Option<(PathBuf, storage::FileVersion)>,
     /// Last window title sent to the viewport; kept to avoid redundant
     /// `ViewportCommand::Title` messages every frame.
     sent_title: String,
@@ -299,11 +411,14 @@ pub struct AtelierApp {
     close_prompt: bool,
     close_error: String,
     allow_close: bool,
-    recovery_path: Option<PathBuf>,
-    recovery_prompt: Option<Project>,
+    recovery_slot: Option<crate::recovery::RecoverySlot>,
+    recovery_open: bool,
+    recovery_candidates: Vec<crate::recovery::RecoveryCandidate>,
+    recovery_choice: Option<usize>,
     recovery_error: String,
     last_recovery_save: Option<Instant>,
     last_recovery_revision: Option<u64>,
+    recovery_write: Option<file_io::RecoveryWrite>,
     /// AC29-style parameter transfer: one-shot eyedropper/syringe modes and
     /// the Element Transfer Settings working copy.
     pick_armed: bool,
@@ -333,6 +448,18 @@ impl AtelierApp {
             .unwrap_or_else(|| "GPU unavailable".into());
         let renderer = cc.wgpu_render_state.clone().map(SceneRenderer::new);
         let mut app = Self::from_renderer(renderer, gpu_name);
+        app.host.document.editor = Editor::new(crate::storage::startup_example());
+        app.path = std::path::Path::new(&app.path)
+            .with_file_name("synthetic-study.openarchi.json")
+            .display()
+            .to_string();
+        app.view = View::Model;
+        app.fit();
+        #[cfg(unix)]
+        if let Some(endpoint) = &mut app.automation {
+            let ctx = cc.egui_ctx.clone();
+            endpoint.set_wake(move || ctx.request_repaint());
+        }
         app.language = UiLanguage::load_preference();
         app.native_menu_enabled = cfg!(target_os = "macos");
         // The window title is the document name (file name, or the localized
@@ -340,12 +467,34 @@ impl AtelierApp {
         app.sent_title = app.document_title();
         cc.egui_ctx
             .send_viewport_cmd(egui::ViewportCommand::Title(app.sent_title.clone()));
-        if let Some(path) = app.recovery_path.clone() {
-            match crate::recovery::read(&path) {
-                Ok(project) => app.recovery_prompt = project,
-                Err(error) => app.recovery_error = error,
+        if let Some(config) = crate::platform::config_dir() {
+            app.project_open.initialize(&config);
+            app.initialize_recovery(&config);
+            app.initialize_work_mode(&config);
+            app.initialize_source_connections(&config);
+            if let Err(error) = app.host.configure_plugins(&config) {
+                app.plugins_ui.error = error;
+            }
+            #[cfg(unix)]
+            if let Some(jobs) = &mut app.host.jobs {
+                jobs.require_process_worker();
+                match std::env::current_exe()
+                    .map_err(|e| e.to_string())
+                    .and_then(|path| jobs.use_process_worker(&path))
+                {
+                    Ok(()) => {}
+                    Err(error) => app.plugins_ui.error = error,
+                }
+            }
+            let directory = std::env::var_os("OPENARCHI_AUTOMATION_JOURNAL_DIR")
+                .map(std::path::PathBuf::from)
+                .unwrap_or_else(|| config.join("automation-journal"));
+            if let Err(error) = app.host.configure_operation_journal(Some(directory)) {
+                app.process_ui.error = error;
             }
         }
+        app.initialize_mcp_settings(&cc.egui_ctx);
+        app.ai_workspace.enabled = true;
         app
     }
     fn from_renderer(renderer: Option<SceneRenderer>, gpu_name: String) -> Self {
@@ -353,14 +502,51 @@ impl AtelierApp {
             .ok()
             .filter(|p| p.parent().is_some())
             .unwrap_or_else(|| crate::platform::documents_dir().unwrap_or_else(std::env::temp_dir));
+        let mut host = crate::application_host::ApplicationHost::new(Project::demo());
+        #[cfg(unix)]
+        let automation = std::env::var_os("OPENARCHI_AUTOMATION_SOCKET").and_then(|path| {
+            let directory = std::env::var_os("OPENARCHI_AUTOMATION_JOURNAL_DIR")
+                .map(std::path::PathBuf::from)
+                .or_else(|| crate::platform::config_dir().map(|p| p.join("automation-journal")));
+            let enabled = std::env::var("OPENARCHI_AUTOMATION_WRITE").as_deref() == Ok("1");
+            match crate::automation_ipc::Endpoint::bind_for_host(
+                path.into(),
+                enabled,
+                directory,
+                &mut host,
+            ) {
+                Ok(endpoint) => Some(endpoint),
+                Err(error) => {
+                    eprintln!("OpenArchi automation disabled: {error}");
+                    None
+                }
+            }
+        });
         Self {
-            editor: Editor::new(Project::demo()), renderer, camera: Camera::default(),
+            automation_window: false,
+            ai_workspace: Default::default(),
+            mcp_settings: Default::default(),
+            process_ui: Default::default(),
+            research_ui: Default::default(),
+            zone_analysis_open:false,
+            zone_analysis_cache:None,
+            automation_feedback: String::new(),
+            #[cfg(unix)]
+            automation,
+            drawings_ui: Default::default(),
+            cad_ui: Default::default(),
+            mass_spaces_ui: Default::default(),
+            reference_ui: Default::default(),
+            cloud_drawing: Default::default(),
+            host, plugins_ui: Default::default(), workbench: Default::default(), source_ui: Default::default(), project_conditions_ui: Default::default(), program_ui: Default::default(), evidence_ui: Default::default(), rules_ui: Default::default(), checks_ui: Default::default(), terrain_ui: Default::default(), site_dialog: None, renderer, camera: Camera::default(), navigation: Default::default(),
             view: View::Plan, tab: Tab::Properties, preview_tool: None,
             preview_element_id: "OA-001".into(), preview_layer: "03 Plans - Preliminary".into(),
             preview_offset: 0.,
             navigator_view: NavigatorView::ProjectMap,
             navigator_search: String::new(), plan_center: Point::new(6.,3.),
             plan_scale: 40., split: 0.53, show_left: true, show_right: true,
+            standard_toolbar_visible: true,
+            edit_toolbar_visible: true,
             quick_options_visible: true,
             quick_options_palette_visible: false,
             plan_option_dialog: None,
@@ -371,7 +557,7 @@ impl AtelierApp {
             saved_zooms: Vec::new(),
             guide_ui: GuideUi::default(), grid_dialog: None, grid_dialog_error: String::new(),
             grid_dialog_just_opened: false,
-            grid_preview_zoom: 25., rotated_grid_tool: None, trace: Default::default(),
+            grid_preview_zoom: 25., rotated_grid_tool: None, trace: Default::default(), trace_view: Default::default(),
             groups_enabled: true, cutaway_enabled: false, select_sub_elements: false,
             select_locked_elements: false, all_stories: true,
             marquee_geometry: MarqueeGeometry::Rectangle, marquee_scope: MarqueeScope::CurrentStory,
@@ -379,8 +565,11 @@ impl AtelierApp {
             marquee_dx: 1., marquee_dy: 0.,
             marquee_height: 3., marquee_3d_preview: None,
             marquee_3d_points: Vec::new(), marquee_3d_cursor: None,
-            tracker_a: 4., tracker_b: 0., tracker_locked: false, hover_point: Point::default(),
-            draft: None, draft_id: None, element_settings: None, element_settings_error: String::new(),
+            canvas_selection_box: None,
+            canvas_pick: Default::default(),
+            polygon_creation_length: 4., polygon_creation_angle: 0.,
+            tracker_a: 4., tracker_b: 0., tracker_locked: false, drawing_ime_composing: false, user_origin_gesture: false, hover_point: Point::default(),
+            draft: None, mass_parameters: None, mass_push_pull: Default::default(), draft_id: None, draft_source: None, element_settings: None, element_settings_error: String::new(),
             wall_settings_dialog: None,
             layer_settings: None,
             info_box_visible: true,
@@ -388,14 +577,16 @@ impl AtelierApp {
             info_box_wall_tool: None,
             info_box_opening: None,
             info_box_opening_tool: None,
+            opening_resize: None,
             stair_settings_open: false, stair_settings_draft: crate::stairs::StairSpec::default(), stair_settings_error: String::new(),
             clipboard_write_pending: false, edit_dialog: None, pointer_drag: None, reshape_session: None, trim_shortcut_gesture: false, command_dialog: None, command_dialog_tab: 0, command_dialog_name: String::new(),
             command_dialog_number: 1., command_dialog_enabled: true,
             command_dialog_method: "Default".into(), command_dialog_reference: "Center".into(),
             command_dialog_representation: "By Element".into(), command_dialog_classification: "Not assigned".into(),
-            drag: None, wall_edit: None, wall_insert: None, wall_edit_palette_rect: None, file_action: None,
+            drag: None, wall_edit: None, wall_insert: None, wall_edit_palette_rect: None, file_action: None, project_open: Default::default(), file_dialog_path: None,
             path: directory.join("courtyard.openarchi.json").display().to_string(),
             path_confirmed: false,
+            file_baseline: None,
             sent_title: String::new(),
             in_window_menus: !cfg!(target_os = "macos"),
             native_menu_enabled: false,
@@ -403,9 +594,12 @@ impl AtelierApp {
             messages: vec![(false, "Your design companion\n\nAsk for a project summary, quantities, or a model check. This demo runs local rules; no AI service is connected.".into())],
             help: false, gpu_name, language: UiLanguage::English,
             close_prompt: false, close_error: String::new(), allow_close: false,
-            recovery_path: crate::recovery::path(), recovery_prompt: None,
+            recovery_slot: None, recovery_open: false,
+            recovery_candidates: Vec::new(), recovery_choice: None,
             recovery_error: String::new(), last_recovery_save: None,
+            native_metrics: native_metrics::Metrics::default(),
             last_recovery_revision: None,
+            recovery_write: None,
             pick_armed: false, inject_armed: false, transfer_dialog: None, transfer_hover: None, transfer_cursor: None,
         }
     }
@@ -488,6 +682,49 @@ impl AtelierApp {
         }
     }
     fn localized_count_status(&self, status: &str) -> Option<String> {
+        if let Some(count) = status
+            .strip_prefix("Stretched nodes on ")
+            .and_then(|rest| rest.strip_suffix(" element(s)"))
+            .filter(|count| !count.is_empty() && count.chars().all(|c| c.is_ascii_digit()))
+        {
+            return Some(
+                self.language
+                    .translate("Stretched nodes on {count} element(s)")
+                    .replace("{count}", count),
+            );
+        }
+        for (prefix, template) in [
+            ("Created Door ", "Created Door {id}"),
+            ("Created Window ", "Created Window {id}"),
+        ] {
+            if let Some(id) = status
+                .strip_prefix(prefix)
+                .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+            {
+                return Some(self.language.translate(template).replace("{id}", id));
+            }
+        }
+        if let Some(id) = status
+            .strip_prefix("Created Polyline ")
+            .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+        {
+            return Some(
+                self.language
+                    .translate("Created Polyline {id}")
+                    .replace("{id}", id),
+            );
+        }
+        if let Some(count) = status
+            .strip_prefix("Polyline · ")
+            .and_then(|rest| rest.strip_suffix(" node(s) · right-click to finish"))
+            .filter(|count| !count.is_empty() && count.chars().all(|c| c.is_ascii_digit()))
+        {
+            return Some(
+                self.language
+                    .translate("Polyline · {count} node(s) · right-click to finish")
+                    .replace("{count}", count),
+            );
+        }
         if let Some(id) = status
             .strip_prefix("Created element ")
             .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
@@ -531,9 +768,92 @@ impl AtelierApp {
         None
     }
     fn status_text(&self) -> String {
-        let status = self.editor.status.trim();
+        let status = self.host.document.editor.status.trim();
+        if let Some(message) = self.language.geometry_error_message(status) {
+            return message;
+        }
         if self.language == UiLanguage::English || status.is_empty() {
             return status.to_owned();
+        }
+        if let Some(story) = status.strip_prefix("Activated Trace Reference · story ")
+            && story.parse::<u32>().is_ok()
+        {
+            return self
+                .language
+                .translate("Activated Trace Reference · story {story}")
+                .replace("{story}", story);
+        }
+        if let Some(tool) = status
+            .strip_prefix("Command cancelled · ")
+            .and_then(|rest| rest.strip_suffix(" restored"))
+            .filter(|tool| {
+                matches!(
+                    *tool,
+                    "Roof"
+                        | "Beam"
+                        | "Column"
+                        | "Select"
+                        | "Marquee"
+                        | "Wall"
+                        | "Slab"
+                        | "Stair"
+                        | "Polyline"
+                        | "Door"
+                        | "Window"
+                )
+            })
+        {
+            return self
+                .language
+                .translate("Command cancelled · {tool} restored")
+                .replace("{tool}", self.language.translate(tool));
+        }
+        if let Some(name) = status
+            .strip_prefix("Layer ")
+            .and_then(|rest| rest.strip_suffix(" is locked"))
+            .filter(|name| !name.trim().is_empty())
+        {
+            return self
+                .language
+                .translate("Layer {name} is locked")
+                .replace("{name}", self.language.translate(name));
+        }
+        if let Some(id) = status
+            .strip_prefix("Element ")
+            .and_then(|rest| rest.strip_suffix(" is on a locked layer"))
+            .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+        {
+            return self
+                .language
+                .translate("Element {id} is on a locked layer")
+                .replace("{id}", id);
+        }
+        if let Some(id) = status
+            .strip_prefix("Element ")
+            .and_then(|rest| rest.strip_suffix(" is locked or read-only"))
+            .filter(|id| !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()))
+        {
+            return self
+                .language
+                .translate("Element {id} is locked or read-only")
+                .replace("{id}", id);
+        }
+        let translated_error = localized_error(self.language, status);
+        if translated_error != status {
+            return translated_error;
+        }
+        if let Some((id, openings)) = status
+            .strip_prefix("Overlapping openings on wall ")
+            .and_then(|rest| rest.split_once(": "))
+            .filter(|(id, openings)| {
+                !id.is_empty() && id.chars().all(|c| c.is_ascii_digit()) && !openings.is_empty()
+            })
+        {
+            return self
+                .language
+                .translate("Overlapping openings on wall {id}: {openings}")
+                .replace("{id}", id)
+                .replace("{openings}", openings);
         }
         if let Some(message) = self.localized_count_status(status) {
             return message;
@@ -622,29 +942,29 @@ impl AtelierApp {
         None
     }
     fn paint_tool_icon(p: &Painter, rect: Rect, name: &str, color: Color32) {
-        let q = |x: f32, y: f32| {
+        let q = |x: f64, y: f64| {
             pos2(
-                rect.left() + x * rect.width(),
-                rect.top() + y * rect.height(),
+                f64::from(rect.left()) + x * f64::from(rect.width()),
+                f64::from(rect.top()) + y * f64::from(rect.height()),
             )
         };
         let stroke = Stroke::new(1.35, color);
-        let line = |a: (f32, f32), b: (f32, f32)| {
+        let line = |a: (f64, f64), b: (f64, f64)| {
             p.line_segment([q(a.0, a.1), q(b.0, b.1)], stroke);
         };
-        let path = |points: &[(f32, f32)]| {
+        let path = |points: &[(f64, f64)]| {
             p.add(egui::Shape::line(
                 points.iter().map(|&(x, y)| q(x, y)).collect(),
                 stroke,
             ));
         };
-        let closed = |points: &[(f32, f32)]| {
+        let closed = |points: &[(f64, f64)]| {
             p.add(egui::Shape::closed_line(
                 points.iter().map(|&(x, y)| q(x, y)).collect(),
                 stroke,
             ));
         };
-        let box_outline = |x: f32, y: f32, w: f32, h: f32| {
+        let box_outline = |x: f64, y: f64, w: f64, h: f64| {
             p.rect_stroke(
                 Rect::from_min_max(q(x, y), q(x + w, y + h)),
                 0.,
@@ -652,8 +972,8 @@ impl AtelierApp {
                 StrokeKind::Inside,
             );
         };
-        let circle = |x: f32, y: f32, r: f32| {
-            p.circle_stroke(q(x, y), r * rect.width().min(rect.height()), stroke);
+        let circle = |x: f64, y: f64, r: f64| {
+            p.circle_stroke(q(x, y), r as f32 * rect.width().min(rect.height()), stroke);
         };
         match name {
             "Home" | "Project Map" => {
@@ -693,6 +1013,20 @@ impl AtelierApp {
                 if name == "Zoom In" {
                     line((0.43, 0.29), (0.43, 0.55));
                 }
+            }
+            "Orbit" => {
+                circle(0.5, 0.5, 0.32);
+                line((0.1, 0.5), (0.9, 0.5));
+                path(&[(0.7, 0.08), (0.85, 0.28), (0.62, 0.28)]);
+            }
+            "Explore Model" => {
+                path(&[
+                    (0.18, 0.82),
+                    (0.5, 0.14),
+                    (0.82, 0.82),
+                    (0.5, 0.66),
+                    (0.18, 0.82),
+                ]);
             }
             "Fit" => {
                 box_outline(0.2, 0.2, 0.6, 0.6);
@@ -1047,6 +1381,11 @@ impl AtelierApp {
                 line((0.76, 0.72), (0.42, 0.48));
                 line((0.17, 0.65), (0.42, 0.48));
             }
+            "Concept mass" => {
+                closed(&[(0.15, 0.35), (0.65, 0.15), (0.85, 0.30), (0.35, 0.50)]);
+                closed(&[(0.15, 0.35), (0.35, 0.50), (0.35, 0.85), (0.15, 0.70)]);
+                closed(&[(0.35, 0.50), (0.85, 0.30), (0.85, 0.65), (0.35, 0.85)]);
+            }
             "Zone" => {
                 closed(&[
                     (0.18, 0.24),
@@ -1109,7 +1448,7 @@ impl AtelierApp {
             "Fill" => {
                 box_outline(0.18, 0.18, 0.64, 0.64);
                 for i in 0..5 {
-                    let n = i as f32 * 0.15;
+                    let n = i as f64 * 0.15;
                     line((0.22 + n, 0.76), (0.76, 0.22 + n));
                 }
             }
@@ -1419,6 +1758,7 @@ impl AtelierApp {
     }
     fn vector_icon_button(ui: &mut Ui, icon: &str, tip: &str, selected: bool) -> bool {
         let (r, response) = ui.allocate_exact_size(vec2(30., 28.), Sense::click());
+        response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, selected, tip));
         if selected || response.hovered() {
             ui.painter().rect_filled(
                 r,
@@ -1445,8 +1785,8 @@ impl AtelierApp {
         tip: &str,
         selected: bool,
     ) -> bool {
-        let width = (43. + label.chars().count() as f32 * 7.1)
-            .min(ui.available_width())
+        let width = (43. + label.chars().count() as f64 * 7.1)
+            .min(ui.available_width().into())
             .max(44.);
         let (r, response) = ui.allocate_exact_size(vec2(width, 28.), Sense::click());
         if selected || response.hovered() {
@@ -1506,10 +1846,14 @@ impl AtelierApp {
         );
     }
     fn place_marquee(&mut self, vertices: Vec<Point>) {
-        if let Some(area) = MarqueeArea::new(vertices, self.marquee_scope, self.editor.story) {
-            self.editor.marquee = Some(area);
-            self.editor.set_selection(Vec::new());
-            self.editor.status = format!(
+        if let Some(area) = MarqueeArea::new(
+            vertices,
+            self.marquee_scope,
+            self.host.document.editor.story,
+        ) {
+            self.host.document.editor.marquee = Some(area);
+            self.host.document.editor.set_selection(Vec::new());
+            self.host.document.editor.status = format!(
                 "Marquee placed · {}",
                 if self.marquee_scope == MarqueeScope::AllStories {
                     "all stories"
@@ -1518,7 +1862,7 @@ impl AtelierApp {
                 }
             );
         } else {
-            self.editor.status = "Marquee needs three non-collinear points".into();
+            self.host.document.editor.status = "Marquee needs three non-collinear points".into();
         }
         self.marquee_points.clear();
         self.marquee_preview = None;
@@ -1526,9 +1870,9 @@ impl AtelierApp {
         self.marquee_3d_points.clear();
         self.marquee_3d_cursor = None;
     }
-    fn place_3d_marquee(&mut self, vertices: Vec<Point>, base_z: f32) {
+    fn place_3d_marquee(&mut self, vertices: Vec<Point>, base_z: f64) {
         self.place_marquee(vertices);
-        if let Some(area) = &mut self.editor.marquee {
+        if let Some(area) = &mut self.host.document.editor.marquee {
             area.z_range = Some((base_z, base_z + self.marquee_height));
             self.show_marquee_3d = true;
             self.fit_marquee();
@@ -1552,9 +1896,11 @@ impl AtelierApp {
             return;
         }
         self.info_box_wall = None;
-        let selected = self.editor.selection_ids();
+        let selected = self.host.document.editor.selection_ids();
         if selected.len() == 1 {
             let element = self
+                .host
+                .document
                 .editor
                 .project
                 .elements
@@ -1566,7 +1912,7 @@ impl AtelierApp {
                     self.wall_settings_dialog = WallSettingsDialog::selected(&element);
                     self.element_settings = None;
                     self.element_settings_error.clear();
-                    self.editor.status = format!(
+                    self.host.document.editor.status = format!(
                         "Wall Settings · {} {:03}",
                         self.language.translate("Wall"),
                         element.id
@@ -1578,36 +1924,76 @@ impl AtelierApp {
                     self.wall_settings_dialog = None;
                     self.element_settings_error.clear();
                     if let Some(element) = &self.element_settings {
-                        self.editor.status =
+                        self.host.document.editor.status =
                             format!("Element Settings · {} {:03}", element.kind(), element.id);
                     }
                     return;
                 }
                 None => {
-                    self.editor.status =
+                    self.host.document.editor.status =
                         "Element Settings · The selected element no longer exists".into();
                 }
             }
         }
-        if self.editor.tool == Tool::Wall {
+        if self.host.document.editor.tool == Tool::Wall {
             self.element_settings = None;
             self.wall_settings_dialog = Some(WallSettingsDialog::defaults(
-                &self.editor.wall_settings,
-                self.editor.thickness,
-                self.editor.height,
-                self.editor.story,
-                self.editor.wall_layer,
-                self.editor.wall_renovation,
+                &self.host.document.editor.wall_settings,
+                self.host.document.editor.thickness,
+                self.host.document.editor.height,
+                self.host.document.editor.story,
+                self.host.document.editor.wall_layer,
+                self.host.document.editor.wall_renovation,
             ));
-            self.editor.status = self
+            self.host.document.editor.status = self
                 .language
                 .translate("Wall Default Settings · New walls use these values")
                 .into();
             return;
         }
-        self.editor.status = "Element Settings · Select one element first".into();
+        self.host.document.editor.status = "Element Settings · Select one element first".into();
     }
     fn open_command_preview(&mut self, command: String) {
+        if command == "AI collaboration" {
+            self.set_ai_workspace(true);
+            return;
+        }
+        if command == "Save workspace layout" {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::SaveWorkspace);
+            return;
+        }
+        if command == "Reset workspace layout" {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::ResetWorkspace);
+            return;
+        }
+        if command == "Keyboard Shortcuts…" {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Environment);
+            self.workbench.shortcuts_expand = true;
+            return;
+        }
+        if command == "Customize work environment…" {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Environment);
+            return;
+        }
+        if command == "MCP Settings…" {
+            self.mcp_settings.open = true;
+            return;
+        }
+        if command == "AI Operations…" {
+            self.automation_window = true;
+            return;
+        }
+        if command == "Save As…" {
+            self.file_action = Some(FileAction::Save);
+            return;
+        }
+        if matches!(command.as_str(), "Column" | "Beam" | "Roof") {
+            self.activate_named_tool(&command);
+            return;
+        }
+        if self.external_content_command(&command) {
+            return;
+        }
         if edit_menu::EDIT_GROUPS
             .iter()
             .any(|(_, items)| items.contains(&command.as_str()))
@@ -1618,18 +2004,18 @@ impl AtelierApp {
         self.command_dialog_tab = 0;
         self.command_dialog_name = command.clone();
         self.command_dialog = Some(command.clone());
-        self.editor.status = format!("{command} · configuration preview");
+        self.host.document.editor.status = format!("{command} · configuration preview");
     }
     fn activate_stair_tool(&mut self) {
-        self.editor.set_tool(Tool::Stair);
+        self.host.document.editor.set_tool(Tool::Stair);
         self.preview_tool = None;
         self.tracker_locked = false;
-        self.stair_settings_draft = self.editor.stair_spec.clone();
+        self.stair_settings_draft = self.host.document.editor.stair_spec.clone();
         self.stair_settings_error.clear();
         self.stair_settings_open = true;
     }
     fn activate_polyline_tool(&mut self) {
-        self.editor.set_tool(Tool::Polyline);
+        self.host.document.editor.set_tool(Tool::Polyline);
         self.preview_tool = None;
         self.tracker_locked = false;
     }
@@ -1638,30 +2024,143 @@ impl AtelierApp {
             .element_settings
             .clone()
             .ok_or_else(|| "No element settings are open".to_string())?;
-        self.editor.replace_element(element)?;
+        self.host.document.editor.replace_element(element)?;
         self.draft_id = None;
         self.element_settings_error.clear();
-        self.editor.status = "Element settings applied · Plan and 3D views synchronized".into();
+        self.host.document.editor.status =
+            "Element settings applied · Plan and 3D views synchronized".into();
         Ok(())
     }
     fn screen_to_ground(
         camera: &Camera,
         viewport: Rect,
         pos: Pos2,
-        elevation: f32,
+        elevation: f64,
     ) -> Option<Point> {
         let ndc = [
             (pos.x - viewport.left()) / viewport.width() * 2. - 1.,
             1. - (pos.y - viewport.top()) / viewport.height() * 2.,
         ];
-        camera.point_on_horizontal_plane(ndc, viewport.aspect_ratio(), elevation)
+        camera.point_on_horizontal_plane(
+            ndc.map(f64::from),
+            viewport.aspect_ratio().into(),
+            elevation,
+        )
     }
     fn shortcuts(&mut self, ctx: &Context) {
+        self.cancel_pointer_drag_outside_scope();
+        let drag_ime_input = self.pointer_drag_ime_owns_input(ctx);
+        let drawing_ime_input = self.drawing_ime_owns_input(ctx);
+        if self.drawing_backtrack_shortcut(ctx, drawing_ime_input) {
+            return;
+        }
+        if !ctx.input(|i| i.focused) {
+            self.cancel_canvas_pick();
+        }
+        if ctx.input(|i| i.key_pressed(Key::Escape)) {
+            let editing = self.canvas_editing_owns_input();
+            if self.cancel_canvas_pick() && !editing {
+                return;
+            }
+        }
+        if self.navigation_shortcuts(ctx) {
+            return;
+        }
+        if self.process_ui.preview.is_some() {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                if self
+                    .process_ui
+                    .preview
+                    .as_ref()
+                    .is_some_and(|p| p.sent_target.is_some())
+                {
+                    self.process_ui.status =
+                        "Original operation retained; inspect it in Operations.".into();
+                }
+                self.process_ui.preview = None;
+            }
+            return;
+        }
+        if self.research_ui.canvas_move.is_some() {
+            let conflict = !self.parametric_canvas_context_current();
+            if conflict
+                || ctx.input(|i| i.key_pressed(Key::Escape) || !i.focused)
+                || self.view != View::Plan
+            {
+                self.cancel_parametric_canvas_move(conflict);
+            }
+            return;
+        }
+        // Personal configuration owns keyboard input independently of canvas focus.
+        // Do not cancel/commit the model gesture when closing this settings window.
+        if self.workbench.configuration_open {
+            if ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                if self.workbench.shortcut_recording.take().is_none() {
+                    self.workbench.configuration_open = false;
+                    self.workbench.configuration_draft = None;
+                }
+            }
+            return;
+        }
+        if self.site_dialog.is_some() {
+            return;
+        }
+        if self.mass_push_pull_active() {
+            if ctx.input(|i| i.key_pressed(Key::Escape) || !i.focused)
+                || self.view == View::Plan
+                || self.host.document.editor.tool != Tool::Select
+            {
+                self.cancel_mass_push_pull();
+            }
+            return;
+        }
+        if self.mass_push_pull.enabled && ctx.input(|i| i.key_pressed(Key::Escape)) {
+            self.cancel_mass_push_pull();
+            return;
+        }
+        if self.opening_resize.is_some() {
+            if ctx.input(|i| i.key_pressed(Key::Escape) || !i.focused)
+                || self.view == View::Plan
+                || self.host.document.editor.tool != Tool::Select
+            {
+                self.opening_resize = None;
+                self.host.document.editor.status = "Opening resize cancelled".into();
+            }
+            return;
+        }
+        // A focus transition can arrive in the same frame as queued key events.
+        // Background windows must not apply document or tool shortcuts.
+        if !ctx.input(|input| input.focused) {
+            return;
+        }
+        if matches!(self.view, View::Figure(_)) {
+            self.figure_shortcuts(ctx);
+            return;
+        }
+        if self.host.document.editor.tool == Tool::Select
+            && self.drawings_ui.mode.is_none()
+            && self.drawings_ui.canvas_selected
+            && ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace))
+        {
+            self.delete_selected_drawing();
+            return;
+        }
+
+        if self.drawings_ui.mode.is_some()
+            || self.drawings_ui.open
+            || self.reference_ui.pending.is_some()
+        {
+            if ctx.input(|i| i.key_pressed(Key::Escape)) {
+                self.drawings_ui.cancel();
+                self.reference_ui.pending = None;
+            }
+            return;
+        }
         if let Some(insert) = self.wall_insert.as_mut() {
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.wall_insert = None;
                 self.wall_edit_palette_rect = None;
-                self.editor.status = "Edit cancelled".into();
+                self.host.document.editor.status = "Edit cancelled".into();
             } else if ctx.input(|i| i.key_pressed(Key::P)) {
                 insert.cycle(ctx.input(|i| i.modifiers.shift));
             } else if ctx.input(|i| i.key_pressed(Key::Enter)) {
@@ -1673,12 +2172,29 @@ impl AtelierApp {
         if self.reshape_session.is_some() {
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.reshape_session = None;
-                self.editor.status = "Reshape cancelled".into();
+                self.host.document.editor.status = "Reshape cancelled".into();
             }
             return;
         }
         if self.pointer_drag.is_some() {
-            if ctx.input(|i| i.key_pressed(Key::Escape)) && !self.cancel_pointer_drag_input() {
+            if drag_ime_input || self.canvas_keyboard_blocked_ctx(ctx) {
+                return;
+            }
+            // The canvas owns this session. Tab changes Tracker fields, so it
+            // must not also navigate to a toolbar button and retain its focus
+            // after placement (which would block the next Undo/Save shortcut).
+            ctx.memory_mut(|memory| {
+                memory.move_focus(egui::FocusDirection::None);
+                if let Some(id) = memory.focused() {
+                    memory.surrender_focus(id);
+                }
+            });
+            if ctx.input(|i| i.key_pressed(Key::Escape))
+                && !self.cancel_pointer_drag_input(ctx.input(|i| i.modifiers.shift))
+            {
+                self.finish_pointer_drag();
+            } else if ctx.input(|i| i.key_pressed(Key::Backspace)) && !self.pointer_drag_has_input()
+            {
                 self.finish_pointer_drag();
             }
             return;
@@ -1692,7 +2208,7 @@ impl AtelierApp {
         if self.trace.pointer_mode_active() {
             if ctx.input(|i| i.key_pressed(Key::Escape)) {
                 self.trace.cancel_pointer_modes();
-                self.editor.status = "Trace pointer mode cancelled".into();
+                self.host.document.editor.status = "Trace pointer mode cancelled".into();
             }
             return;
         }
@@ -1702,7 +2218,7 @@ impl AtelierApp {
         }
         if self.rotated_grid_tool.is_some() && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.rotated_grid_tool = None;
-            self.editor.status = "Set Rotated Grid cancelled".into();
+            self.host.document.editor.status = "Set Rotated Grid cancelled".into();
             return;
         }
         if (self.pick_armed || self.inject_armed) && ctx.input(|i| i.key_pressed(Key::Escape)) {
@@ -1714,13 +2230,20 @@ impl AtelierApp {
         }
         if self.wall_settings_dialog.is_some() && ctx.input(|i| i.key_pressed(Key::Escape)) {
             self.wall_settings_dialog = None;
-            self.editor.status = self.language.translate("Wall Settings cancelled").into();
+            self.host.document.editor.status =
+                self.language.translate("Wall Settings cancelled").into();
             return;
         }
         if ctx.input(|i| i.key_pressed(Key::Escape)) {
-            let operation_in_progress = self.editor.anchor.is_some()
-                || !self.editor.polyline_points.is_empty()
-                || !self.editor.wall_points.is_empty()
+            if self.canvas_selection_box.take().is_some() {
+                return;
+            }
+            let operation_in_progress = self.host.document.editor.roof_draft.is_some()
+                || self.host.document.editor.slab_draft.is_some()
+                || self.host.document.editor.slab_polygon_draft.is_some()
+                || self.host.document.editor.anchor.is_some()
+                || !self.host.document.editor.polyline_points.is_empty()
+                || !self.host.document.editor.wall_points.is_empty()
                 || !self.marquee_points.is_empty()
                 || self.marquee_preview.is_some()
                 || self.marquee_3d_preview.is_some()
@@ -1736,16 +2259,16 @@ impl AtelierApp {
                 || self.file_action.is_some();
             if operation_in_progress {
                 if let Some((before, _, _)) = self.drag.take() {
-                    self.editor.project = before;
+                    self.host.document.editor.project = before;
                 }
 
                 if let Some(edit) = self.wall_edit.take()
                     && let Some((before, _)) = edit.drag
                 {
-                    self.editor.project = before;
+                    self.host.document.editor.project = before;
                 }
-                self.editor.cancel_wall_draft();
-                self.editor.cancel_polyline();
+                self.host.document.editor.cancel_wall_draft();
+                self.host.document.editor.cancel_polyline();
                 self.marquee_points.clear();
                 self.marquee_preview = None;
                 self.marquee_3d_preview = None;
@@ -1763,9 +2286,10 @@ impl AtelierApp {
                 self.file_error.clear();
                 self.tracker_locked = false;
             }
-            if self.editor.tool != Tool::Select || self.preview_tool.is_some() {
-                let restored = self.editor.return_to_previous_tool();
-                self.editor.status = format!("Command cancelled · {restored:?} restored");
+            if self.host.document.editor.tool != Tool::Select || self.preview_tool.is_some() {
+                let restored = self.host.document.editor.return_to_previous_tool();
+                self.host.document.editor.status =
+                    format!("Command cancelled · {restored:?} restored");
                 self.preview_tool = None;
                 self.tracker_locked = false;
                 return;
@@ -1773,13 +2297,13 @@ impl AtelierApp {
             if operation_in_progress {
                 return;
             }
-            if !self.editor.selected_ids.is_empty() {
-                self.editor.set_selection(Vec::new());
-                self.editor.status = "Selection cleared".into();
+            if !self.host.document.editor.selected_ids.is_empty() {
+                self.host.document.editor.set_selection(Vec::new());
+                self.host.document.editor.status = "Selection cleared".into();
                 return;
             }
-            if self.editor.marquee.is_some() {
-                self.editor.remove_marquee();
+            if self.host.document.editor.marquee.is_some() {
+                self.host.document.editor.remove_marquee();
                 self.marquee_points.clear();
                 self.marquee_preview = None;
                 return;
@@ -1791,7 +2315,7 @@ impl AtelierApp {
             || self.file_action.is_some()
             || self.help
             || self.close_prompt
-            || self.recovery_prompt.is_some()
+            || self.recovery_open
             || self.element_settings.is_some()
             || self.layer_settings.is_some()
             || self.stair_settings_open
@@ -1804,6 +2328,13 @@ impl AtelierApp {
         {
             return;
         }
+        if self.personal_shortcuts(ctx) {
+            return;
+        }
+        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::S)) {
+            self.open_command_preview("Save As…".into());
+            return;
+        }
         if self.edit_shortcuts(ctx) {
             return;
         }
@@ -1811,7 +2342,7 @@ impl AtelierApp {
             self.toggle_grid_snap();
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::SHIFT, Key::S)) {
-            let settings = &mut self.editor.project.grid_settings;
+            let settings = &mut self.host.document.editor.project.grid_settings;
             settings.snap_mode = match settings.snap_mode {
                 crate::grids::GridSnapMode::None => crate::grids::GridSnapMode::SnapGrid,
                 crate::grids::GridSnapMode::SnapGrid => {
@@ -1821,21 +2352,24 @@ impl AtelierApp {
             };
             settings.grid_snap_enabled =
                 !matches!(settings.snap_mode, crate::grids::GridSnapMode::None);
-            self.editor.status = self
+            self.host.document.editor.status = self
                 .language
                 .translate(settings.snap_mode.label_key())
                 .into();
         }
-        if !self.editor.selected_ids.is_empty()
-            && self.editor.anchor.is_none()
-            && self.editor.polyline_points.is_empty()
+        if !self.host.document.editor.selected_ids.is_empty()
+            && self.host.document.editor.anchor.is_none()
+            && self.host.document.editor.polyline_points.is_empty()
             && self.drag.is_none()
         {
             let large = ctx.input(|i| i.modifiers.shift);
-            let settings = self.editor.project.grid_settings.clone();
-            let mut nudge = |dx: f32, dy: f32| {
-                self.editor.move_selection(Point::new(dx, dy));
-                self.editor.status = "Selection nudged".into();
+            let settings = self.host.document.editor.project.grid_settings.clone();
+            let mut nudge = |dx: f64, dy: f64| {
+                let revision = self.host.document.editor.revision;
+                self.host.document.editor.move_selection(Point::new(dx, dy));
+                if self.host.document.editor.revision != revision {
+                    self.host.document.editor.status = "Selection nudged".into();
+                }
             };
             for (key, dx, dy) in [
                 (Key::ArrowLeft, -1.0, 0.0),
@@ -1863,25 +2397,33 @@ impl AtelierApp {
                 }
             }
         }
-        if self.editor.tool == Tool::Wall
+        if self.host.document.editor.tool == Tool::Wall
             && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter))
         {
-            match self.editor.wall_settings.geometry.geometry_method {
+            match self
+                .host
+                .document
+                .editor
+                .wall_settings
+                .geometry
+                .geometry_method
+            {
                 WallGeometryMethod::Continuous | WallGeometryMethod::Polygonal => {
                     if self.tracker_locked {
-                        if let Some(anchor) = self.editor.anchor {
+                        if let Some(anchor) = self.host.document.editor.anchor {
                             let point = self.tracker_target(anchor);
-                            self.editor.click(point, 0.);
+                            self.host.document.editor.click(point, 0.);
                         }
-                    } else if let Err(error) = self.editor.finish_wall(None) {
-                        self.editor.status = localized_error(self.language, &error);
+                    } else if let Err(error) = self.host.document.editor.finish_wall(None) {
+                        self.host.document.editor.status = localized_error(self.language, &error);
                     }
                 }
                 WallGeometryMethod::Single | WallGeometryMethod::Rectangular => {
-                    if let Some(anchor) = self.editor.anchor {
+                    if let Some(anchor) = self.host.document.editor.anchor {
                         let point = self.tracker_target(anchor);
-                        if let Err(error) = self.editor.finish_wall(Some(point)) {
-                            self.editor.status = localized_error(self.language, &error);
+                        if let Err(error) = self.host.document.editor.finish_wall(Some(point)) {
+                            self.host.document.editor.status =
+                                localized_error(self.language, &error);
                         }
                     }
                 }
@@ -1889,11 +2431,11 @@ impl AtelierApp {
             self.tracker_locked = false;
             self.draft_id = None;
         }
-        if self.editor.tool == Tool::Polyline
+        if self.host.document.editor.tool == Tool::Polyline
             && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Enter))
         {
             if self.tracker_locked {
-                if let Some(anchor) = self.editor.polyline_points.last().copied() {
+                if let Some(anchor) = self.host.document.editor.polyline_points.last().copied() {
                     let point = self.tracker_target(anchor);
                     self.commit_polyline_point(point, 0.01);
                 }
@@ -1901,8 +2443,10 @@ impl AtelierApp {
                 self.finish_polyline();
             }
         }
-        if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S)) {
-            self.file_action = Some(FileAction::Save);
+        if !self.shortcut_overridden("file.save")
+            && ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::S))
+        {
+            self.request_project_save();
         }
         if ctx.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::O)) {
             self.file_action = Some(FileAction::Open);
@@ -1922,8 +2466,13 @@ impl AtelierApp {
             (Key::L, Tool::Slab),
             (Key::P, Tool::Polyline),
         ] {
-            if ctx.input(|i| i.key_pressed(key)) {
-                self.editor.set_tool(t);
+            if !match t {
+                Tool::Select => self.shortcut_overridden("tool.select"),
+                Tool::Wall => self.shortcut_overridden("tool.wall"),
+                _ => false,
+            } && ctx.input(|i| i.key_pressed(key))
+            {
+                self.host.document.editor.set_tool(t);
                 self.preview_tool = None;
                 self.tracker_locked = false;
             }
@@ -1931,92 +2480,189 @@ impl AtelierApp {
         if ctx.input(|i| i.key_pressed(Key::S)) {
             self.activate_stair_tool();
         }
-        if self.editor.wall_draft_active()
-            && ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace))
+        if self.host.document.editor.wall_draft_active()
+            && ctx.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Delete))
         {
-            if ctx.input(|i| i.key_pressed(Key::Delete)) {
-                self.editor.cancel_wall_draft();
-                self.editor.status = "Wall cancelled".into();
-            } else {
-                self.editor.backspace_wall();
-            }
+            self.host.document.editor.cancel_wall_draft();
+            self.host.document.editor.status = "Wall cancelled".into();
             self.tracker_locked = false;
             return;
         }
-        if ctx.input(|i| i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace)) {
-            self.editor.delete();
+        if ctx.input_mut(|i| {
+            i.consume_key(Modifiers::NONE, Key::Delete)
+                || i.consume_key(Modifiers::NONE, Key::Backspace)
+        }) {
+            self.host.document.editor.delete();
         }
         if ctx.input(|i| i.key_pressed(Key::F)) {
-            self.fit();
+            self.navigation_fit();
         }
-        if ctx.input(|i| i.key_pressed(Key::F2)) {
-            self.view = View::Plan;
-            self.editor.status = "Floor plan · F2".into();
+        if !self.shortcut_overridden("view.plan") && ctx.input(|i| i.key_pressed(Key::F2)) {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Plan);
+            self.host.document.editor.status = "Floor plan · F2".into();
         }
-        if ctx.input(|i| i.key_pressed(Key::F3)) {
-            self.view = View::Model;
-            self.editor.status = "Perspective 3D · F3".into();
+        if !self.shortcut_overridden("view.model") && ctx.input(|i| i.key_pressed(Key::F3)) {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Model);
+            self.host.document.editor.status = "Perspective 3D · F3".into();
         }
         if ctx.input(|i| i.key_pressed(Key::F5)) {
-            let ids = self.editor.selection_ids();
-            if self.editor.marquee.is_some() {
+            let ids = self.host.document.editor.selection_ids();
+            if self.host.document.editor.marquee.is_some() {
                 self.show_marquee_3d = true;
                 self.marquee_outside = false;
                 self.fit_marquee();
-                self.editor.status = "Showing clipped Marquee volume in perspective 3D · F5".into();
+                self.host.document.editor.status =
+                    "Showing clipped Marquee volume in perspective 3D · F5".into();
             } else if !ids.is_empty() {
                 self.show_marquee_3d = true;
                 self.fit_selection();
-                self.editor.status = "Showing selected elements in perspective 3D · F5".into();
+                self.host.document.editor.status =
+                    "Showing selected elements in perspective 3D · F5".into();
             } else {
-                self.editor.status = "Select elements or define a Marquee before F5".into();
+                self.host.document.editor.status =
+                    "Select elements or define a Marquee before F5".into();
             }
         }
-        if ctx.input(|i| i.key_pressed(Key::Num1)) {
-            self.view = View::Plan
+        if !self.shortcut_overridden("view.plan") && ctx.input(|i| i.key_pressed(Key::Num1)) {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Plan);
         }
         if ctx.input(|i| i.key_pressed(Key::Num2)) {
-            self.view = View::Split
+            self.ensure_canvas_selection_mode();
+            self.view = View::Split;
         }
-        if ctx.input(|i| i.key_pressed(Key::Num3)) {
-            self.view = View::Model
+        if !self.shortcut_overridden("view.model") && ctx.input(|i| i.key_pressed(Key::Num3)) {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Model);
         }
     }
     fn fit(&mut self) {
-        let pts: Vec<_> = self
+        if let Some(id) = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .active_worksheet
+        {
+            self.fit_worksheet(id);
+            return;
+        }
+        let mut pts: Vec<_> = self
+            .host
+            .document
             .editor
             .project
             .elements
             .iter()
-            .filter(|e| e.story == self.editor.story)
-            .flat_map(|e| geometry::element_footprint(&self.editor.project, e))
+            .filter(|e| {
+                geometry::element_on_plan_story(
+                    &self.host.document.editor.project,
+                    e,
+                    self.host.document.editor.story,
+                ) && e.worksheet
+                    == self
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .plan_options
+                        .active_worksheet
+            })
+            .flat_map(|e| {
+                if matches!(
+                    e.shape,
+                    Shape::Column {
+                        inclination: Some(_),
+                        ..
+                    }
+                ) {
+                    geometry::element_plan_outline_on_story(
+                        &self.host.document.editor.project,
+                        e,
+                        self.host.document.editor.story,
+                    )
+                } else {
+                    geometry::element_footprint(&self.host.document.editor.project, e).to_vec()
+                }
+            })
             .collect();
+        if let Some(terrain) = &self.host.document.editor.project.site.terrain {
+            pts.extend(
+                terrain
+                    .geometry
+                    .vertices
+                    .iter()
+                    .map(|v| Point::new(v[0], v[1])),
+            );
+        }
         if pts.is_empty() {
             self.plan_center = Point::new(0., 0.);
-            self.camera = Camera::default();
-            return;
+        } else {
+            let min = pts
+                .iter()
+                .fold(Point::new(f64::INFINITY, f64::INFINITY), |a, b| {
+                    Point::new(a.x.min(b.x), a.y.min(b.y))
+                });
+            let max = pts
+                .iter()
+                .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |a, b| {
+                    Point::new(a.x.max(b.x), a.y.max(b.y))
+                });
+            self.plan_center = Point::new((min.x + max.x) / 2., (min.y + max.y) / 2.);
+            self.plan_scale = (420. / (max.x - min.x).max(max.y - min.y).max(5.)).clamp(4., 140.);
         }
-        let min = pts
-            .iter()
-            .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, b| {
-                Point::new(a.x.min(b.x), a.y.min(b.y))
-            });
-        let max = pts
-            .iter()
-            .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, b| {
-                Point::new(a.x.max(b.x), a.y.max(b.y))
-            });
-        self.plan_center = Point::new((min.x + max.x) / 2., (min.y + max.y) / 2.);
-        self.plan_scale = (420. / (max.x - min.x).max(max.y - min.y).max(5.)).clamp(4., 140.);
-        self.camera.target = glam::Vec3::new(
-            self.plan_center.x,
-            self.plan_center.y,
-            self.editor.project.elevation(self.editor.story) + 1.,
-        );
-        self.camera.span = ((max.x - min.x).max(max.y - min.y) * 1.7).max(8.);
+        self.fit_model_contents();
+    }
+    fn fit_model_contents(&mut self) {
+        self.fit_model_contents_for_aspect(self.navigation_model_aspect());
+    }
+    fn fit_model_contents_for_aspect(&mut self, aspect: f64) {
+        let selected = self.host.document.editor.selection_ids();
+        let filter = self.model_view_filter(&selected);
+        let view = crate::render::SceneView {
+            selected: &selected,
+            hovered: None,
+            story: filter.story,
+            marquee: filter.marquee,
+            outside_marquee: filter.outside_marquee,
+            selection_only: filter.selection_only,
+        };
+        let editor = &self.host.document.editor;
+        let scene = editor
+            .with_geometry_read(|read| {
+                crate::render::prepare_scene(&editor.project, view, Some(read))
+            })
+            .unwrap_or_else(|_| crate::render::prepare_scene(&editor.project, view, None));
+        let mut points: Vec<_> = scene.framing_points().collect();
+        // Authored objects are the requested fit target. Reference drawings remain
+        // displayed, but neither their metadata nor construction aids shrink objects.
+        // A reference-only 3D view still fits its actual visible lines.
+        if points.is_empty() {
+            for u in editor
+                .project
+                .drawings
+                .cad_underlays
+                .iter()
+                .filter(|u| u.visible && u.show_3d)
+            {
+                if let Some(data) = editor
+                    .project
+                    .drawings
+                    .cad_sources
+                    .iter()
+                    .find(|s| s.id == u.source)
+                    .and_then(|s| s.data.as_ref())
+                {
+                    points.extend(u.model_segments(data).flatten());
+                }
+            }
+        }
+        if !self.camera.fit_points(&points, aspect) {
+            self.camera.target = Camera::default().target;
+            self.camera.span = Camera::default().span;
+        }
     }
     fn fit_marquee(&mut self) {
-        let Some(area) = &self.editor.marquee else {
+        let Some(area) = &self.host.document.editor.marquee else {
             return;
         };
         if area.vertices.is_empty() {
@@ -2025,27 +2671,28 @@ impl AtelierApp {
         let min = area
             .vertices
             .iter()
-            .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
+            .fold(Point::new(f64::INFINITY, f64::INFINITY), |a, p| {
                 Point::new(a.x.min(p.x), a.y.min(p.y))
             });
         let max = area
             .vertices
             .iter()
-            .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
+            .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |a, p| {
                 Point::new(a.x.max(p.x), a.y.max(p.y))
             });
-        let z = area
-            .z_range
-            .map_or(self.editor.project.elevation(area.story) + 1., |(a, b)| {
-                (a + b) * 0.5
-            });
-        self.camera.target = glam::Vec3::new((min.x + max.x) * 0.5, (min.y + max.y) * 0.5, z);
+        let z = area.z_range.map_or(
+            self.host.document.editor.project.elevation(area.story) + 1.,
+            |(a, b)| (a + b) * 0.5,
+        );
+        self.camera.target = glam::DVec3::new((min.x + max.x) * 0.5, (min.y + max.y) * 0.5, z);
         self.camera.span = ((max.x - min.x).max(max.y - min.y) * 1.7).max(6.);
         self.view = View::Model;
     }
     fn fit_selection(&mut self) {
-        let ids = self.editor.selection_ids();
+        let ids = self.host.document.editor.selection_ids();
         let elements: Vec<_> = self
+            .host
+            .document
             .editor
             .project
             .elements
@@ -2055,38 +2702,37 @@ impl AtelierApp {
         if elements.is_empty() {
             return;
         }
-        let points: Vec<_> = elements
+        let bounds: Vec<_> = elements
             .iter()
-            .flat_map(|e| geometry::footprint(e))
+            .flat_map(|e| geometry::corners(&self.host.document.editor.project, e))
             .collect();
-        let min = points
+        let lo = bounds
             .iter()
-            .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, p| {
-                Point::new(a.x.min(p.x), a.y.min(p.y))
-            });
-        let max = points
+            .copied()
+            .fold(glam::DVec3::splat(f64::INFINITY), glam::DVec3::min);
+        let hi = bounds
             .iter()
-            .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, p| {
-                Point::new(a.x.max(p.x), a.y.max(p.y))
-            });
-        let z: Vec<f32> = elements
-            .iter()
-            .flat_map(|e| geometry::corners(&self.editor.project, e).map(|v| v.z))
-            .collect();
-        let low = z.iter().copied().fold(f32::INFINITY, f32::min);
-        let high = z.iter().copied().fold(f32::NEG_INFINITY, f32::max);
-        self.camera.target = glam::Vec3::new(
-            (min.x + max.x) * 0.5,
-            (min.y + max.y) * 0.5,
-            (low + high) * 0.5,
-        );
-        self.camera.span = ((max.x - min.x).max(max.y - min.y).max(high - low) * 1.7).max(6.);
+            .copied()
+            .fold(glam::DVec3::splat(f64::NEG_INFINITY), glam::DVec3::max);
+        self.camera.target = (lo + hi) * 0.5;
+        let radius = (hi - lo).length() * 0.5;
+        self.camera.span = (2. * radius / 22.5_f64.to_radians().cos() * 1.1).max(8.);
         self.view = View::Model;
     }
     fn workspace(&mut self, ui: &mut Ui) {
         let ctx = ui.ctx().clone();
+        self.sync_trace_context();
+        if (self.trace.pointer_mode_active() || self.trace.split_axis.is_some())
+            && (!ctx.input(|i| i.focused)
+                || self.view != View::Plan
+                || self
+                    .trace
+                    .tool_on_entry
+                    .is_some_and(|tool| tool != self.host.document.editor.tool))
+        {
+            self.trace.cancel_pointer_modes();
+        }
         self.handle_close_request(&ctx);
-        self.autosave_recovery(&ctx);
         self.sync_window_title(&ctx);
         #[cfg(target_os = "macos")]
         {
@@ -2095,10 +2741,16 @@ impl AtelierApp {
             }
             self.sync_native_menu(&ctx);
         }
-        if self.file_action.is_none()
+        let file_open_cancelled = self.cancel_open_with_escape(&ctx);
+        // Observe composition lifecycle even when a modal suppresses shortcuts.
+        self.drawing_ime_owns_input(&ctx);
+        self.cancel_pointer_drag_outside_scope();
+        if !file_open_cancelled
+            && self.file_action.is_none()
+            && self.site_dialog.is_none()
             && !self.help
             && !self.close_prompt
-            && self.recovery_prompt.is_none()
+            && !self.recovery_open
             && self.element_settings.is_none()
             && self.layer_settings.is_none()
             && !self.stair_settings_open
@@ -2107,6 +2759,20 @@ impl AtelierApp {
             self.shortcuts(&ctx);
         }
         self.top(ui);
+        self.ai_workspace_header(ui);
+        self.workbench_ui(ui);
+        self.design_process_window(&ctx);
+        self.project_sources_ui(&ctx);
+        self.source_review_window(&ctx);
+        self.program_window(&ctx);
+        self.evidence_window(&ctx);
+        self.rules_window(&ctx);
+        self.checks_window(&ctx);
+        self.rule_register_window(&ctx);
+        self.terrain_window(&ctx);
+        self.site_reference_ui(&ctx);
+        self.project_conditions_window(&ctx);
+        self.zone_analysis_ui(&ctx);
         egui::Panel::bottom("status")
             .frame(
                 Frame::new()
@@ -2118,13 +2784,35 @@ impl AtelierApp {
                     ui.label(RichText::new(self.language.translate("READY")).color(ACCENT));
                     ui.label(RichText::new(self.status_text()).size(11.));
                     ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                        let dimension_style = self.editor.project.plan_options.dimension_style;
+                        let dimension_style = self
+                            .host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .dimension_style;
                         ui.label(
                             RichText::new(format!(
                                 "X {}   Y {}   |   {}",
                                 dimension_style.format_signed_length(self.hover_point.x),
                                 dimension_style.format_signed_length(self.hover_point.y),
-                                self.element_count_label(self.editor.project.elements.len())
+                                self.element_count_label(
+                                    self.host
+                                        .document
+                                        .editor
+                                        .project
+                                        .elements
+                                        .iter()
+                                        .filter(|e| e.worksheet
+                                            == self
+                                                .host
+                                                .document
+                                                .editor
+                                                .project
+                                                .plan_options
+                                                .active_worksheet)
+                                        .count()
+                                )
                             ))
                             .monospace()
                             .size(10.)
@@ -2133,100 +2821,184 @@ impl AtelierApp {
                     });
                 });
             });
-        if self.quick_options_visible {
+        if self.quick_options_visible && !self.ai_workspace.enabled {
             self.quick_options_bar(ui);
         }
-        if self.show_left {
-            self.toolbox(ui);
+        if self.ai_workspace.enabled {
+            self.ai_workspace_panel(ui);
+        } else {
+            self.native_workspace_ui(ui);
         }
-        if self.show_right {
-            self.inspector(ui);
+        if self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .active_worksheet
+            .is_some()
+        {
+            self.view = View::Plan;
         }
         CentralPanel::default().frame(Frame::NONE).show(ui, |ui| {
             self.tracker(ui);
-            Frame::new()
-                .fill(PANEL_ALT)
-                .inner_margin(Margin::symmetric(8, 3))
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        Self::vector_icon_button(
-                            ui,
-                            "Navigator",
-                            &Self::t(self.language, "Open Navigator"),
-                            false,
-                        );
-                        ui.separator();
-                        let floor_label = format!(
-                            "F2 · {:02} · {}",
-                            self.editor.story,
-                            self.editor
-                                .project
-                                .stories
-                                .iter()
-                                .find(|s| s.id == self.editor.story)
-                                .map_or_else(
-                                    || Self::t(self.language, "Floor plan"),
-                                    |s| s.name.clone()
-                                )
-                        );
-                        let _ = Self::vector_labeled_button(
-                            ui,
-                            "Floor Plan",
-                            &floor_label,
-                            "Floor Plan · F2",
-                            self.view == View::Plan,
-                        )
-                        .then(|| self.view = View::Plan);
-                        let _ = Self::vector_labeled_button(
-                            ui,
-                            "Split",
-                            &Self::t(self.language, "Split"),
-                            &Self::t(self.language, "Split view"),
-                            self.view == View::Split,
-                        )
-                        .then(|| self.view = View::Split);
-                        let _ = Self::vector_labeled_button(
-                            ui,
-                            "Perspective",
-                            &format!("F3 · {}", Self::t(self.language, "3D Perspective")),
-                            &format!("{} · F3", Self::t(self.language, "3D Perspective")),
-                            self.view == View::Model,
-                        )
-                        .then(|| self.view = View::Model);
-                        let _ = Self::vector_labeled_button(
-                            ui,
-                            "Elevation View",
-                            &Self::t(self.language, "South Elevation"),
-                            &Self::t(self.language, "South Elevation view preview"),
-                            false,
-                        );
-                        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                            ui.label(
-                                RichText::new(
-                                    self.element_count_label(self.editor.project.elements.len()),
-                                )
-                                .small()
-                                .color(MUTED),
+            if self.ai_workspace.enabled {
+                self.ai_view_bar(ui);
+            } else {
+                Frame::new()
+                    .fill(PANEL_ALT)
+                    .inner_margin(Margin::symmetric(8, 3))
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            Self::vector_icon_button(
+                                ui,
+                                "Navigator",
+                                &Self::t(self.language, "Open Navigator"),
+                                false,
                             );
+                            ui.separator();
+                            let floor_label = if let Some(sheet) = self
+                                .host
+                                .document
+                                .editor
+                                .project
+                                .plan_options
+                                .active_worksheet
+                            {
+                                format!(
+                                    "{} · {}",
+                                    self.language.translate("Worksheet"),
+                                    self.host
+                                        .document
+                                        .editor
+                                        .project
+                                        .drawings
+                                        .worksheet_name(sheet)
+                                        .unwrap_or("")
+                                )
+                            } else {
+                                format!(
+                                    "F2 · {:02} · {}",
+                                    self.host.document.editor.story,
+                                    self.host
+                                        .document
+                                        .editor
+                                        .project
+                                        .stories
+                                        .iter()
+                                        .find(|s| s.id == self.host.document.editor.story)
+                                        .map_or_else(
+                                            || Self::t(self.language, "Floor plan"),
+                                            |s| s.name.clone()
+                                        )
+                                )
+                            };
+                            let _ = Self::vector_labeled_button(
+                                ui,
+                                "Floor Plan",
+                                &floor_label,
+                                "Floor Plan · F2",
+                                self.view == View::Plan,
+                            )
+                            .then(|| {
+                                self.dispatch_workbench(crate::workbench::WorkbenchCommand::Plan)
+                            });
+                            let _ = Self::vector_labeled_button(
+                                ui,
+                                "Split",
+                                &Self::t(self.language, "Split"),
+                                &Self::t(self.language, "Split view"),
+                                self.view == View::Split,
+                            )
+                            .then(|| {
+                                self.ensure_canvas_selection_mode();
+                                self.view = View::Split;
+                            });
+                            let _ = Self::vector_labeled_button(
+                                ui,
+                                "Perspective",
+                                &format!("F3 · {}", Self::t(self.language, "3D Perspective")),
+                                &format!("{} · F3", Self::t(self.language, "3D Perspective")),
+                                self.view == View::Model,
+                            )
+                            .then(|| {
+                                self.dispatch_workbench(crate::workbench::WorkbenchCommand::Model)
+                            });
+                            let _ = Self::vector_labeled_button(
+                                ui,
+                                "Elevation View",
+                                &Self::t(self.language, "South Elevation"),
+                                &Self::t(self.language, "South Elevation view preview"),
+                                false,
+                            );
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+                                ui.label(
+                                    RichText::new(
+                                        self.element_count_label(
+                                            self.host
+                                                .document
+                                                .editor
+                                                .project
+                                                .elements
+                                                .iter()
+                                                .filter(|e| {
+                                                    e.worksheet
+                                                        == self
+                                                            .host
+                                                            .document
+                                                            .editor
+                                                            .project
+                                                            .plan_options
+                                                            .active_worksheet
+                                                })
+                                                .count(),
+                                        ),
+                                    )
+                                    .small()
+                                    .color(MUTED),
+                                );
+                            });
                         });
                     });
-                });
+            }
+            if matches!(self.view, View::Model | View::Split) {
+                self.model_surfaces_ui(ui);
+            }
             let r = ui.available_rect_before_wrap();
+            #[cfg(test)]
+            self.workbench.panel_rects.insert("view.canvas".into(), r);
+            // Reset on every layout, including leaving collaboration or split
+            // mode, so old floating controls never block a different canvas.
+            self.navigation.control_rects = [None, None];
             match self.view {
-                View::Plan => self.plan(ui),
-                View::Model => self.model_view(ui),
+                View::Figure(id) => self.figure_canvas(ui, id),
+                View::Plan => {
+                    self.navigation.control_rects[0] =
+                        self.ai_canvas_navigation(ui, r, viewport_navigation::Pane::Plan);
+                    self.plan(ui);
+                }
+                View::Model => {
+                    self.navigation.control_rects[1] =
+                        self.ai_canvas_navigation(ui, r, viewport_navigation::Pane::Model);
+                    self.model_view(ui);
+                }
                 View::Split => {
-                    let x = r.left() + r.width() * self.split;
+                    let x = r.left() + r.width() * self.split as f32;
                     let handle =
                         Rect::from_min_max(pos2(x - 3., r.top()), pos2(x + 3., r.bottom()));
                     let resp = ui.interact(handle, Id::new("view_split"), Sense::drag());
                     if resp.dragged() {
-                        self.split = (self.split + ui.input(|i| i.pointer.delta().x) / r.width())
-                            .clamp(0.25, 0.75);
+                        self.split = (self.split
+                            + f64::from(ui.input(|i| i.pointer.delta().x) / r.width()))
+                        .clamp(0.25, 0.75);
                     }
                     resp.on_hover_cursor(CursorIcon::ResizeHorizontal);
                     let left = Rect::from_min_max(r.min, pos2(x - 3., r.bottom()));
                     let right = Rect::from_min_max(pos2(x + 3., r.top()), r.max);
+                    self.navigation.control_rects[0] =
+                        self.ai_canvas_navigation(ui, left, viewport_navigation::Pane::Plan);
+                    self.navigation.control_rects[1] =
+                        self.ai_canvas_navigation(ui, right, viewport_navigation::Pane::Model);
                     ui.scope_builder(UiBuilder::new().max_rect(left), |ui| self.plan(ui));
                     ui.scope_builder(UiBuilder::new().max_rect(right), |ui| self.model_view(ui));
                     ui.painter().rect_filled(handle, 0., LINE);
@@ -2234,6 +3006,9 @@ impl AtelierApp {
             }
         });
         self.file_window(&ctx);
+        self.drawings_window(&ctx);
+        self.automation_window(&ctx);
+        self.mcp_settings_window(&ctx);
         self.recovery_dialog(&ctx);
         self.close_window(&ctx);
         self.plan_options_dialog(&ctx);
@@ -2255,34 +3030,111 @@ impl AtelierApp {
         self.trace_palette(&ctx);
         self.transfer_settings_dialog(&ctx);
         self.trace_browse_dialog(&ctx);
+        let help_edit_keys = ["Undo", "Redo", "Drag", "Drag a Copy"]
+            .into_iter()
+            .map(|name| self.edit_menu_label(name))
+            .collect::<Vec<_>>()
+            .join(" · ");
         Window::new(Self::t(self.language, "About OpenArchi")).open(&mut self.help).default_width(460.).show(&ctx, |ui| {
             if self.language == UiLanguage::SimplifiedChinese {
                 ui.heading(self.language.translate("OpenArchi · 建筑设计工作台"));
-                ui.label(self.language.translate("版本 0.1 · 原生 Rust 桌面应用"));
+                ui.label(self.language.translate("版本 0.2.0 · 原生 Rust 桌面应用"));
                 ui.label(self.language.translate("在平面图中绘制墙体、矩形楼板和二维多段线。可在二维与三维视图中选择并编辑构件，尺寸单位为米。"));
                 ui.separator();
-                for text in ["V 选择 · M 选区框 · W 墙 · L 楼板 · P 多段线 · S 楼梯", "多段线：逐点绘制，按 Enter 完成，Esc 取消并返回上一个工具，再按 Esc 回到选择", "楼梯：设置参数后在平面点击起点和终点", "Esc：取消当前操作并返回上一个工具；再次按 Esc 回到选择", "F2 楼层平面 · F3 三维透视", "选区框支持矩形、旋转矩形和多边形", "F5 在三维中显示选择构件或选区框裁剪体", "⌘A 选择选区框内的构件节点", "⌘Z 撤销 · ⌥⌘Z 重做 · ⌘D 拖动 · ⌥⌘D 拖动副本", "⌘S 保存 JSON · ⌘O 打开 JSON"] { ui.label(text); }
+                for text in ["V 选择 · M 选区框 · W 墙 · L 楼板 · P 多段线 · S 楼梯", "多段线：逐点绘制，按 Enter 完成，Esc 取消并返回上一个工具，再按 Esc 回到选择", "楼梯：设置参数后在平面点击起点和终点", "Esc：取消当前操作并返回上一个工具；再次按 Esc 回到选择", "F2 楼层平面 · F3 三维透视", "选区框支持矩形、旋转矩形和多边形", "F5 在三维中显示选择构件或选区框裁剪体", "⌘A 选择选区框内的构件节点", "⌘Z 撤销 · ⌥⌘Z 重做 · ⌘D 拖动 · ⌥⌘D 拖动副本", "⌘S 保存 JSON · ⌘O 打开 JSON"] { ui.label(if text.contains("⌘D") { help_edit_keys.as_str() } else { text }); }
                 ui.separator();
                 ui.label(format!("渲染器：{}", self.gpu_name));
                 ui.label(self.language.translate("原型限制：暂不支持 PDF/DWG 导出和原生 BIM 文件解析。当前助手为本地规则演示。"));
             } else {
                 ui.heading(self.language.translate("OpenArchi · Architectural Design Workbench"));
-                ui.label(self.language.translate("Version 0.1 · Native Rust desktop application"));
+                ui.label(self.language.translate("Version 0.2.0 · Native Rust desktop application"));
                 ui.label(self.language.translate("Draw walls, rectangular slabs and 2D polylines in plan. Select and edit elements in plan; walls and slabs are also shown in 3D. All dimensions are metres."));
                 ui.separator();
-                for text in ["V · Select     M · Marquee     W · Wall     L · Slab     P · Polyline     S · Stair", "Polyline: left-click nodes, right-click to finish, click start to close, Esc cancels and returns to previous tool; press Esc again for Select", "Select a Polyline, then click a node or edge for the edit palette; drag to preview, release to commit", "Node palette: move, chamfer, fillet, move, rotate, mirror, multiply; edge palette: scale, move, rotate, mirror, multiply", "Esc · Cancel current command → previous tool → Select", "F2 · Floor plan     F3 · Perspective 3D", "Marquee: rectangle, rotated rectangle or polygon", "F5 · Show selected elements or the clipped Marquee volume in 3D", "⌘A · Select elements with nodes inside Marquee", "Cmd/Ctrl+X/C/V · Cut / Copy / Paste selected elements", "Marquee controls: move area, stretch nodes, mirror, rotate, story", "Click start → click end, or type in Tracker → Create", "Drag selected elements in plan to move them", "Shift / Ortho · constrain walls to X or Y", "Right-drag · pan     Scroll · zoom     F · fit", "3D: Shift+middle-drag orbit, right-drag pan, click select", "⌘Z · Undo     ⌥⌘Z · Redo     ⌘D · Drag     ⌥⌘D · Drag a Copy", "Delete · Remove", "⌘S · Save JSON     ⌘O · Open JSON"] { ui.label(text); }
+                for text in ["V · Select     M · Marquee     W · Wall     L · Slab     P · Polyline     S · Stair", "Polyline: left-click nodes, right-click to finish, click start to close, Esc cancels and returns to previous tool; press Esc again for Select", "Select a Polyline, then click a node or edge for the edit palette; drag to preview, release to commit", "Node palette: move, chamfer, fillet, move, rotate, mirror, multiply; edge palette: scale, move, rotate, mirror, multiply", "Esc · Cancel current command → previous tool → Select", "F2 · Floor plan     F3 · Perspective 3D", "Marquee: rectangle, rotated rectangle or polygon", "F5 · Show selected elements or the clipped Marquee volume in 3D", "⌘A · Select elements with nodes inside Marquee", "Cmd/Ctrl+X/C/V · Cut / Copy / Paste selected elements", "Marquee controls: move area, stretch nodes, mirror, rotate, story", "Click start → click end, or type in Tracker → Create", "Drag selected elements in plan to move them", "Shift / Ortho · constrain walls to X or Y", "Right-drag · pan     Scroll · zoom     F · fit", "3D: Shift+middle-drag orbit, right-drag pan, click select", "⌘Z · Undo     ⌥⌘Z · Redo     ⌘D · Drag     ⌥⌘D · Drag a Copy", "Delete · Remove", "⌘S · Save JSON     ⌘O · Open JSON"] { ui.label(if text.contains("⌘D") { help_edit_keys.as_str() } else { text }); }
                 ui.separator();
                 ui.label(format!("Renderer: {}", self.gpu_name));
                 ui.label(self.language.translate("Prototype limits: outside-volume filtering, PDF/DWG export and native BIM file parsing are not implemented. Local assistant is a rule-based demonstration."));
             }
         });
+        // Capture confirmed state after this frame's input/commit, never its prior view.
+        self.autosave_recovery(&ctx);
     }
 }
 
 impl eframe::App for AtelierApp {
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        self.workspace(ui);
+    fn logic(&mut self, ctx: &Context, _frame: &mut eframe::Frame) {
+        self.poll_automation(ctx);
     }
+
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let start = Instant::now();
+        let active = ui
+            .ctx()
+            .input(|input| input.pointer.any_down() || input.is_scrolling());
+        self.workspace(ui);
+        self.native_metrics.frame(start.elapsed(), active);
+    }
+}
+
+impl AtelierApp {
+    #[cfg(unix)]
+    fn poll_automation(&mut self, ctx: &Context) {
+        self.refresh_mcp_permissions();
+        self.host.set_remote_interaction_blocked(
+            self.workbench_pointer_active()
+                || self.menu_gated()
+                || self.pending_design_parameters()
+                || self.project_conditions_has_draft()
+                || self.drawings_ui.report_draft.is_some(),
+        );
+        if let Some(mut endpoint) = self.automation.take() {
+            let canvas_before = self.capture_task_canvas();
+            endpoint.poll_with_host(&mut self.host, self.source_ui.repository.as_ref());
+            for (params, reply) in std::mem::take(&mut endpoint.documents) {
+                let result = if self.path_confirmed
+                    || self.pending_design_parameters()
+                    || self.project_conditions_has_draft()
+                    || self.drawings_ui.report_draft.is_some()
+                {
+                    serde_json::json!({"error":{"code":"DOCUMENT_ACTIVE"}})
+                } else {
+                    endpoint.recover_document(&mut self.host.document.editor, params)
+                };
+                if result.get("result").is_some() {
+                    self.finish_automation_document_recovery();
+                }
+                let _ = reply.try_send(result);
+            }
+
+            for pending in std::mem::take(&mut endpoint.workbench_pending) {
+                let result = self.execute_remote_workbench(&endpoint, &pending.params);
+                endpoint.finish_workbench(pending, result);
+            }
+            for pending in std::mem::take(&mut endpoint.files) {
+                let before = pending.params.target.clone();
+                let revision = pending.params.expected_revision;
+                let authorization = endpoint
+                    .changes()
+                    .unrestricted_write_authorization(&self.host.document.editor);
+                let result = match authorization {
+                    Err(error) => error,
+                    Ok(()) => self.automation_file(pending.params, pending.reopen),
+                };
+                endpoint.changes().finish_owned_file(
+                    &before,
+                    revision,
+                    &self.host.document.editor,
+                    &result,
+                );
+                let _ = pending.reply.try_send(result);
+            }
+            self.finish_task_context_change(canvas_before);
+            self.automation = Some(endpoint);
+            ctx.request_repaint_after(std::time::Duration::from_millis(50));
+        }
+    }
+    #[cfg(not(unix))]
+    fn poll_automation(&mut self, _ctx: &Context) {}
 }
 
 include!("../guides_ui.rs");

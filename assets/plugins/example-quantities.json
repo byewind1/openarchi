@@ -1,0 +1,1 @@
+{"schema_version":1,"api_version":1,"id":"example.quantities","version":1,"label":"Example quantity extension","panel_title":"Candidate quantity result","permissions":["read_authored_geometry"],"dependencies":[],"commands":[{"id":"example.quantities.review","label":"Review candidate with example plugin","operation":"authored_quantities"}]}

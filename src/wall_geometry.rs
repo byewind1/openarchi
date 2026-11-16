@@ -3,7 +3,7 @@
 //! controls are persisted; triangles and sampled stations are never persisted.
 use crate::model::{Element, Point, Shape, WallContour};
 
-fn frame(e: &Element) -> Option<(Point, Point, f32, f32)> {
+fn frame(e: &Element) -> Option<(Point, Point, f64, f64)> {
     let Shape::Wall {
         start,
         end,
@@ -25,20 +25,20 @@ fn add(a: Point, b: Point) -> Point {
 fn sub(a: Point, b: Point) -> Point {
     Point::new(a.x - b.x, a.y - b.y)
 }
-fn mul(a: Point, s: f32) -> Point {
+fn mul(a: Point, s: f64) -> Point {
     Point::new(a.x * s, a.y * s)
 }
-fn dot(a: Point, b: Point) -> f32 {
+fn dot(a: Point, b: Point) -> f64 {
     a.x * b.x + a.y * b.y
 }
-fn lerp(a: Point, b: Point, t: f32) -> Point {
+fn lerp(a: Point, b: Point, t: f64) -> Point {
     add(a, mul(sub(b, a), t))
 }
 fn left(t: Point) -> Point {
     Point::new(-t.y, t.x)
 }
 
-pub fn reference_length(e: &Element) -> f32 {
+pub fn reference_length(e: &Element) -> f64 {
     let Some((a, b, _, _)) = frame(e) else {
         return 0.;
     };
@@ -48,7 +48,7 @@ pub fn reference_length(e: &Element) -> f32 {
     }
 }
 /// Reference point and unit forward tangent at an arc-length station.
-pub fn point_tangent_at(e: &Element, station: f32) -> Option<(Point, Point)> {
+pub fn point_tangent_at(e: &Element, station: f64) -> Option<(Point, Point)> {
     let (a, b, _, _) = frame(e)?;
     if !station.is_finite() {
         return None;
@@ -80,20 +80,20 @@ pub fn point_tangent_at(e: &Element, station: f32) -> Option<(Point, Point)> {
     }
 }
 /// Closest station and Euclidean distance to the finite reference path.
-pub fn project_station(e: &Element, q: Point) -> (f32, f32) {
+pub fn project_station(e: &Element, q: Point) -> (f64, f64) {
     let Some((a, b, _, _)) = frame(e) else {
-        return (0., f32::INFINITY);
+        return (0., f64::INFINITY);
     };
     if let Some(WallContour::Arc { arc }) = e.wall_contour {
         let Some((center, sweep)) = crate::geometry::arc_center_sweep(a, b, arc) else {
-            return (0., f32::INFINITY);
+            return (0., f64::INFINITY);
         };
         let theta = (q.y - center.y).atan2(q.x - center.x);
         let start = (a.y - center.y).atan2(a.x - center.x);
         let travel = if sweep > 0. {
-            (theta - start).rem_euclid(std::f32::consts::TAU)
+            (theta - start).rem_euclid(std::f64::consts::TAU)
         } else {
-            (start - theta).rem_euclid(std::f32::consts::TAU)
+            (start - theta).rem_euclid(std::f64::consts::TAU)
         };
         if travel <= sweep.abs() + 1e-6 {
             let station = (travel * arc.radius).clamp(0., reference_length(e));
@@ -114,7 +114,7 @@ pub fn project_station(e: &Element, q: Point) -> (f32, f32) {
         (station, q.distance(lerp(a, b, station / length)))
     }
 }
-fn stations(e: &Element, from: f32, to: f32) -> Vec<f32> {
+pub(crate) fn stations(e: &Element, from: f64, to: f64) -> Vec<f64> {
     let length = reference_length(e);
     let from = from.clamp(0., length);
     let to = to.clamp(0., length);
@@ -125,13 +125,13 @@ fn stations(e: &Element, from: f32, to: f32) -> Vec<f32> {
     if let Some(WallContour::Arc { arc }) = e.wall_contour {
         // Max 5 degrees AND about 2 mm sagitta, bounded for pathological inputs.
         let max_angle = (2. * (1. - 0.002 / arc.radius).clamp(-1., 1.).acos())
-            .min(std::f32::consts::PI / 36.)
+            .min(std::f64::consts::PI / 36.)
             .max(0.001);
         let count = ((to - from) / (arc.radius * max_angle))
             .ceil()
             .clamp(1., 4096.) as usize;
         for i in 1..count {
-            out.push(from + (to - from) * i as f32 / count as f32);
+            out.push(from + (to - from) * i as f64 / count as f64);
         }
     }
     if let Some(WallContour::Trapezoid {
@@ -145,7 +145,7 @@ fn stations(e: &Element, from: f32, to: f32) -> Vec<f32> {
             }
         }
     }
-    out.sort_by(f32::total_cmp);
+    out.sort_by(f64::total_cmp);
     out.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
     out
 }
@@ -157,7 +157,7 @@ pub fn reference_path(e: &Element) -> Vec<Point> {
         .collect()
 }
 /// Positive-left and negative-left body boundary at the given reference station.
-pub fn section_at(e: &Element, station: f32) -> Option<(Point, Point)> {
+pub fn section_at(e: &Element, station: f64) -> Option<(Point, Point)> {
     let (a, b, thickness, offset) = frame(e)?;
     let (point, tangent) = point_tangent_at(e, station)?;
     let normal = left(tangent);
@@ -188,7 +188,7 @@ pub fn section_at(e: &Element, station: f32) -> Option<(Point, Point)> {
     }
     Some((hi, lo))
 }
-pub fn strips_between(e: &Element, from: f32, to: f32) -> Vec<[Point; 4]> {
+pub fn strips_between(e: &Element, from: f64, to: f64) -> Vec<[Point; 4]> {
     stations(e, from, to)
         .windows(2)
         .filter_map(|s| {
@@ -283,8 +283,8 @@ pub fn validate(e: &Element) -> Result<(), String> {
 pub fn transform(
     e: &mut Element,
     origin: Point,
-    scale: f32,
-    angle: f32,
+    scale: f64,
+    angle: f64,
     mirror: bool,
     offset: Point,
 ) {
@@ -352,12 +352,12 @@ mod tests {
             },
         });
         validate(&e).unwrap();
-        assert!((reference_length(&e) - 2. * std::f32::consts::PI).abs() < 1e-4);
+        assert!((reference_length(&e) - 2. * std::f64::consts::PI).abs() < 1e-4);
         let (mid, tangent) = point_tangent_at(&e, reference_length(&e) * 0.5).unwrap();
         assert!(mid.distance(Point::new(0., 2.)) < 1e-4);
         assert!(tangent.distance(Point::new(1., 0.)) < 1e-4);
         let (s, d) = project_station(&e, Point::new(0., 2.5));
-        assert!((s - std::f32::consts::PI).abs() < 1e-4);
+        assert!((s - std::f64::consts::PI).abs() < 1e-4);
         assert!((d - 0.5).abs() < 1e-4);
         let pieces = strips_between(&e, 1., 2.);
         assert!(!pieces.is_empty());
@@ -426,7 +426,7 @@ mod tests {
         p.validate().unwrap();
         let json = serde_json::to_string(&p).unwrap();
         assert_eq!(p, serde_json::from_str(&json).unwrap());
-        assert!((p.elements[0].area() - 6. * std::f32::consts::PI).abs() < 1e-4);
+        assert!((p.elements[0].area() - 6. * std::f64::consts::PI).abs() < 1e-4);
         let original = p.elements[0].clone();
         p.elements[0].translate(Point::new(3., -2.));
         assert_eq!(p.elements[0].wall_contour, original.wall_contour);

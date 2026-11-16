@@ -9,7 +9,7 @@ use atelier_bim::{
     storage::{self, JsonAdapter},
 };
 
-fn point(x: f32, y: f32) -> Point {
+fn point(x: f64, y: f64) -> Point {
     Point::new(x, y)
 }
 
@@ -67,7 +67,7 @@ fn legacy_projects_default_guides_without_changing_model_data() {
     assert_eq!(loaded, original);
     assert_eq!(loaded.guide_settings, GuideSettings::default());
     assert!(loaded.guides.is_empty());
-    assert_eq!(loaded.schema_version, 1);
+    assert_eq!(loaded.schema_version, 2);
 
     legacy["guide_settings"] = serde_json::json!({"snap_enabled": false});
     let partial = JsonAdapter
@@ -196,7 +196,7 @@ fn invalid_guide_stories_and_geometry_are_rejected_at_import_and_export() {
     }
     let mut non_finite = original;
     non_finite.guides[0].primitive = GuidePrimitive::Circle {
-        center: point(f32::NAN, 0.),
+        center: point(f64::NAN, 0.),
         radius: 1.,
     };
     assert!(non_finite.validate().is_err());
@@ -213,13 +213,13 @@ fn invalid_snap_settings_are_rejected_even_when_snap_is_disabled() {
             ..original.guide_settings.clone()
         });
     }
-    for percent in [0., -1., 100., f32::NAN, f32::INFINITY] {
+    for percent in [0., -1., 100., f64::NAN, f64::INFINITY] {
         settings_cases.push(GuideSettings {
             percent,
             ..original.guide_settings.clone()
         });
     }
-    for distance in [0., -1., f32::NAN, f32::INFINITY] {
+    for distance in [0., -1., f64::NAN, f64::INFINITY] {
         settings_cases.push(GuideSettings {
             distance,
             ..original.guide_settings.clone()
@@ -268,7 +268,7 @@ fn distance_edit_has_one_undo_step_preserves_guides_and_rejects_invalid_input() 
     let measure =
         distance_guides::measurements(&project, 0, point(4., 2.), Some(selected), false)[0];
     assert_eq!(measure.distance, 2.);
-    for value in [f32::NAN, -1., 0.] {
+    for value in [f64::NAN, -1., 0.] {
         assert!(
             distance_guides::apply_distance(&editor.project, &measure, selected, value).is_err()
         );

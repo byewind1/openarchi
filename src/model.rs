@@ -6,14 +6,14 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Point {
-    pub x: f32,
-    pub y: f32,
+    pub x: f64,
+    pub y: f64,
 }
 impl Point {
-    pub fn new(x: f32, y: f32) -> Self {
+    pub fn new(x: f64, y: f64) -> Self {
         Self { x, y }
     }
-    pub fn distance(self, other: Self) -> f32 {
+    pub fn distance(self, other: Self) -> f64 {
         (self.x - other.x).hypot(self.y - other.y)
     }
     pub fn finite(self) -> bool {
@@ -24,7 +24,7 @@ impl Point {
 pub struct Story {
     pub id: u32,
     pub name: String,
-    pub elevation: f32,
+    pub elevation: f64,
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Material {
@@ -86,9 +86,9 @@ impl OpeningKind {
 /// Creation defaults loaded by the Info Box while a Door/Window tool is active.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct OpeningDefaults {
-    pub width: f32,
-    pub height: f32,
-    pub sill: f32,
+    pub width: f64,
+    pub height: f64,
+    pub sill: f64,
 }
 
 impl OpeningDefaults {
@@ -108,16 +108,56 @@ impl OpeningDefaults {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 #[serde(tag = "kind")]
 pub enum Shape {
+    ConceptMass {
+        spec: crate::concept_mass::ConceptMassSpec,
+    },
+    Zone {
+        spec: crate::zones::ZoneSpec,
+    },
+    Roof {
+        spec: crate::roof::RoofSpec,
+    },
+    Beam {
+        start: Point,
+        end: Point,
+        width: f64,
+        height: f64,
+        top_offset: f64,
+        #[serde(default, skip_serializing_if = "crate::beam::is_zero")]
+        slant_angle: f64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        arc: Option<ArcSegment>,
+    },
+    Column {
+        center: Point,
+        #[serde(flatten)]
+        section: crate::column::ColumnSection,
+        height: f64,
+        /// Bottom elevation relative to the home story, in metres.
+        #[serde(default)]
+        bottom_offset: f64,
+        /// Counterclockwise rotation about the centered vertical axis, in degrees.
+        #[serde(default)]
+        axis_rotation: f64,
+        /// Centered constant-section inclination; absent in legacy vertical files.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        inclination: Option<crate::column_inclination::ColumnInclination>,
+        #[serde(
+            default,
+            skip_serializing_if = "crate::column_plan::ColumnPlanSettings::is_default"
+        )]
+        plan: crate::column_plan::ColumnPlanSettings,
+    },
     Wall {
         start: Point,
         end: Point,
-        thickness: f32,
-        height: f32,
+        thickness: f64,
+        height: f64,
     },
     Slab {
         min: Point,
         max: Point,
-        thickness: f32,
+        thickness: f64,
     },
     Stair {
         spec: StairSpec,
@@ -135,10 +175,10 @@ pub enum Shape {
         host_wall: u64,
         #[serde(rename = "opening")]
         kind: OpeningKind,
-        width: f32,
-        height: f32,
-        sill: f32,
-        offset: f32,
+        width: f64,
+        height: f64,
+        sill: f64,
+        offset: f64,
     },
 }
 
@@ -146,7 +186,7 @@ pub enum Shape {
 /// reconstruct the circle from the edge endpoints; no tessellation is stored.
 #[derive(Clone, Copy, Debug, PartialEq, Serialize, Deserialize)]
 pub struct ArcSegment {
-    pub radius: f32,
+    pub radius: f64,
     pub clockwise: bool,
     pub large_arc: bool,
 }
@@ -158,7 +198,7 @@ pub struct SlabContour {
     #[serde(default)]
     pub holes: Vec<SlabContour>,
     #[serde(default)]
-    pub elevation: f32,
+    pub elevation: f64,
     #[serde(default)]
     pub edge_settings: Vec<SlabEdgeSettings>,
 }
@@ -166,11 +206,11 @@ pub struct SlabContour {
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct SlabEdgeSettings {
     #[serde(default = "slab_right_angle")]
-    pub angle_degrees: f32,
+    pub angle_degrees: f64,
     #[serde(default)]
     pub surface: Option<Material>,
 }
-fn slab_right_angle() -> f32 {
+fn slab_right_angle() -> f64 {
     90.
 }
 impl Default for SlabEdgeSettings {
@@ -205,6 +245,8 @@ pub enum WallContour {
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Element {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub worksheet: Option<u64>,
     pub id: u64,
     pub name: String,
     pub story: u32,
@@ -225,11 +267,29 @@ pub struct Element {
     /// Optional ordered straight perimeter; legacy slabs keep their rectangle.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub slab_contour: Option<SlabContour>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub opening_joinery: Option<crate::opening_joinery::OpeningJoinery>,
     pub shape: Shape,
 }
 impl Element {
+    pub fn authored_prism_rings(&self) -> Option<(Vec<Point>, Vec<Vec<Point>>)> {
+        match &self.shape {
+            Shape::ConceptMass { spec } => {
+                let mut paths = spec.paths().into_iter();
+                Some((paths.next().unwrap_or_default(), paths.collect()))
+            }
+            Shape::Zone { spec } => Some((spec.outline.clone(), spec.holes.clone())),
+            _ => None,
+        }
+    }
+
     pub fn kind(&self) -> &'static str {
         match self.shape {
+            Shape::ConceptMass { .. } => "Concept mass",
+            Shape::Zone { .. } => "Zone",
+            Shape::Roof { .. } => "Roof",
+            Shape::Beam { .. } => "Beam",
+            Shape::Column { .. } => "Column",
             Shape::Wall { .. } => "Wall",
             Shape::Slab { .. } => "Slab",
             Shape::Stair { .. } => "Stair",
@@ -237,31 +297,41 @@ impl Element {
             Shape::Opening { kind, .. } => kind.name(),
         }
     }
-    pub fn thickness(&self) -> f32 {
+    pub fn thickness(&self) -> f64 {
         match self.shape {
+            Shape::ConceptMass { .. } => 0.,
+            Shape::Zone { .. } => 0.,
+            Shape::Roof { ref spec } => spec.thickness,
+            Shape::Beam { width, .. } => width,
+            Shape::Column { section, .. } => match section {
+                crate::column::ColumnSection::Rectangular { width, .. } => width,
+                crate::column::ColumnSection::Circular { diameter } => diameter,
+            },
             Shape::Wall { thickness, .. } | Shape::Slab { thickness, .. } => thickness,
             Shape::Stair { ref spec } => spec.slab_thickness,
             Shape::Polyline { .. } | Shape::Opening { .. } => 0.,
         }
     }
-    pub fn area(&self) -> f32 {
+    pub fn area(&self) -> f64 {
         match self.shape {
+            Shape::ConceptMass { ref spec } => spec.area(),
+            Shape::Zone { ref spec } => spec.area(),
+            Shape::Roof { ref spec } => spec.area(),
+            Shape::Beam {
+                start,
+                end,
+                width,
+                arc,
+                ..
+            } => crate::beam::plan_area(start, end, width, arc),
+            Shape::Column { section, .. } => section.area().unwrap_or(0.),
             Shape::Wall { height, .. } => crate::wall_geometry::reference_length(self) * height,
             Shape::Slab { .. } => crate::slab_geometry::actual_area(self),
-            Shape::Stair { ref spec } => spec.start.distance(spec.end) * spec.width,
+            Shape::Stair { ref spec } => spec.plan_area_m2(),
             Shape::Polyline {
                 ref points,
                 ref arcs,
-            } => points
-                .windows(2)
-                .enumerate()
-                .map(|(index, pair)| {
-                    arcs.get(index).and_then(|arc| *arc).map_or_else(
-                        || pair[0].distance(pair[1]),
-                        |arc| crate::geometry::arc_length(pair[0], pair[1], arc),
-                    )
-                })
-                .sum(),
+            } => crate::polyline_geometry::length(points, arcs).unwrap_or(0.),
             Shape::Opening { width, height, .. } => width * height,
         }
     }
@@ -272,7 +342,14 @@ impl Element {
             return;
         }
         match &mut self.shape {
-            Shape::Wall { start, end, .. } => {
+            Shape::ConceptMass { spec } => spec.transform(|p| Point::new(p.x + d.x, p.y + d.y)),
+            Shape::Zone { spec } => spec.transform(|p| Point::new(p.x + d.x, p.y + d.y)),
+            Shape::Roof { spec } => spec.translate(d),
+            Shape::Column { center, .. } => {
+                center.x += d.x;
+                center.y += d.y;
+            }
+            Shape::Wall { start, end, .. } | Shape::Beam { start, end, .. } => {
                 start.x += d.x;
                 start.y += d.y;
                 end.x += d.x;
@@ -304,6 +381,34 @@ impl Element {
 }
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Project {
+    #[serde(
+        default,
+        skip_serializing_if = "crate::trace_document::TraceDocument::is_empty"
+    )]
+    pub trace: crate::trace_document::TraceDocument,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::plugins::archive::Archive::is_empty"
+    )]
+    pub job_archive: crate::plugins::archive::Archive,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::design_process::Journal::is_empty"
+    )]
+    pub design_process: crate::design_process::Journal,
+    #[serde(
+        default,
+        skip_serializing_if = "crate::evidence::EvidenceRegister::is_empty"
+    )]
+    pub evidence: crate::evidence::EvidenceRegister,
+    #[serde(default, skip_serializing_if = "crate::rules::RuleBook::is_empty")]
+    pub rules: crate::rules::RuleBook,
+    #[serde(default, skip_serializing_if = "crate::program::Program::is_empty")]
+    pub program: crate::program::Program,
+    #[serde(default, skip_serializing_if = "crate::site::SiteContext::is_unknown")]
+    pub site: crate::site::SiteContext,
+    #[serde(default)]
+    pub drawings: crate::drawings::DrawingDocument,
     #[serde(default)]
     pub edit_state: crate::editing::EditState,
     #[serde(default)]
@@ -332,6 +437,14 @@ pub struct Project {
 impl Default for Project {
     fn default() -> Self {
         Self {
+            trace: Default::default(),
+            job_archive: Default::default(),
+            design_process: Default::default(),
+            evidence: crate::evidence::EvidenceRegister::default(),
+            rules: crate::rules::RuleBook::default(),
+            site: crate::site::SiteContext::default(),
+            program: crate::program::Program::default(),
+            drawings: crate::drawings::DrawingDocument::default(),
             edit_state: crate::editing::EditState::default(),
             grid_settings: crate::grids::GridSettings::default(),
             guide_settings: crate::guides::GuideSettings::default(),
@@ -339,7 +452,7 @@ impl Default for Project {
             plan_options: PlanOptions::default(),
             design_options: DesignOptions::default(),
             layers: crate::layers::LayerDocument::template(),
-            schema_version: 1,
+            schema_version: crate::precision::MODEL_SCHEMA_VERSION,
             name: "Courtyard House".into(),
             next_id: 1,
             transfer_settings: crate::transfer::TransferSettings::default(),
@@ -364,7 +477,46 @@ impl Default for Project {
         }
     }
 }
+/// Context attached to the existing input validator, without duplicating it.
+struct InputFailure(crate::derived_geometry::GeometryDiagnostic);
+impl From<String> for InputFailure {
+    fn from(message: String) -> Self {
+        Self(crate::derived_geometry::GeometryDiagnostic::error(
+            0,
+            "INVALID_PROJECT_INPUT",
+            "project",
+            message,
+        ))
+    }
+}
+impl From<&str> for InputFailure {
+    fn from(message: &str) -> Self {
+        message.to_owned().into()
+    }
+}
+impl InputFailure {
+    fn element(id: u64, feature: &str, message: String) -> Self {
+        Self(crate::derived_geometry::GeometryDiagnostic::error(
+            id,
+            "INVALID_ELEMENT_INPUT",
+            feature,
+            message,
+        ))
+    }
+}
+
 impl Project {
+    /// Exact design-state comparison, excluding only validated immutable job
+    /// receipts. Geometry, requirements, sources, decisions and locks still count.
+    /// Full serialization/journal integrity hashes deliberately remain unchanged.
+    pub fn same_model_state(&self, other: &Self) -> bool {
+        if self.job_archive == other.job_archive {
+            return self == other;
+        }
+        let mut model = self.clone();
+        model.job_archive = other.job_archive.clone();
+        &model == other
+    }
     pub fn add(&mut self, story: u32, material: Material, shape: Shape) -> u64 {
         self.add_with_status(story, material, shape, RenovationStatus::New)
     }
@@ -379,6 +531,11 @@ impl Project {
         let id = self.next_id;
         self.next_id += 1;
         let kind = match shape {
+            Shape::ConceptMass { .. } => "Concept mass",
+            Shape::Zone { .. } => "Zone",
+            Shape::Roof { .. } => "Roof",
+            Shape::Beam { .. } => "Beam",
+            Shape::Column { .. } => "Column",
             Shape::Wall { .. } => "Wall",
             Shape::Slab { .. } => "Slab",
             Shape::Stair { .. } => "Stair",
@@ -390,6 +547,7 @@ impl Project {
         let layer = ElementLayer(ARCHICAD_LAYER);
         let wall_settings = matches!(shape, Shape::Wall { .. }).then(WallSettings::default);
         self.elements.push(Element {
+            worksheet: self.plan_options.active_worksheet,
             id,
             name: format!("{kind} {id:03}"),
             story,
@@ -400,11 +558,12 @@ impl Project {
             wall_settings,
             wall_contour: None,
             slab_contour: None,
+            opening_joinery: None,
             shape,
         });
         id
     }
-    pub fn elevation(&self, story: u32) -> f32 {
+    pub fn elevation(&self, story: u32) -> f64 {
         self.stories
             .iter()
             .find(|s| s.id == story)
@@ -418,7 +577,7 @@ impl Project {
             return;
         }
         let requested: std::collections::HashSet<u64> = ids.iter().copied().collect();
-        let mut opening_offsets: Vec<(usize, f32)> = Vec::new();
+        let mut opening_offsets: Vec<(usize, f64)> = Vec::new();
         for (index, element) in self.elements.iter().enumerate() {
             if !requested.contains(&element.id) {
                 continue;
@@ -478,8 +637,7 @@ impl Project {
         if !matches!(wall.shape, Shape::Wall { .. }) {
             return Err("Element is not a wall".into());
         }
-        let finite =
-            |point: Point| point.finite() && point.x.abs() < 100_000. && point.y.abs() < 100_000.;
+        let finite = crate::precision::GeometryContext::point_in_range;
         if !finite(start) || !finite(end) {
             return Err("Wall reference line must use finite points".into());
         }
@@ -493,7 +651,11 @@ impl Project {
         }
         crate::wall_geometry::validate(&candidate)?;
         let length = crate::wall_geometry::reference_length(&candidate);
-        if length < 0.01 {
+        if !crate::precision::segment_meets_minimum(
+            start,
+            end,
+            crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+        ) {
             return Err("Wall must stay at least 0.01 m long".into());
         }
         for element in &self.elements {
@@ -520,8 +682,94 @@ impl Project {
         }
         Ok(())
     }
+    /// Compatibility validation with unchanged legacy input messages.
     pub fn validate(&self) -> Result<(), String> {
-        if self.schema_version != 1 {
+        self.validate_input_only().map_err(|d| d.0.message)?;
+        crate::geometry_validation::inspect(self).into_result()
+    }
+    /// One structural/input/source report; no model, history or ID is changed.
+    pub fn validation_report(&self) -> crate::geometry_validation::GeometryReport {
+        match self.validate_input_only() {
+            Err(d) => crate::geometry_validation::GeometryReport {
+                diagnostics: vec![d.0],
+                ..Default::default()
+            },
+            Ok(()) => {
+                let mut r = crate::geometry_validation::inspect(self);
+                r.input_checked = true;
+                r
+            }
+        }
+    }
+    pub(crate) fn validate_input_diagnostic(
+        &self,
+    ) -> Result<(), crate::derived_geometry::GeometryDiagnostic> {
+        self.validate_input_only().map_err(|failure| failure.0)
+    }
+    fn validate_input_only(&self) -> Result<(), InputFailure> {
+        for e in &self.elements {
+            if let Some(settings) = e.opening_joinery {
+                if !matches!(e.shape, Shape::Opening { .. }) {
+                    return Err(InputFailure::element(
+                        e.id,
+                        "joinery",
+                        "Joinery requires a door or window".into(),
+                    ));
+                }
+                settings
+                    .validate()
+                    .map_err(|m| InputFailure::element(e.id, "joinery", m))?;
+                if let Shape::Opening {
+                    width,
+                    height,
+                    kind,
+                    host_wall,
+                    ..
+                } = e.shape
+                {
+                    let clear = width - 2. * settings.frame_width;
+                    let leaves = if settings.door_style == crate::opening_joinery::DoorStyle::Double
+                    {
+                        2.
+                    } else {
+                        1.
+                    };
+                    if settings.frame_width * 2. >= width.min(height)
+                        || (kind == OpeningKind::Door
+                            && settings.leaf_thickness >= clear / leaves * 0.5)
+                    {
+                        return Err(InputFailure::element(
+                            e.id,
+                            "joinery",
+                            "Opening frame or leaf does not fit the opening".into(),
+                        ));
+                    }
+                    if self
+                        .elements
+                        .iter()
+                        .any(|h| h.id == host_wall && h.wall_contour.is_some())
+                    {
+                        return Err(InputFailure::element(
+                            e.id,
+                            "joinery",
+                            "Joinery requires a straight wall".into(),
+                        ));
+                    }
+                }
+            }
+        }
+        self.trace.validate()?;
+        self.design_process.validate()?;
+        self.site.validate()?;
+        self.program.validate()?;
+        self.evidence.validate()?;
+        self.rules.validate()?;
+        crate::constraints::validate_project(self)?;
+        crate::site::boundary::outline(self)?;
+        crate::site::boundary::outline_for(self, crate::site::boundary::Role::ControlRegion)?;
+        self.drawings.validate(&self.stories)?;
+        crate::external::validate(self)?;
+        if self.schema_version != crate::precision::MODEL_SCHEMA_VERSION {
             return Err("Unsupported project schema".into());
         }
         self.grid_settings.validate()?;
@@ -547,110 +795,178 @@ impl Project {
         }
         let mut ids = std::collections::HashSet::new();
         for e in &self.elements {
-            if e.id == 0 || e.id >= self.next_id || !ids.insert(e.id) || !stories.contains(&e.story)
-            {
-                return Err("Invalid element identity or story".into());
-            }
-            if let Some(contour) = &e.slab_contour {
-                if !matches!(e.shape, Shape::Slab { .. }) {
-                    return Err("Invalid slab contour".into());
-                }
-                crate::slab_geometry::validate_contour(contour)?;
-                crate::slab_geometry::bottom_contour(e)?;
-                let (a, b) = crate::slab_geometry::contour_bounds(contour);
-                if let Shape::Slab { min, max, .. } = e.shape {
-                    if a.distance(min) > 1e-4 || b.distance(max) > 1e-4 {
-                        return Err("Invalid slab contour bounds".into());
+            (|| -> Result<(), String> {
+                if let Some(sheet) = e.worksheet {
+                    if !self.drawings.worksheet_exists(sheet)
+                        || !matches!(e.shape, Shape::Polyline { .. })
+                    {
+                        return Err("Worksheets contain only 2D drawing elements".into());
                     }
                 }
-            }
-            let point_ok = |p: Point| p.finite() && p.x.abs() < 100000. && p.y.abs() < 100000.;
-            let valid = match e.shape {
-                Shape::Wall {
-                    start,
-                    end,
-                    thickness,
-                    height,
-                } => {
-                    point_ok(start)
-                        && point_ok(end)
-                        && start.distance(end) >= 0.01
-                        && thickness.is_finite()
-                        && (0.01..=5.).contains(&thickness)
-                        && height.is_finite()
-                        && (0.01..=100.).contains(&height)
+                if e.id == 0
+                    || e.id >= self.next_id
+                    || !ids.insert(e.id)
+                    || !stories.contains(&e.story)
+                {
+                    return Err("Invalid element identity or story".into());
                 }
-                Shape::Slab {
-                    min,
-                    max,
-                    thickness,
-                } => {
-                    point_ok(min)
-                        && point_ok(max)
-                        && max.x - min.x >= 0.01
-                        && max.y - min.y >= 0.01
-                        && thickness.is_finite()
-                        && (0.01..=5.).contains(&thickness)
+                if let Some(contour) = &e.slab_contour {
+                    if !matches!(e.shape, Shape::Slab { .. }) {
+                        return Err("Invalid slab contour".into());
+                    }
+                    crate::slab_geometry::validate_contour(contour)?;
+                    crate::slab_geometry::bottom_contour(e)?;
+                    let (a, b) = crate::slab_geometry::contour_bounds(contour);
+                    if let Shape::Slab { min, max, .. } = e.shape {
+                        if a.distance(min) > 1e-4 || b.distance(max) > 1e-4 {
+                            return Err("Invalid slab contour bounds".into());
+                        }
+                    }
                 }
-                Shape::Stair { ref spec } => {
-                    point_ok(spec.start) && point_ok(spec.end) && spec.validate().is_ok()
-                }
-                Shape::Polyline {
-                    ref points,
-                    ref arcs,
-                } => {
-                    points.len() >= 2
-                        && points.len() <= 10_000
-                        && points.iter().all(|point| point_ok(*point))
-                        && points
-                            .windows(2)
-                            .all(|pair| pair[0].distance(pair[1]) >= 0.01)
-                        && (arcs.is_empty() || arcs.len() == points.len() - 1)
-                        && arcs
-                            .iter()
-                            .flatten()
-                            .all(|arc| arc.radius.is_finite() && arc.radius > 0.)
-                        && arcs.iter().enumerate().all(|(index, arc)| {
-                            arc.is_none_or(|arc| {
-                                points.get(index).zip(points.get(index + 1)).is_some_and(
-                                    |(a, b)| {
-                                        let chord = a.distance(*b);
-                                        arc.radius.is_finite()
-                                            && arc.radius >= chord * 0.5 - 1e-4
-                                            && crate::geometry::arc_center_sweep(*a, *b, arc)
-                                                .is_some()
-                                    },
+                let point_ok = crate::precision::GeometryContext::point_in_range;
+                let valid = match e.shape {
+                    Shape::ConceptMass { ref spec } => {
+                        spec.validate()?;
+                        true
+                    }
+                    Shape::Zone { ref spec } => {
+                        spec.validate()?;
+                        true
+                    }
+                    Shape::Roof { ref spec } => {
+                        spec.validate()?;
+                        true
+                    }
+                    Shape::Beam { top_offset, .. } => {
+                        top_offset.is_finite()
+                            && (-100. ..=100.).contains(&top_offset)
+                            && crate::beam::geometry(self, e).is_some_and(|g| g.solid().is_ok())
+                    }
+                    Shape::Column {
+                        center,
+                        inclination,
+                        ..
+                    } => {
+                        point_ok(center)
+                            && if inclination.is_some() {
+                                crate::column::inclined_solid(self, e)
+                                    .is_some_and(|solid| solid.mesh().is_ok())
+                            } else {
+                                crate::column::solid(self, e)
+                                    .is_some_and(|solid| solid.mesh().is_ok())
+                            }
+                    }
+                    Shape::Wall {
+                        start,
+                        end,
+                        thickness,
+                        height,
+                    } => {
+                        point_ok(start)
+                            && point_ok(end)
+                            && crate::precision::segment_meets_minimum(
+                                start,
+                                end,
+                                crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+                            )
+                            && thickness.is_finite()
+                            && (0.01..=5.).contains(&thickness)
+                            && height.is_finite()
+                            && (0.01..=100.).contains(&height)
+                    }
+                    Shape::Slab {
+                        min,
+                        max,
+                        thickness,
+                    } => {
+                        point_ok(min)
+                            && point_ok(max)
+                            && crate::precision::axis_meets_minimum(
+                                min.x,
+                                max.x,
+                                crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+                            )
+                            && crate::precision::axis_meets_minimum(
+                                min.y,
+                                max.y,
+                                crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+                            )
+                            && thickness.is_finite()
+                            && (0.01..=5.).contains(&thickness)
+                    }
+                    Shape::Stair { ref spec } => {
+                        point_ok(spec.start) && point_ok(spec.end) && spec.validate().is_ok()
+                    }
+                    Shape::Polyline {
+                        ref points,
+                        ref arcs,
+                    } => {
+                        points.len() >= 2
+                            && points.len() <= 10_000
+                            && points.iter().all(|point| point_ok(*point))
+                            && points.windows(2).all(|pair| {
+                                crate::precision::segment_meets_minimum(
+                                    pair[0],
+                                    pair[1],
+                                    crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
                                 )
                             })
-                        })
+                            && (arcs.is_empty() || arcs.len() == points.len() - 1)
+                            && arcs
+                                .iter()
+                                .flatten()
+                                .all(|arc| arc.radius.is_finite() && arc.radius > 0.)
+                            && arcs.iter().enumerate().all(|(index, arc)| {
+                                arc.is_none_or(|arc| {
+                                    points.get(index).zip(points.get(index + 1)).is_some_and(
+                                        |(a, b)| {
+                                            let chord = a.distance(*b);
+                                            arc.radius.is_finite()
+                                                && arc.radius >= chord * 0.5 - 1e-4
+                                                && crate::geometry::arc_center_sweep(*a, *b, arc)
+                                                    .is_some()
+                                        },
+                                    )
+                                })
+                            })
+                    }
+                    Shape::Opening {
+                        width,
+                        height,
+                        sill,
+                        offset,
+                        ..
+                    } => {
+                        width.is_finite()
+                            && (0.05..=100.).contains(&width)
+                            && height.is_finite()
+                            && (0.05..=100.).contains(&height)
+                            && sill.is_finite()
+                            && (0. ..=100.).contains(&sill)
+                            && offset.is_finite()
+                            && offset.abs() < 100_000.
+                    }
+                };
+                if !valid {
+                    if matches!(e.shape, Shape::Beam { .. }) {
+                        return Err("Invalid beam dimensions or position".into());
+                    }
+                    if matches!(e.shape, Shape::Column { .. }) {
+                        return Err("Invalid column dimensions or position".into());
+                    }
+                    return Err(format!("Invalid geometry: {}", e.name));
                 }
-                Shape::Opening {
-                    width,
-                    height,
-                    sill,
-                    offset,
-                    ..
-                } => {
-                    width.is_finite()
-                        && (0.05..=100.).contains(&width)
-                        && height.is_finite()
-                        && (0.05..=100.).contains(&height)
-                        && sill.is_finite()
-                        && (0. ..=100.).contains(&sill)
-                        && offset.is_finite()
-                        && offset.abs() < 100_000.
+                crate::wall_geometry::validate(e)?;
+                if matches!(e.shape, Shape::Wall { .. })
+                    && let Some(settings) = &e.wall_settings
+                {
+                    settings.validate()?;
                 }
-            };
-            if !valid {
-                return Err(format!("Invalid geometry: {}", e.name));
-            }
-            crate::wall_geometry::validate(e)?;
-            if matches!(e.shape, Shape::Wall { .. })
-                && let Some(settings) = &e.wall_settings
-            {
-                settings.validate()?;
-            }
+                Ok(())
+            })()
+            .map_err(|m| InputFailure::element(e.id, "parameters", m))?;
         }
+
         let mut walls = std::collections::HashMap::new();
         for element in &self.elements {
             if let Shape::Wall { height, .. } = element.shape {
@@ -670,7 +986,7 @@ impl Project {
                 );
             }
         }
-        let mut spans: std::collections::HashMap<u64, Vec<(&str, f32, f32)>> =
+        let mut spans: std::collections::HashMap<u64, Vec<(&str, f64, f64)>> =
             std::collections::HashMap::new();
         for element in &self.elements {
             let Shape::Opening {
@@ -684,46 +1000,55 @@ impl Project {
             else {
                 continue;
             };
-            let Some(&(host_story, length, wall_height, bottom_offset, top_offset)) =
-                walls.get(&host_wall)
-            else {
-                return Err(format!(
-                    "Opening {} references a missing host wall",
-                    element.name
-                ));
-            };
-            if host_story != element.story {
-                return Err(format!(
-                    "Opening {} must be on the same story as its host wall",
-                    element.name
-                ));
-            }
-            let low = offset - width * 0.5;
-            let high = offset + width * 0.5;
-            if length < 1e-6 || low < -1e-4 || high > length + 1e-4 {
-                return Err(format!("Opening {} is outside its host wall", element.name));
-            }
-            if sill < bottom_offset - 1e-4 {
-                return Err(format!("Opening {} is below its host wall", element.name));
-            }
-            if sill + height > wall_height + top_offset + 1e-4 {
-                return Err(format!(
-                    "Opening {} is taller than its host wall",
-                    element.name
-                ));
-            }
-            spans
-                .entry(host_wall)
-                .or_default()
-                .push((element.name.as_str(), low, high));
+            (|| -> Result<(), String> {
+                let Some(&(host_story, length, wall_height, bottom_offset, top_offset)) =
+                    walls.get(&host_wall)
+                else {
+                    return Err(format!(
+                        "Opening {} references a missing host wall",
+                        element.name
+                    ));
+                };
+                if host_story != element.story {
+                    return Err(format!(
+                        "Opening {} must be on the same story as its host wall",
+                        element.name
+                    ));
+                }
+                let low = offset - width * 0.5;
+                let high = offset + width * 0.5;
+                if length < 1e-6 || low < -1e-4 || high > length + 1e-4 {
+                    return Err(format!("Opening {} is outside its host wall", element.name));
+                }
+                if sill < bottom_offset - 1e-4 {
+                    return Err(format!("Opening {} is below its host wall", element.name));
+                }
+                if sill + height > wall_height + top_offset + 1e-4 {
+                    return Err(format!(
+                        "Opening {} is taller than its host wall",
+                        element.name
+                    ));
+                }
+                spans
+                    .entry(host_wall)
+                    .or_default()
+                    .push((element.name.as_str(), low, high));
+                Ok(())
+            })()
+            .map_err(|m| InputFailure::element(element.id, "host", m))?;
         }
+
         for (host_wall, mut list) in spans {
             list.sort_by(|a, b| a.1.total_cmp(&b.1));
             for pair in list.windows(2) {
                 if pair[1].1 < pair[0].2 - 1e-4 {
-                    return Err(format!(
-                        "Overlapping openings on wall {host_wall}: {} and {}",
-                        pair[0].0, pair[1].0
+                    return Err(InputFailure::element(
+                        host_wall,
+                        "openings",
+                        format!(
+                            "Overlapping openings on wall {host_wall}: {} and {}",
+                            pair[0].0, pair[1].0
+                        ),
                     ));
                 }
             }

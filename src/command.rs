@@ -30,6 +30,14 @@ pub struct ElementEdit {
 /// Project fields outside `elements`, captured only when they change.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ProjectHeader {
+    // job_archive is immutable operation evidence, deliberately outside model
+    // Undo/Redo headers. Restoring geometry must not delete saved job receipts.
+    pub design_process: crate::design_process::Journal,
+    pub evidence: crate::evidence::EvidenceRegister,
+    pub rules: crate::rules::RuleBook,
+    pub program: crate::program::Program,
+    pub site: crate::site::SiteContext,
+    pub drawings: crate::drawings::DrawingDocument,
     pub edit_state: crate::editing::EditState,
     pub schema_version: u32,
     pub name: String,
@@ -47,6 +55,12 @@ pub struct ProjectHeader {
 impl ProjectHeader {
     pub(crate) fn capture(project: &Project) -> Self {
         Self {
+            design_process: project.design_process.clone(),
+            evidence: project.evidence.clone(),
+            rules: project.rules.clone(),
+            site: project.site.clone(),
+            program: project.program.clone(),
+            drawings: project.drawings.clone(),
             edit_state: project.edit_state.clone(),
             schema_version: project.schema_version,
             name: project.name.clone(),
@@ -63,6 +77,12 @@ impl ProjectHeader {
     }
 
     fn restore(&self, project: &mut Project) {
+        project.design_process.clone_from(&self.design_process);
+        project.evidence.clone_from(&self.evidence);
+        project.rules.clone_from(&self.rules);
+        project.site.clone_from(&self.site);
+        project.program.clone_from(&self.program);
+        project.drawings.clone_from(&self.drawings);
         project.edit_state = self.edit_state.clone();
         project.schema_version = self.schema_version;
         project.name.clone_from(&self.name);
@@ -95,7 +115,13 @@ pub struct ProjectDelta {
 impl ProjectDelta {
     pub fn between(before: &Project, after: &Project) -> Self {
         let mut delta = Self::default();
-        if before.edit_state != after.edit_state
+        if before.design_process != after.design_process
+            || before.rules != after.rules
+            || before.evidence != after.evidence
+            || before.program != after.program
+            || before.site != after.site
+            || before.drawings != after.drawings
+            || before.edit_state != after.edit_state
             || before.schema_version != after.schema_version
             || before.name != after.name
             || before.next_id != after.next_id
@@ -208,22 +234,37 @@ impl ProjectDelta {
 
     /// Restore the state before this delta.
     pub fn revert(&self, project: &mut Project) {
-        self.apply(project, false);
+        self.apply(project, false, false);
     }
 
     /// Re-apply the state after this delta.
     pub fn replay(&self, project: &mut Project) {
-        self.apply(project, true);
+        self.apply(project, true, false);
     }
 
-    fn apply(&self, project: &mut Project, forward: bool) {
+    pub(crate) fn undo_preserving_design_history(&self, project: &mut Project) {
+        self.apply(project, false, true);
+    }
+    pub(crate) fn redo_preserving_design_history(&self, project: &mut Project) {
+        self.apply(project, true, true);
+    }
+    fn apply(&self, project: &mut Project, forward: bool, preserve_design_history: bool) {
         let header = if forward {
             self.after_header.as_deref()
         } else {
             self.before_header.as_deref()
         };
         if let Some(header) = header {
-            header.restore(project);
+            if preserve_design_history {
+                let history = crate::design_process::Journal::restore_with_history(
+                    &header.design_process,
+                    &project.design_process,
+                );
+                header.restore(project);
+                project.design_process = history;
+            } else {
+                header.restore(project);
+            }
         }
         if self.elements.is_empty() {
             if let Some(order) = self.order(forward) {
@@ -299,8 +340,57 @@ fn reorder(elements: &mut [Element], order: &[u64]) {
 /// edits that are migrated over time; its exact payload lives in the record.
 #[derive(Clone, Debug, PartialEq)]
 pub enum ModelCommand {
+    Constraint {
+        edit: crate::constraints::Edit,
+    },
+    MassSpaces {
+        edit: crate::mass_spaces::Edit,
+    },
+    DesignProcess {
+        edit: crate::design_process::Edit,
+    },
+    Rules {
+        edit: crate::rules::RuleEdit,
+    },
+    Evidence {
+        edit: crate::evidence::EvidenceEdit,
+    },
+    Terrain {
+        edit: crate::site::terrain::Edit,
+    },
+    Program {
+        edit: crate::program::ProgramEdit,
+    },
+    ApplySiteBoundary {
+        proposal: crate::site::boundary::BoundaryProposal,
+    },
+    DetachSiteBoundary,
+    ApplySiteControlRegion {
+        proposal: crate::site::boundary::BoundaryProposal,
+    },
+    DetachSiteControlRegion,
+    SetSiteContext {
+        context: crate::site::SiteContext,
+    },
+    /// Absolute elevation of an existing story; element offsets remain relative.
+    SetStoryElevation {
+        story: u32,
+        elevation: f64,
+    },
+    External(crate::external::ReferenceEdit),
+    Diagram {
+        edit: crate::diagrams::Edit,
+    },
+    SetDrawings {
+        document: crate::drawings::DrawingDocument,
+    },
     AddElement {
         element: Element,
+    },
+    /// Append one validated batch and optionally group it in the same transaction.
+    AddElements {
+        elements: Vec<Element>,
+        group: bool,
     },
     RemoveElements {
         ids: Vec<u64>,
@@ -370,8 +460,8 @@ mod tests {
                 0,
                 Material::Plaster,
                 Shape::Wall {
-                    start: Point::new(index as f32, 0.),
-                    end: Point::new(index as f32 + 1., 0.),
+                    start: Point::new((index as f64).into(), 0.),
+                    end: Point::new((index as f64 + 1.).into(), 0.),
                     thickness: 0.2,
                     height: 3.,
                 },

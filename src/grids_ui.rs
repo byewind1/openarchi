@@ -10,7 +10,14 @@ struct RotatedGridTool {
 impl AtelierApp {
     fn apply_grid_snap(&self, point: Point, base: Point, kind: SnapKind) -> (Point, SnapKind) {
         if matches!(kind, SnapKind::Grid | SnapKind::Free) {
-            if let Some(snapped) = self.editor.project.grid_settings.snap_point(point) {
+            if let Some(snapped) = self
+                .host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .snap_point(point)
+            {
                 return (snapped, SnapKind::Grid);
             }
             return (point, SnapKind::Free);
@@ -21,18 +28,20 @@ impl AtelierApp {
     fn start_rotated_grid_tool(&mut self) {
         self.view = View::Plan;
         self.rotated_grid_tool = Some(RotatedGridTool { start: None });
-        self.editor.status =
+        self.host.document.editor.status =
             "Set Rotated Grid: click a straight segment, or click two points · Esc cancels".into();
     }
 
-    fn nearest_straight_segment_angle(&self, point: Point, tolerance: f32) -> Option<f32> {
-        let mut best: Option<(f32, f32)> = None;
+    fn nearest_straight_segment_angle(&self, point: Point, tolerance: f64) -> Option<f64> {
+        let mut best: Option<(f64, f64)> = None;
         for element in self
+            .host
+            .document
             .editor
             .project
             .elements
             .iter()
-            .filter(|element| element.story == self.editor.story)
+            .filter(|element| element.story == self.host.document.editor.story)
         {
             let mut segments: Vec<(Point, Point)> = Vec::new();
             match &element.shape {
@@ -44,10 +53,32 @@ impl AtelierApp {
                         }
                     }
                 }
-                Shape::Slab { .. } | Shape::Stair { .. } => {
+                Shape::Column {
+                    section: crate::column::ColumnSection::Circular { .. },
+                    ..
+                } => {}
+                Shape::Roof { .. }
+                | Shape::Beam { .. }
+                | Shape::Column { .. }
+                | Shape::Slab { .. }
+                | Shape::Stair { .. } => {
                     let outline = geometry::footprint(element);
                     for index in 0..outline.len() {
                         segments.push((outline[index], outline[(index + 1) % outline.len()]));
+                    }
+                }
+                Shape::ConceptMass { spec } => {
+                    for ring in &spec.paths() {
+                        for i in 0..ring.len() {
+                            segments.push((ring[i], ring[(i + 1) % ring.len()]));
+                        }
+                    }
+                }
+                Shape::Zone { spec } => {
+                    for ring in std::iter::once(&spec.outline).chain(spec.holes.iter()) {
+                        for i in 0..ring.len() {
+                            segments.push((ring[i], ring[(i + 1) % ring.len()]));
+                        }
                     }
                 }
                 Shape::Opening { .. } => {}
@@ -65,42 +96,44 @@ impl AtelierApp {
         best.map(|(_, angle)| angle)
     }
 
-    fn handle_rotated_grid_click(&mut self, raw: Point, target: Point, tolerance: f32) {
+    fn handle_rotated_grid_click(&mut self, raw: Point, target: Point, tolerance: f64) {
         let Some(mut tool) = self.rotated_grid_tool else {
             return;
         };
         if let Some(start) = tool.start {
             if let Some(angle) = GridSettings::angle_from_vector(start, target) {
-                let settings = &mut self.editor.project.grid_settings;
+                let settings = &mut self.host.document.editor.project.grid_settings;
                 settings.rotate_enabled = true;
                 settings.rotated_display = true;
                 settings.rotation_deg = angle;
                 self.rotated_grid_tool = None;
-                self.editor.status = format!("Rotated grid set to {angle:.2}°");
+                self.host.document.editor.status = format!("Rotated grid set to {angle:.2}°");
             } else {
-                self.editor.status = "Rotated grid needs two distinct points".into();
+                self.host.document.editor.status = "Rotated grid needs two distinct points".into();
             }
             return;
         }
         if let Some(angle) = self.nearest_straight_segment_angle(raw, tolerance) {
-            let settings = &mut self.editor.project.grid_settings;
+            let settings = &mut self.host.document.editor.project.grid_settings;
             settings.rotate_enabled = true;
             settings.rotated_display = true;
             settings.rotation_deg = angle;
             self.rotated_grid_tool = None;
-            self.editor.status = format!("Rotated grid aligned to segment · {angle:.2}°");
+            self.host.document.editor.status =
+                format!("Rotated grid aligned to segment · {angle:.2}°");
             return;
         }
         tool.start = Some(target);
         self.rotated_grid_tool = Some(tool);
-        self.editor.status = "Set Rotated Grid: click a second point · Esc cancels".into();
+        self.host.document.editor.status =
+            "Set Rotated Grid: click a second point · Esc cancels".into();
     }
 
     fn grids_menu(&mut self, ui: &mut Ui) {
         let mut set_rotated = false;
         let mut open_dialog = false;
         {
-            let settings = &mut self.editor.project.grid_settings;
+            let settings = &mut self.host.document.editor.project.grid_settings;
             ui.checkbox(
                 &mut settings.show_construction_grid,
                 self.language.translate("Construction Grid Display"),
@@ -194,7 +227,7 @@ impl AtelierApp {
             self.start_rotated_grid_tool();
         }
         if open_dialog {
-            self.grid_dialog = Some(self.editor.project.grid_settings.clone());
+            self.grid_dialog = Some(self.host.document.editor.project.grid_settings.clone());
             self.grid_dialog_error.clear();
             self.grid_dialog_just_opened = true;
             self.grid_preview_zoom = 25.0;
@@ -203,14 +236,14 @@ impl AtelierApp {
 
     fn commit_grid_settings(&mut self, draft: GridSettings) -> Result<(), String> {
         draft.validate()?;
-        if draft == self.editor.project.grid_settings {
-            self.editor.status = "Grids & Background unchanged".into();
+        if draft == self.host.document.editor.project.grid_settings {
+            self.host.document.editor.status = "Grids & Background unchanged".into();
             return Ok(());
         }
-        let before = self.editor.project.clone();
-        self.editor.project.grid_settings = draft;
-        self.editor.commit(before);
-        self.editor.status = "Grids & Background applied".into();
+        let before = self.host.document.editor.project.clone();
+        self.host.document.editor.project.grid_settings = draft;
+        self.host.document.editor.commit(before);
+        self.host.document.editor.status = "Grids & Background applied".into();
         Ok(())
     }
 
@@ -447,7 +480,7 @@ impl AtelierApp {
     }
 }
 
-fn paint_grid_preview(painter: &Painter, rect: Rect, settings: &GridSettings, zoom: f32) {
+fn paint_grid_preview(painter: &Painter, rect: Rect, settings: &GridSettings, zoom: f64) {
     let mut preview = settings.clone();
     preview.origin_x = 0.0;
     preview.origin_y = 0.0;
@@ -468,17 +501,22 @@ fn paint_grid_preview(painter: &Painter, rect: Rect, settings: &GridSettings, zo
             .minimum_gap(false)
             .is_some_and(|gap| gap * pixels_per_meter >= 1.5)
     {
-        let half_u = rect.width() * 0.5 / pixels_per_meter;
-        let half_v = rect.height() * 0.5 / pixels_per_meter;
+        let half_u = f64::from(rect.width()) * 0.5 / pixels_per_meter;
+        let half_v = f64::from(rect.height()) * 0.5 / pixels_per_meter;
         let center = rect.center();
-        for line in preview.lines_in_local(-half_u, half_u, -half_v, half_v) {
+        for line in preview.lines_in_local(
+            (-half_u).into(),
+            half_u.into(),
+            (-half_v).into(),
+            half_v.into(),
+        ) {
             let a = pos2(
-                center.x + line.start.x * pixels_per_meter,
-                center.y - line.start.y * pixels_per_meter,
+                f64::from(center.x) + line.start.x * pixels_per_meter,
+                f64::from(center.y) - line.start.y * pixels_per_meter,
             );
             let b = pos2(
-                center.x + line.end.x * pixels_per_meter,
-                center.y - line.end.y * pixels_per_meter,
+                f64::from(center.x) + line.end.x * pixels_per_meter,
+                f64::from(center.y) - line.end.y * pixels_per_meter,
             );
             let color = preview.line_color(line.main);
             painter.line_segment(
@@ -512,7 +550,7 @@ mod grid_ui_tests {
         let ctx = Context::default();
         AtelierApp::style(&ctx);
         let mut app = AtelierApp::from_renderer(None, "test".into());
-        app.editor = Editor::new(Project::default());
+        app.host.document.editor = Editor::new(Project::default());
         app.plan_center = Point::default();
         app.plan_scale = 50.0;
         app
@@ -521,16 +559,37 @@ mod grid_ui_tests {
     #[test]
     fn grid_snap_uses_project_spacing_and_can_be_disabled() {
         let mut app = setup();
-        app.editor.project.grid_settings.grid_snap_enabled = true;
-        app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
-        app.editor.project.grid_settings.snap_spacing_x = 0.05;
-        app.editor.project.grid_settings.snap_spacing_y = 0.05;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = true;
+        app.host.document.editor.project.grid_settings.snap_mode =
+            crate::grids::GridSnapMode::SnapGrid;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .snap_spacing_x = 0.05;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .snap_spacing_y = 0.05;
         let point = Point::new(1.03, 1.02);
         let snapped = app.apply_grid_snap(point, point, SnapKind::Free);
         assert_eq!(snapped.1, SnapKind::Grid);
         assert!((snapped.0.x - 1.05).abs() < 1e-4);
         assert!((snapped.0.y - 1.0).abs() < 1e-4);
-        app.editor.project.grid_settings.grid_snap_enabled = false;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = false;
         assert_eq!(
             app.apply_grid_snap(point, point, SnapKind::Free),
             (point, SnapKind::Free)
@@ -540,8 +599,8 @@ mod grid_ui_tests {
     #[test]
     fn tracker_lock_is_not_overridden_by_grid_snap() {
         let mut app = setup();
-        app.editor.tool = Tool::Wall;
-        app.editor.anchor = Some(Point::new(0.0, 0.0));
+        app.host.document.editor.tool = Tool::Wall;
+        app.host.document.editor.anchor = Some(Point::new(0.0, 0.0));
         app.tracker_locked = true;
         app.tracker_a = 1.234;
         app.tracker_b = 33.0;
@@ -564,15 +623,29 @@ mod grid_ui_tests {
         );
         app.handle_rotated_grid_click(Point::new(2.0, 2.0), Point::new(2.0, 2.0), 0.1);
         assert!(app.rotated_grid_tool.is_none());
-        assert!(app.editor.project.grid_settings.rotate_enabled);
-        assert!(app.editor.project.grid_settings.rotated_display);
-        assert!((app.editor.project.grid_settings.rotation_deg - 45.0).abs() < 1e-4);
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .rotate_enabled
+        );
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .rotated_display
+        );
+        assert!((app.host.document.editor.project.grid_settings.rotation_deg - 45.0).abs() < 1e-4);
     }
 
     #[test]
     fn rotated_grid_tool_aligns_to_existing_straight_segment() {
         let mut app = setup();
-        app.editor.project.add(
+        app.host.document.editor.project.add(
             0,
             Material::Plaster,
             Shape::Wall {
@@ -585,8 +658,10 @@ mod grid_ui_tests {
         app.start_rotated_grid_tool();
         app.handle_rotated_grid_click(Point::new(1.0, 0.5), Point::new(1.0, 0.5), 0.2);
         assert!(app.rotated_grid_tool.is_none());
-        let expected = 0.5_f32.atan2(1.0).to_degrees();
-        assert!((app.editor.project.grid_settings.rotation_deg - expected).abs() < 1e-3);
+        let expected = 0.5_f64.atan2(1.0).to_degrees();
+        assert!(
+            (app.host.document.editor.project.grid_settings.rotation_deg - expected).abs() < 1e-3
+        );
     }
 
     fn dialog_frame(ctx: &Context, app: &mut AtelierApp) {
@@ -603,7 +678,7 @@ mod grid_ui_tests {
     #[test]
     fn dialog_survives_the_frame_that_opened_it() {
         let mut app = setup();
-        app.grid_dialog = Some(app.editor.project.grid_settings.clone());
+        app.grid_dialog = Some(app.host.document.editor.project.grid_settings.clone());
         app.grid_dialog_just_opened = true;
         let ctx = Context::default();
         dialog_frame(&ctx, &mut app);
@@ -614,7 +689,7 @@ mod grid_ui_tests {
     #[test]
     fn dialog_draft_persists_across_frames_without_committing() {
         let mut app = setup();
-        app.grid_dialog = Some(app.editor.project.grid_settings.clone());
+        app.grid_dialog = Some(app.host.document.editor.project.grid_settings.clone());
         app.grid_dialog_just_opened = true;
         let ctx = Context::default();
         dialog_frame(&ctx, &mut app);
@@ -625,27 +700,42 @@ mod grid_ui_tests {
         let draft = app.grid_dialog.as_ref().unwrap();
         assert_eq!(draft.main_spacing_x, 3.0);
         assert!(draft.rotate_enabled);
-        assert_eq!(app.editor.project.grid_settings.main_spacing_x, 2.0);
-        assert!(!app.editor.project.grid_settings.rotate_enabled);
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .main_spacing_x,
+            2.0
+        );
+        assert!(
+            !app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .rotate_enabled
+        );
     }
 
     #[test]
     fn grids_apply_and_cancel_leave_expected_project_state() {
         let mut app = setup();
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         let mut draft = before.grid_settings.clone();
         draft.main_spacing_x = 3.0;
         app.commit_grid_settings(draft.clone()).unwrap();
-        assert_eq!(app.editor.project.grid_settings, draft);
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
-        assert_eq!(app.editor.undo.len(), 0);
+        assert_eq!(app.host.document.editor.project.grid_settings, draft);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), 0);
 
         let mut invalid = before.grid_settings.clone();
         invalid.main_spacing_x = 0.0;
         assert!(app.commit_grid_settings(invalid).is_err());
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
     }
 }

@@ -263,8 +263,10 @@ fn icon_toggle(ui: &mut Ui, enabled: bool, draw: impl FnOnce(&Painter, Rect, Col
 
 impl AtelierApp {
     pub(crate) fn open_layer_settings(&mut self) {
-        self.layer_settings = Some(LayerSettingsState::new(&self.editor.project.layers));
-        self.editor.status = self.language.translate("Layer Settings").into();
+        self.layer_settings = Some(LayerSettingsState::new(
+            &self.host.document.editor.project.layers,
+        ));
+        self.host.document.editor.status = self.language.translate("Layer Settings").into();
     }
 
     pub(super) fn layer_settings_dialog(&mut self, ctx: &Context) {
@@ -273,14 +275,13 @@ impl AtelierApp {
         };
         let language = self.language;
         let element_layers: BTreeMap<LayerId, usize> =
-            self.editor
-                .project
-                .elements
-                .iter()
-                .fold(BTreeMap::new(), |mut counts, element| {
+            self.host.document.editor.project.elements.iter().fold(
+                BTreeMap::new(),
+                |mut counts, element| {
                     *counts.entry(element.layer.0).or_default() += 1;
                     counts
-                });
+                },
+            );
         let mut outcome = LayerSettingsOutcome::None;
         let modal = Modal::new(Id::new("layer_settings_dialog")).show(ctx, |ui| {
             state.error.clear();
@@ -333,6 +334,8 @@ impl AtelierApp {
                 // Elements on deleted layers move to the Archicad Layer (the
                 // AC catch-all) as part of the same reversible change.
                 let remap: Vec<(u64, crate::layers::ElementLayer)> = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -341,8 +344,15 @@ impl AtelierApp {
                     .map(|element| (element.id, crate::layers::ElementLayer(ARCHICAD_LAYER)))
                     .collect();
                 let moved = remap.len();
-                self.editor.set_layer_document(state.draft, &remap);
-                self.editor.status = if moved > 0 {
+                if !self
+                    .host
+                    .document
+                    .editor
+                    .set_layer_document(state.draft, &remap)
+                {
+                    return;
+                }
+                self.host.document.editor.status = if moved > 0 {
                     format!(
                         "{} · {moved} {} {}",
                         self.language.translate("Layer Settings"),
@@ -358,7 +368,7 @@ impl AtelierApp {
                 };
             }
             LayerSettingsOutcome::Cancel => {
-                self.editor.status = format!(
+                self.host.document.editor.status = format!(
                     "{} {}",
                     language.translate("Layer Settings"),
                     language.translate("cancelled")

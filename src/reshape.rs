@@ -8,6 +8,13 @@ use crate::{
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum ReshapeCommand {
+    MassFootprint {
+        id: u64,
+        index: usize,
+        change: crate::slab_geometry::SlabChange,
+        anchor: Point,
+        point: Point,
+    },
     SlabEdit {
         id: u64,
         index: usize,
@@ -48,7 +55,7 @@ pub enum ReshapeCommand {
     InsertWallNode {
         id: u64,
         point: Point,
-        split: f32,
+        split: f64,
     },
     Trim {
         id: u64,
@@ -65,26 +72,26 @@ pub enum ReshapeCommand {
     },
     Corner {
         ids: Vec<u64>,
-        radius: f32,
+        radius: f64,
         chamfer: bool,
     },
     Resize {
         ids: Vec<u64>,
         origin: Point,
-        scale: f32,
+        scale: f64,
         thickness: bool,
     },
 }
 fn sub(a: Point, b: Point) -> Point {
     Point::new(a.x - b.x, a.y - b.y)
 }
-fn cross(a: Point, b: Point) -> f32 {
+fn cross(a: Point, b: Point) -> f64 {
     a.x * b.y - a.y * b.x
 }
-fn lerp(a: Point, b: Point, t: f32) -> Point {
+fn lerp(a: Point, b: Point, t: f64) -> Point {
     Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 }
-pub fn intersect(a: Point, b: Point, c: Point, d: Point) -> Option<(f32, f32)> {
+pub fn intersect(a: Point, b: Point, c: Point, d: Point) -> Option<(f64, f64)> {
     let v = sub(b, a);
     let w = sub(d, c);
     let den = cross(v, w);
@@ -108,7 +115,7 @@ pub fn source_path(e: &Element) -> Option<Vec<Point>> {
 pub fn visible(p: &Project, e: &Element, story: u32) -> bool {
     e.story == story && p.plan_options.element_visible(e, &p.layers)
 }
-pub fn distance_segment(q: Point, a: Point, b: Point) -> (f32, f32) {
+pub fn distance_segment(q: Point, a: Point, b: Point) -> (f64, f64) {
     let v = sub(b, a);
     let d = v.x * v.x + v.y * v.y;
     let t = if d > 1e-10 {
@@ -122,7 +129,7 @@ pub fn edge_at(
     p: &Project,
     story: u32,
     q: Point,
-    tolerance: f32,
+    tolerance: f64,
     exclude: &[u64],
 ) -> Option<(u64, Point, Point)> {
     p.elements
@@ -160,7 +167,10 @@ fn editable(p: &Project, ids: &[u64], groups: bool) -> Result<(), String> {
             .iter()
             .find(|e| e.id == *id)
             .ok_or("Select elements first")?;
-        if p.edit_state.locked.contains(id) || p.layers.is_locked(e.layer.0) {
+        if p.edit_state.locked.contains(id)
+            || p.layers.is_locked(e.layer.0)
+            || p.drawings.reference_owner(*id).is_some()
+        {
             return Err("Selection contains locked elements".into());
         }
         if groups
@@ -182,14 +192,14 @@ fn no_openings(p: &Project, ids: &[u64]) -> Result<(), String> {
         Ok(())
     }
 }
-fn slice_path(ps: &[Point], from: f32, to: f32) -> Vec<Point> {
-    let at = |v: f32| {
+fn slice_path(ps: &[Point], from: f64, to: f64) -> Vec<Point> {
+    let at = |v: f64| {
         let i = (v.floor() as usize).min(ps.len() - 2);
-        lerp(ps[i], ps[i + 1], v - i as f32)
+        lerp(ps[i], ps[i + 1], v - i as f64)
     };
     let mut out = vec![at(from)];
     for (i, p) in ps.iter().enumerate().skip(1).take(ps.len() - 2) {
-        if (i as f32) > from + 1e-5 && (i as f32) < to - 1e-5 {
+        if (i as f64) > from + 1e-5 && (i as f64) < to - 1e-5 {
             out.push(*p);
         }
     }
@@ -216,8 +226,8 @@ fn trim(p: &mut Project, id: u64, q: Point, story: u32) -> Result<Vec<u64>, Stri
         .min_by(|a, b| a.0.total_cmp(&b.0))
         .map(|(_, i, t)| (i, t))
         .unwrap();
-    let position = seg as f32 + t;
-    let end = (ps.len() - 1) as f32;
+    let position = seg as f64 + t;
+    let end = (ps.len() - 1) as f64;
     let mut cuts = vec![0., end];
     let mut has_boundary = false;
     for e in p
@@ -233,13 +243,13 @@ fn trim(p: &mut Project, id: u64, q: Point, story: u32) -> Result<Vec<u64>, Stri
                         && (-1e-5..=1.00001).contains(&u)
                     {
                         has_boundary = true;
-                        cuts.push(i as f32 + t.clamp(0., 1.));
+                        cuts.push(i as f64 + t.clamp(0., 1.));
                     }
                 }
             }
         }
     }
-    cuts.sort_by(f32::total_cmp);
+    cuts.sort_by(f64::total_cmp);
     cuts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
     if !has_boundary {
         return Err("No intersecting boundary to trim against".into());
@@ -278,7 +288,7 @@ fn trim(p: &mut Project, id: u64, q: Point, story: u32) -> Result<Vec<u64>, Stri
 }
 fn corner_path(
     ps: &[Point],
-    radius: f32,
+    radius: f64,
     chamfer: bool,
 ) -> Result<(Vec<Point>, Vec<Option<ArcSegment>>), String> {
     let closed = ps[0].distance(*ps.last().unwrap()) < 1e-5;
@@ -300,7 +310,7 @@ fn corner_path(
         let la = a.distance(b);
         let lb = c.distance(b);
         let angle = ((u.x * v.x + u.y * v.y) / (la * lb)).clamp(-1., 1.).acos();
-        if angle < 0.01 || std::f32::consts::PI - angle < 0.01 {
+        if angle < 0.01 || std::f64::consts::PI - angle < 0.01 {
             pairs[i] = (b, b, None);
             continue;
         }
@@ -343,7 +353,7 @@ fn corner_path(
 }
 /// Exact finite reference-line junctions; pointer hit tolerance belongs to the view.
 pub fn wall_junctions(project: &Project, selected: &[u64], story: u32) -> Vec<(Point, Vec<u64>)> {
-    const EPS: f32 = 0.0001;
+    const EPS: f64 = 0.0001;
     let walls: Vec<_> = project
         .elements
         .iter()
@@ -398,6 +408,24 @@ pub fn candidate(
 ) -> Result<(Project, Vec<u64>), String> {
     let mut p = project.clone();
     let ids = match command {
+        ReshapeCommand::MassFootprint {
+            id,
+            index,
+            change,
+            anchor,
+            point,
+        } => {
+            editable(&p, &[*id], true)?;
+            let element = p
+                .elements
+                .iter_mut()
+                .find(|e| e.id == *id)
+                .ok_or("Element not found")?;
+            let spec =
+                crate::concept_mass::changed_footprint(element, *index, change, *anchor, *point)?;
+            element.shape = Shape::ConceptMass { spec };
+            vec![*id]
+        }
         ReshapeCommand::SlabEdit {
             id,
             index,
@@ -710,6 +738,9 @@ pub fn candidate(
             radius,
             chamfer,
         } => {
+            if ids.len() == 2 && ids[0] == ids[1] {
+                return Err("Select two straight elements or a polyline corner".into());
+            }
             editable(&p, ids, true)?;
             no_openings(&p, ids)?;
             if !radius.is_finite() || *radius <= 0. {
@@ -842,14 +873,28 @@ pub fn candidate(
 impl Editor {
     pub fn reshape(&mut self, command: ReshapeCommand) -> Result<(), String> {
         let (candidate, ids) = candidate(&self.project, &command)?;
+        if let ReshapeCommand::MassFootprint { id, .. } = command {
+            let element = candidate
+                .elements
+                .into_iter()
+                .find(|e| e.id == id)
+                .ok_or("Element not found")?;
+            self.apply(crate::command::ModelCommand::UpdateElement { element })?;
+            self.set_selection(ids);
+            self.last_edit = None;
+            self.status = "Concept mass edited".into();
+            return Ok(());
+        }
         let before = std::mem::replace(&mut self.project, candidate);
-        self.commit(before);
+        if !self.commit_checked(before) {
+            return Err(self.status.clone());
+        }
         self.set_selection(ids);
         self.last_edit = None;
         self.status = "Edit applied".into();
         Ok(())
     }
-    pub fn magic_wand(&mut self, point: Point, tolerance: f32) -> Result<(), String> {
+    pub fn magic_wand(&mut self, point: Point, tolerance: f64) -> Result<(), String> {
         let path = trace(
             &self.project,
             self.story,
@@ -904,12 +949,12 @@ impl Editor {
                 }
                 let min = path
                     .iter()
-                    .fold(Point::new(f32::INFINITY, f32::INFINITY), |a, b| {
+                    .fold(Point::new(f64::INFINITY, f64::INFINITY), |a, b| {
                         Point::new(a.x.min(b.x), a.y.min(b.y))
                     });
                 let max = path
                     .iter()
-                    .fold(Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY), |a, b| {
+                    .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |a, b| {
                         Point::new(a.x.max(b.x), a.y.max(b.y))
                     });
                 ids.push(p.add_with_status(
@@ -941,7 +986,7 @@ pub fn trace(
     story: u32,
     selection: &[u64],
     q: Point,
-    tolerance: f32,
+    tolerance: f64,
 ) -> Result<Vec<Point>, String> {
     let paths: Vec<_> = p
         .elements
@@ -954,7 +999,7 @@ pub fn trace(
         .filter_map(|ps| {
             ps.windows(2)
                 .map(|w| distance_segment(q, w[0], w[1]).0)
-                .min_by(f32::total_cmp)
+                .min_by(f64::total_cmp)
                 .filter(|d| *d <= tolerance)
                 .map(|d| (d, ps))
         })
@@ -1025,7 +1070,7 @@ pub fn trace(
                 ts.push(t);
             }
         }
-        ts.sort_by(f32::total_cmp);
+        ts.sort_by(f64::total_cmp);
         ts.dedup_by(|a, b| (*a - *b).abs() < 1e-5);
         for t in ts.windows(2) {
             let mut ns = vec![];
@@ -1087,9 +1132,9 @@ pub fn trace(
             if edge != start || face.len() < 3 {
                 continue;
             }
-            let area: f32 = (0..face.len())
+            let area: f64 = (0..face.len())
                 .map(|i| cross(face[i], face[(i + 1) % face.len()]))
-                .sum::<f32>()
+                .sum::<f64>()
                 / 2.;
             if area > 1e-5 && geometry::point_in_polygon(q, &face) {
                 face.push(face[0]);
@@ -1107,7 +1152,7 @@ pub fn trace(
 #[cfg(test)]
 mod tests {
     use super::*;
-    fn line(p: &mut Project, a: (f32, f32), b: (f32, f32)) -> u64 {
+    fn line(p: &mut Project, a: (f64, f64), b: (f64, f64)) -> u64 {
         p.add(
             0,
             Material::Concrete,
@@ -1133,7 +1178,7 @@ mod tests {
             },
         )
     }
-    fn node_opening(p: &mut Project, host_wall: u64, offset: f32) -> u64 {
+    fn node_opening(p: &mut Project, host_wall: u64, offset: f64) -> u64 {
         p.add(
             0,
             Material::Timber,
@@ -1237,7 +1282,7 @@ mod tests {
             Point::new(3.04, 6.72),
             Point::new(1., 2.),
             Point::new(4.8, 5.4),
-            Point::new(f32::NAN, 0.),
+            Point::new(f64::NAN, 0.),
         ] {
             assert!(
                 editor
@@ -1456,7 +1501,7 @@ mod tests {
         assert!(split.edit_state.groups[0].contains(&ids[1]));
         let before = p.clone();
         let mut e = Editor::new(p);
-        for point in [Point::new(1., 2.), Point::new(f32::NAN, 0.)] {
+        for point in [Point::new(1., 2.), Point::new(f64::NAN, 0.)] {
             assert!(
                 e.reshape(ReshapeCommand::InsertWallNode {
                     id,
@@ -1565,9 +1610,9 @@ mod tests {
                 if step < 4 {
                     let wall = e.project.elements.iter().find(|e| e.id == id).unwrap();
                     let expected = if from_left {
-                        vec![Point::new((step + 1) as f32 * 2., 0.), Point::new(10., 0.)]
+                        vec![Point::new((step + 1) as f64 * 2., 0.), Point::new(10., 0.)]
                     } else {
-                        vec![Point::new(0., 0.), Point::new(8. - step as f32 * 2., 0.)]
+                        vec![Point::new(0., 0.), Point::new(8. - step as f64 * 2., 0.)]
                     };
                     assert_eq!(straight_path(wall).unwrap(), expected);
                 } else {
@@ -1823,7 +1868,7 @@ mod tests {
                 &ReshapeCommand::Resize {
                     ids: vec![id],
                     origin: Point::default(),
-                    scale: f32::NAN,
+                    scale: f64::NAN,
                     thickness: true
                 }
             )

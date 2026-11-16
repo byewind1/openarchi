@@ -16,6 +16,10 @@ use std::collections::{BTreeMap, BTreeSet};
 /// `Polyline` stands for the 2D drafting family (line, arc, polyline, spline).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub enum TransferType {
+    ConceptMass,
+    Column,
+    Beam,
+    Roof,
     Wall,
     Slab,
     Stair,
@@ -28,6 +32,10 @@ impl TransferType {
     /// Localization key for the type name.
     pub fn label_key(self) -> &'static str {
         match self {
+            Self::ConceptMass => "Concept mass",
+            Self::Column => "Column",
+            Self::Beam => "Beam",
+            Self::Roof => "Roof",
             Self::Wall => "Wall",
             Self::Slab => "Slab",
             Self::Stair => "Stair",
@@ -39,6 +47,11 @@ impl TransferType {
 
     pub fn of(element: &Element) -> Option<Self> {
         match &element.shape {
+            Shape::ConceptMass { .. } => Some(Self::ConceptMass),
+            Shape::Zone { .. } => None,
+            Shape::Roof { .. } => Some(Self::Roof),
+            Shape::Beam { .. } => Some(Self::Beam),
+            Shape::Column { .. } => Some(Self::Column),
             Shape::Wall { .. } => Some(Self::Wall),
             Shape::Slab { .. } => Some(Self::Slab),
             Shape::Stair { .. } => Some(Self::Stair),
@@ -73,6 +86,14 @@ pub const ALL_GROUPS: [&str; 5] = [
 pub fn groups_for(t: TransferType) -> &'static [&'static str] {
     match t {
         TransferType::Wall => &ALL_GROUPS,
+        TransferType::Column => &[
+            GROUP_GEOMETRY,
+            GROUP_MATERIAL_LAYER,
+            GROUP_FLOOR_PLAN_DISPLAY,
+        ],
+        TransferType::ConceptMass | TransferType::Beam | TransferType::Roof => {
+            &[GROUP_GEOMETRY, GROUP_MATERIAL_LAYER]
+        }
         TransferType::Polyline => &[GROUP_MATERIAL_LAYER],
         TransferType::Slab | TransferType::Stair | TransferType::Door | TransferType::Window => {
             &[GROUP_GEOMETRY, GROUP_MATERIAL_LAYER]
@@ -197,6 +218,61 @@ pub fn apply_transfer(
     }
     if set.allows(GROUP_GEOMETRY) {
         match (&mut target.shape, &source.shape) {
+            (Shape::ConceptMass { spec: target }, Shape::ConceptMass { spec: source }) => {
+                target.height = source.height;
+                target.bottom_offset = source.bottom_offset;
+                applied.push(GROUP_GEOMETRY);
+            }
+            (
+                Shape::Column {
+                    section,
+                    height,
+                    bottom_offset,
+                    axis_rotation,
+                    inclination,
+                    ..
+                },
+                Shape::Column {
+                    section: ss,
+                    height: sh,
+                    bottom_offset: sb,
+                    axis_rotation: sa,
+                    inclination: si,
+                    ..
+                },
+            ) => {
+                *section = *ss;
+                *height = *sh;
+                *bottom_offset = *sb;
+                *axis_rotation = *sa;
+                *inclination = *si;
+            }
+            (
+                Shape::Beam {
+                    width,
+                    height,
+                    top_offset,
+                    slant_angle,
+                    ..
+                },
+                Shape::Beam {
+                    width: sw,
+                    height: sh,
+                    top_offset: st,
+                    slant_angle: sa,
+                    ..
+                },
+            ) => {
+                *width = *sw;
+                *height = *sh;
+                *top_offset = *st;
+                *slant_angle = *sa;
+            }
+            (Shape::Roof { spec }, Shape::Roof { spec: source_spec }) => {
+                spec.pitch = source_spec.pitch;
+                spec.thickness = source_spec.thickness;
+                spec.pivot_offset = source_spec.pivot_offset;
+            }
             (
                 Shape::Wall {
                     thickness, height, ..
@@ -262,6 +338,17 @@ pub fn apply_transfer(
         }
         applied.push(GROUP_GEOMETRY);
     }
+    if set.allows(GROUP_FLOOR_PLAN_DISPLAY)
+        && let (
+            Shape::Column { plan, .. },
+            Shape::Column {
+                plan: source_plan, ..
+            },
+        ) = (&mut target.shape, &source.shape)
+    {
+        *plan = *source_plan;
+        applied.push(GROUP_FLOOR_PLAN_DISPLAY);
+    }
     if target_type == TransferType::Wall
         && let Some(source_settings) = &source.wall_settings
     {
@@ -296,6 +383,11 @@ pub fn apply_pick_up_defaults(source: &Element, set: &TransferSettings) -> Picke
     }
     if set.allows(GROUP_GEOMETRY) {
         match &source.shape {
+            Shape::ConceptMass { .. } => picked.model_shape = Some(source.shape.clone()),
+            Shape::Zone { .. } => {}
+            Shape::Roof { .. } | Shape::Beam { .. } | Shape::Column { .. } => {
+                picked.model_shape = Some(source.shape.clone());
+            }
             Shape::Wall {
                 thickness, height, ..
             } => {
@@ -336,6 +428,11 @@ pub fn apply_pick_up_defaults(source: &Element, set: &TransferSettings) -> Picke
             Shape::Polyline { .. } => {}
         }
     }
+    if set.allows(GROUP_FLOOR_PLAN_DISPLAY)
+        && let Shape::Column { plan, .. } = source.shape
+    {
+        picked.column_plan = Some(plan);
+    }
     picked
 }
 
@@ -343,8 +440,11 @@ pub fn apply_pick_up_defaults(source: &Element, set: &TransferSettings) -> Picke
 /// present fields to its shared tool state.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct PickedDefaults {
-    pub thickness: Option<f32>,
-    pub height: Option<f32>,
+    /// Geometry parameters only; placement fields in this snapshot are ignored.
+    pub model_shape: Option<Shape>,
+    pub column_plan: Option<crate::column_plan::ColumnPlanSettings>,
+    pub thickness: Option<f64>,
+    pub height: Option<f64>,
     pub material: Option<crate::model::Material>,
     pub layer: Option<crate::layers::ElementLayer>,
     pub wall_settings: Option<WallSettings>,
@@ -357,7 +457,7 @@ mod tests {
     use super::*;
     use crate::model::{Material, Point, Project};
 
-    fn wall(start: (f32, f32), end: (f32, f32), thickness: f32) -> Element {
+    fn wall(start: (f64, f64), end: (f64, f64), thickness: f64) -> Element {
         let mut project = Project::default();
         let id = project.add(
             0,
@@ -372,7 +472,7 @@ mod tests {
         project.elements.into_iter().find(|e| e.id == id).unwrap()
     }
 
-    fn slab(thickness: f32) -> Element {
+    fn slab(thickness: f64) -> Element {
         let mut project = Project::default();
         let id = project.add(
             0,

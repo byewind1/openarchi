@@ -1,0 +1,164 @@
+{
+  "structuredContent": {
+    "detailsOfElements": [
+      {
+        "details": {
+          "origin": {
+            "x": 15.7932426,
+            "y": 35.444642766
+          },
+          "coreAnchor": "Center",
+          "zCoordinate": 0,
+          "height": 2.8,
+          "bottomOffset": 0,
+          "axisRotationAngle": 0.523598776,
+          "isSlanted": false,
+          "slantAngle": 1.570796327,
+          "slantDirectionAngle": 0,
+          "isFlipped": false,
+          "wrapping": false,
+          "topOffset": -0.2,
+          "relativeTopStory": 1,
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "coverFill": {
+            "use": true,
+            "useFromSurface": false,
+            "orientationComesFrom3D": false,
+            "fillId": {},
+            "foregroundPen": 88,
+            "backgroundPen": -1,
+            "transformationType": "Global",
+            "transformation": {
+              "origin": {
+                "x": 0,
+                "y": 0
+              },
+              "xAxis": {
+                "x": 1,
+                "y": 0
+              },
+              "yAxis": {
+                "x": 0,
+                "y": 1
+              }
+            }
+          },
+          "width": 0.8,
+          "depth": 0.4,
+          "isWidthAndHeightLinked": false,
+          "circleBased": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 15.546832439,
+                "y": 35.071437685
+              },
+              {
+                "x": 16.239652762,
+                "y": 35.471437685
+              },
+              {
+                "x": 16.039652762,
+                "y": 35.817847847
+              },
+              {
+                "x": 15.346832439,
+                "y": 35.417847847
+              },
+              {
+                "x": 15.546832439,
+                "y": 35.071437685
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "details": {
+          "origin": {
+            "x": 34.966213002,
+            "y": 35.444642766
+          },
+          "coreAnchor": "Center",
+          "zCoordinate": 0,
+          "height": 2.8,
+          "bottomOffset": 0,
+          "axisRotationAngle": -0.523598776,
+          "isSlanted": false,
+          "slantAngle": 1.570796327,
+          "slantDirectionAngle": 0,
+          "isFlipped": false,
+          "wrapping": false,
+          "topOffset": -0.2,
+          "relativeTopStory": 1,
+          "cutFillPen": {
+            "overridden": false
+          },
+          "cutFillBackgroundPen": {
+            "overridden": false
+          },
+          "coverFill": {
+            "use": true,
+            "useFromSurface": false,
+            "orientationComesFrom3D": false,
+            "fillId": {},
+            "foregroundPen": 88,
+            "backgroundPen": -1,
+            "transformationType": "Global",
+            "transformation": {
+              "origin": {
+                "x": 0,
+                "y": 0
+              },
+              "xAxis": {
+                "x": 1,
+                "y": 0
+              },
+              "yAxis": {
+                "x": 0,
+                "y": 1
+              }
+            }
+          },
+          "width": 0.8,
+          "depth": 0.4,
+          "isWidthAndHeightLinked": false,
+          "circleBased": false
+        },
+        "floorPlanPolygons": [
+          {
+            "coordinates": [
+              {
+                "x": 34.51980284,
+                "y": 35.471437685
+              },
+              {
+                "x": 35.212623163,
+                "y": 35.071437685
+              },
+              {
+                "x": 35.412623163,
+                "y": 35.417847847
+              },
+              {
+                "x": 34.71980284,
+                "y": 35.817847847
+              },
+              {
+                "x": 34.51980284,
+                "y": 35.471437685
+              }
+            ]
+          }
+        ]
+      }
+    ]
+  }
+}

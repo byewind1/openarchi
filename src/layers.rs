@@ -679,6 +679,7 @@ mod tests {
 
     fn wall(layer: LayerId) -> Element {
         Element {
+            worksheet: None,
             id: 1,
             name: "Wall".into(),
             story: 0,
@@ -688,6 +689,7 @@ mod tests {
             design_option: None,
             wall_contour: None,
             slab_contour: None,
+            opening_joinery: None,
             wall_settings: Some(WallSettings::default()),
             shape: crate::model::Shape::Wall {
                 start: Point::default(),

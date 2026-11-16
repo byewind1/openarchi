@@ -1,8 +1,10 @@
 use crate::model::{Element, Material, Point, Project, Shape};
+use serde::{Deserialize, Serialize};
 use std::cmp::Ordering;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TraceReference {
+    Worksheet(u64),
     AboveCurrentStory,
     #[default]
     BelowCurrentStory,
@@ -20,6 +22,10 @@ impl TraceReference {
     ) -> Option<TraceSelection> {
         let stories = ordered_story_ids(project);
         match self {
+            Self::Worksheet(id) => project
+                .drawings
+                .worksheet_exists(id)
+                .then_some(TraceSelection::Worksheet(id)),
             Self::EntireModel => Some(TraceSelection::EntireModel),
             Self::Story(id) => stories.contains(&id).then_some(TraceSelection::Story(id)),
             Self::PreviousStory => (previous_story != active_story
@@ -42,12 +48,13 @@ impl TraceReference {
     }
 
     pub fn is_relative(self) -> bool {
-        !matches!(self, Self::Story(_))
+        !matches!(self, Self::Story(_) | Self::Worksheet(_))
     }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TraceSelection {
+    Worksheet(u64),
     Story(u32),
     EntireModel,
 }
@@ -55,6 +62,7 @@ pub enum TraceSelection {
 impl TraceSelection {
     pub fn story(self) -> Option<u32> {
         match self {
+            Self::Worksheet(_) => None,
             Self::Story(id) => Some(id),
             Self::EntireModel => None,
         }
@@ -62,14 +70,22 @@ impl TraceSelection {
 
     pub fn story_ids(self, project: &Project) -> Vec<u32> {
         match self {
+            Self::Worksheet(_) => vec![],
             Self::Story(id) => vec![id],
             Self::EntireModel => ordered_story_ids(project),
         }
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct TraceVisibility {
+    pub masses: bool,
+    pub zones: bool,
+    pub drawings: bool,
+    pub roofs: bool,
+    pub beams: bool,
+    pub columns: bool,
     pub walls: bool,
     pub slabs: bool,
     pub stairs: bool,
@@ -79,6 +95,12 @@ pub struct TraceVisibility {
 impl Default for TraceVisibility {
     fn default() -> Self {
         Self {
+            masses: true,
+            zones: true,
+            drawings: true,
+            roofs: true,
+            beams: true,
+            columns: true,
             walls: true,
             slabs: true,
             stairs: true,
@@ -90,6 +112,11 @@ impl Default for TraceVisibility {
 impl TraceVisibility {
     pub fn shows(self, element: &Element) -> bool {
         match element.shape {
+            Shape::ConceptMass { .. } => self.masses,
+            Shape::Zone { .. } => self.zones,
+            Shape::Column { .. } => self.columns,
+            Shape::Roof { .. } => self.roofs,
+            Shape::Beam { .. } => self.beams,
             Shape::Wall { .. } => self.walls,
             Shape::Slab { .. } => self.slabs,
             Shape::Stair { .. } => self.stairs,
@@ -103,13 +130,16 @@ impl TraceVisibility {
 pub struct TraceState {
     pub enabled: bool,
     pub reference: TraceReference,
+    pub source_identity: Option<crate::trace_document::TraceSourceIdentity>,
     pub reference_opacity: u8,
     pub active_opacity: u8,
     pub reference_color: Option<[u8; 3]>,
+    pub active_color: Option<[u8; 3]>,
     pub on_top: bool,
     pub transparent_fills: bool,
+    pub pivot: Option<Point>,
     pub offset: Point,
-    pub rotation_deg: f32,
+    pub rotation_deg: f64,
     pub visibility: TraceVisibility,
     pub palette_open: bool,
     pub browse_open: bool,
@@ -118,7 +148,14 @@ pub struct TraceState {
     pub rotate_mode: bool,
     pub displace_mode: bool,
     pub displace_origin: Option<Point>,
-    pub splitter: Option<f32>,
+    pub splitter: Option<f64>,
+    pub gesture_origin: Option<(Point, f64)>,
+    pub pointer_anchor: Option<Point>,
+    pub rotation_arm: Option<Point>,
+    pub pointer_just_started: bool,
+    pub split_axis: Option<bool>,
+    pub split_from_end: bool,
+    pub tool_on_entry: Option<crate::editor::Tool>,
 }
 
 impl Default for TraceState {
@@ -126,11 +163,14 @@ impl Default for TraceState {
         Self {
             enabled: false,
             reference: TraceReference::default(),
+            source_identity: None,
             reference_opacity: 120,
             active_opacity: 255,
             reference_color: Some([116, 137, 145]),
+            active_color: None,
             on_top: false,
             transparent_fills: false,
+            pivot: None,
             offset: Point::default(),
             rotation_deg: 0.,
             visibility: TraceVisibility::default(),
@@ -142,6 +182,13 @@ impl Default for TraceState {
             displace_mode: false,
             displace_origin: None,
             splitter: None,
+            gesture_origin: None,
+            pointer_anchor: None,
+            rotation_arm: None,
+            pointer_just_started: false,
+            split_axis: None,
+            split_from_end: false,
+            tool_on_entry: None,
         }
     }
 }
@@ -153,6 +200,13 @@ impl TraceState {
         active_story: u32,
         previous_story: u32,
     ) -> Option<TraceSelection> {
+        if let Some(identity) = &self.source_identity
+            && crate::trace_document::TraceSourceIdentity::for_reference(project, self.reference)
+                .as_ref()
+                != Some(identity)
+        {
+            return None;
+        }
         self.reference
             .resolve(project, active_story, previous_story)
     }
@@ -162,10 +216,19 @@ impl TraceState {
     }
 
     pub fn cancel_pointer_modes(&mut self) -> bool {
-        let active = self.pointer_mode_active();
+        let active = self.pointer_mode_active() || self.split_axis.is_some();
+        if let Some((offset, rotation)) = self.gesture_origin.take() {
+            self.offset = offset;
+            self.rotation_deg = rotation;
+        }
         if let Some(origin) = self.displace_origin.take() {
             self.offset = origin;
         }
+        self.pointer_anchor = None;
+        self.rotation_arm = None;
+        self.pointer_just_started = false;
+        self.split_axis = None;
+        self.tool_on_entry = None;
         self.drag_mode = false;
         self.rotate_mode = false;
         self.displace_mode = false;
@@ -173,12 +236,15 @@ impl TraceState {
     }
 
     pub fn reset_position(&mut self) {
+        self.pivot = None;
         self.offset = Point::default();
         self.rotation_deg = 0.;
         self.displace_origin = None;
+        self.gesture_origin = None;
     }
 
     pub fn transform(&self, point: Point, pivot: Point) -> Point {
+        let pivot = self.pivot.unwrap_or(pivot);
         let radians = self.rotation_deg.to_radians();
         let (sin, cos) = radians.sin_cos();
         let x = point.x - pivot.x;
@@ -187,6 +253,27 @@ impl TraceState {
             pivot.x + x * cos - y * sin + self.offset.x,
             pivot.y + x * sin + y * cos + self.offset.y,
         )
+    }
+
+    pub fn inverse_transform(&self, point: Point, pivot: Point) -> Point {
+        let pivot = self.pivot.unwrap_or(pivot);
+        let (sin, cos) = self.rotation_deg.to_radians().sin_cos();
+        let x = point.x - pivot.x - self.offset.x;
+        let y = point.y - pivot.y - self.offset.y;
+        Point::new(pivot.x + x * cos + y * sin, pivot.y - x * sin + y * cos)
+    }
+
+    /// Compose display-only Trace placement after the immutable drawing placement.
+    /// Rendering, culling and snapping consume this exact same f64 transform.
+    pub fn cad_transform(
+        &self,
+        original: &crate::cad_reference::Transform,
+        pivot: Point,
+    ) -> crate::cad_reference::Transform {
+        let mut transform = original.clone();
+        transform.xy = self.transform(original.xy, pivot);
+        transform.angle += self.rotation_deg;
+        transform
     }
 
     pub fn color_for(&self, material: Material) -> [u8; 3] {
@@ -198,11 +285,12 @@ impl TraceState {
     }
 
     pub fn is_valid(&self) -> bool {
-        self.offset.finite()
+        self.pivot.is_none_or(|p| p.finite())
+            && self.offset.finite()
             && self.rotation_deg.is_finite()
             && self
                 .splitter
-                .is_none_or(|ratio| ratio.is_finite() && (0.05..=0.95).contains(&ratio))
+                .is_none_or(|ratio| ratio.is_finite() && (0.0..=1.0).contains(&ratio))
     }
 }
 

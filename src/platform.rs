@@ -1,7 +1,9 @@
 use std::path::PathBuf;
 
-pub const RENDERER_LABEL: &str = if cfg!(target_os = "macos") {
+pub const RENDERER_LABEL: &str = if cfg!(all(target_os = "macos", target_arch = "aarch64")) {
     "Apple Silicon / Metal"
+} else if cfg!(target_os = "macos") {
+    "Intel Mac / Metal"
 } else if cfg!(target_os = "windows") {
     "Windows x64 / DirectX 12"
 } else {
@@ -17,6 +19,12 @@ pub const RENDERER_BACKEND: &str = if cfg!(target_os = "macos") {
 };
 
 pub fn config_dir() -> Option<PathBuf> {
+    if let Some(path) = std::env::var_os("OPENARCHI_CONFIG_DIR")
+        .map(PathBuf::from)
+        .filter(|p| p.is_absolute())
+    {
+        return Some(path);
+    }
     #[cfg(target_os = "macos")]
     {
         std::env::var_os("HOME").map(|home| {

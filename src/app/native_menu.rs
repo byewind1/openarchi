@@ -20,10 +20,29 @@ use objc2_app_kit::{NSApplication, NSEventModifierFlags, NSMenu, NSMenuItem};
 use objc2_foundation::{NSInteger, NSString};
 use std::cell::RefCell;
 
+/// Menu bindings only; effects reuse the Trace application entry points.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum TraceAction {
+    Choose(crate::trace::TraceReference),
+    Browse,
+    Activate,
+    Switch,
+    Drag,
+    Rotate,
+    Reset,
+    Rebuild,
+    Displace,
+    Splitter,
+    OnTop,
+    Transparent,
+    OffEverywhere,
+}
+
 /// One menu command, replayed into the app on the next frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum MenuAction {
     Noop,
+    Workbench(crate::workbench::WorkbenchCommand),
     About,
     Quit,
     Language(UiLanguage),
@@ -37,7 +56,7 @@ pub(super) enum MenuAction {
     ToggleMarquee3D,
     ToggleMarqueeOutside,
     ToggleTrace,
-    TraceOptions,
+    Trace(TraceAction),
     ToggleGuideLines,
     ToggleConstructionGrid,
     ToggleElementSnap,
@@ -51,7 +70,10 @@ pub(super) enum MenuAction {
     ShowSelection3D,
     HideSelection3D,
     ShowAll3D,
+    ModelStyle(crate::view_settings::Model3dStyle),
     Fit,
+    Orbit,
+    Explore,
     Rebuild,
     Refresh,
     Regenerate,
@@ -64,6 +86,7 @@ pub(super) enum MenuAction {
     DesignOptions,
     Renovation,
     Dimensions,
+    FloorPlanCut,
     ToggleOrthogonal,
     AddOnManager,
     ToggleQuickOptionsBar,
@@ -222,6 +245,28 @@ impl MenuBuilder<'_> {
     /// Item handled by our proxy; replayed as [`MenuAction`] next frame.
     fn item(&self, title: String, action: MenuAction) -> Retained<NSMenuItem> {
         let item = NSMenuItem::new(self.mtm);
+        let id = match action {
+            MenuAction::Workbench(c) => Some(c.id()),
+            MenuAction::Save => Some("file.save"),
+            MenuAction::Plan => Some("view.plan"),
+            MenuAction::Model => Some("view.model"),
+            MenuAction::Tool("Arrow") => Some("tool.select"),
+            MenuAction::Tool("Wall") => Some("tool.wall"),
+            MenuAction::Tool("Concept mass") => Some("tool.concept_mass"),
+            MenuAction::Tool("Zone") => Some("tool.zone"),
+            _ => None,
+        };
+        let title = if let Some(id) = id.filter(|id| self.app.shortcut_overridden(id)) {
+            let base = title.split("  ").next().unwrap_or(&title).trim_end();
+            let hint = crate::workbench::shortcuts::hint(self.app.shortcut_overrides(), id);
+            if hint.is_empty() {
+                base.into()
+            } else {
+                format!("{base}  {hint}")
+            }
+        } else {
+            title
+        };
         item.setTitle(&NSString::from_str(&title));
         let target = self.proxy_target();
         // SAFETY: the target is our registered menu proxy and the action
@@ -328,6 +373,8 @@ const PROJECT_PREFERENCES: &[&str] = &[
 ];
 
 const WORK_ENVIRONMENT: &[&str] = &[
+    "Customize work environment…",
+    "MCP Settings…",
     "Appearance…",
     "Keyboard Shortcuts…",
     "Dialog Boxes and Palettes…",
@@ -349,13 +396,6 @@ const INTEROPERABILITY: &[&str] = &[
     "Place Mesh from Survey Data…",
     "Grasshopper Connection…",
     "Bimplus Connection…",
-];
-
-const EXTERNAL_CONTENT: &[&str] = &[
-    "Hotlink Manager…",
-    "Place External Drawing…",
-    "Drawing Manager…",
-    "Xref Manager…",
 ];
 
 const LIBRARIES_AND_OBJECTS: &[&str] = &[
@@ -397,6 +437,7 @@ const ARCHITECTURAL_TOOLS: &[&str] = &[
     "Corner-Window",
     "Skylight",
     "Opening",
+    "Concept mass",
     "Zone",
     "Mesh",
     "Morph",
@@ -482,13 +523,150 @@ const TOOLBAR_NAMES: &[&str] = &[
     "Teamwork",
 ];
 
+fn trace_items(b: &MenuBuilder<'_>, app: &AtelierApp) -> Vec<Retained<NSMenuItem>> {
+    use crate::trace::TraceReference;
+    let plan = app.view == View::Plan && !app.trace_menu_gated();
+    let has_reference = app.trace_has_reference();
+    let item = |key: &str, action, enabled, checked| {
+        let i = b.checked(key, MenuAction::Trace(action), checked);
+        i.setEnabled(enabled);
+        i
+    };
+    let mut choices = vec![
+        item(
+            "Browse for Trace Reference…",
+            TraceAction::Browse,
+            plan && app.trace.enabled,
+            false,
+        ),
+        b.separator(),
+    ];
+    for (reference, key) in [
+        (TraceReference::AboveCurrentStory, "Above Current Story"),
+        (TraceReference::BelowCurrentStory, "Below Current Story"),
+        (TraceReference::PreviousStory, "Previous Story"),
+        (TraceReference::EntireModel, "Entire Model Display"),
+    ] {
+        choices.push(item(
+            key,
+            TraceAction::Choose(reference),
+            plan && app.trace_choice_enabled(reference),
+            app.trace.reference == reference,
+        ));
+    }
+    let recent = app.trace_recent_choices();
+    if !recent.is_empty() {
+        choices.push(
+            b.submenu_key(
+                "Recent References",
+                recent
+                    .into_iter()
+                    .map(|(reference, label)| {
+                        let i = b.checked_text(
+                            label,
+                            MenuAction::Trace(TraceAction::Choose(reference)),
+                            app.trace.reference == reference,
+                        );
+                        i.setEnabled(plan && app.trace.enabled);
+                        i
+                    })
+                    .collect(),
+            ),
+        );
+    }
+    choices.push(b.separator());
+    for (reference, label) in app.trace_worksheet_choices() {
+        let i = b.checked_text(
+            label,
+            MenuAction::Trace(TraceAction::Choose(reference)),
+            app.trace.reference == reference,
+        );
+        i.setEnabled(plan && app.trace.enabled);
+        choices.push(i);
+    }
+    vec![
+        b.submenu_key("Choose Reference", choices),
+        b.separator(),
+        item(
+            "Activate Reference",
+            TraceAction::Activate,
+            plan && app.trace_can_navigate(),
+            false,
+        ),
+        item(
+            "Switch Reference with Active",
+            TraceAction::Switch,
+            plan && app.trace_can_navigate(),
+            false,
+        ),
+        b.separator(),
+        item(
+            "Drag Reference",
+            TraceAction::Drag,
+            plan && has_reference,
+            app.trace.drag_mode,
+        ),
+        item(
+            "Rotate Reference",
+            TraceAction::Rotate,
+            plan && has_reference,
+            app.trace.rotate_mode,
+        ),
+        item(
+            "Reset to Default Position",
+            TraceAction::Reset,
+            plan && has_reference,
+            false,
+        ),
+        item(
+            "Rebuild Reference",
+            TraceAction::Rebuild,
+            plan && has_reference,
+            false,
+        ),
+        b.separator(),
+        item(
+            "Temporarily displace Reference",
+            TraceAction::Displace,
+            plan && has_reference,
+            app.trace.displace_mode,
+        ),
+        item(
+            "Show/Hide Splitter",
+            TraceAction::Splitter,
+            plan && has_reference,
+            app.trace.splitter.is_some(),
+        ),
+        item(
+            "Reference on Top",
+            TraceAction::OnTop,
+            plan && app.trace.enabled,
+            app.trace.on_top,
+        ),
+        item(
+            "Transparent Fills and Zones",
+            TraceAction::Transparent,
+            plan && app.trace.enabled,
+            app.trace.transparent_fills,
+        ),
+        b.separator(),
+        item(
+            "Turn off Trace everywhere",
+            TraceAction::OffEverywhere,
+            plan,
+            false,
+        ),
+        b.labeled("Trace & Reference", MenuAction::TracePalette),
+    ]
+}
+
 fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
     // Rebuilding replaces every clickable item, so the tag registry can be
     // rebuilt from scratch. This runs on the main thread, never interleaved
     // with menu clicks.
     REGISTRY.with_borrow_mut(Vec::clear);
     let b = MenuBuilder { mtm, app };
-    let project = &app.editor.project;
+    let project = &app.host.document.editor.project;
 
     // Application menu. AppKit titles it with the process name; items are the
     // About/Services/Hide/Quit template plus the app-level preference menus.
@@ -524,6 +702,18 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
     app_items.push(quit);
 
     // File.
+    let mut external_items = Vec::new();
+    for (i, key) in super::external_content::EXTERNAL_COMMANDS
+        .iter()
+        .enumerate()
+    {
+        if [3, 5, 8].contains(&i) {
+            external_items.push(b.separator());
+        }
+        let item = b.labeled(key, MenuAction::Command(key));
+        item.setEnabled(app.external_command_enabled(key));
+        external_items.push(item);
+    }
     let file_items = vec![
         b.submenu_key(
             "New",
@@ -558,7 +748,7 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
         ),
         b.separator(),
         b.submenu_key("Interoperability", preview_items(&b, INTEROPERABILITY)),
-        b.submenu_key("External Content", preview_items(&b, EXTERNAL_CONTENT)),
+        b.submenu_key("External Content", external_items),
         b.submenu_key(
             "Libraries and Objects",
             preview_items(&b, LIBRARIES_AND_OBJECTS),
@@ -579,12 +769,12 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
                     "Suspend Groups" => b.checked(
                         name,
                         MenuAction::Command(name),
-                        app.editor.project.edit_state.suspend_groups,
+                        app.host.document.editor.project.edit_state.suspend_groups,
                     ),
                     "Autogroup" => b.checked(
                         name,
                         MenuAction::Command(name),
-                        app.editor.project.edit_state.autogroup,
+                        app.host.document.editor.project.edit_state.autogroup,
                     ),
                     _ => b.labeled(name, MenuAction::Command(name)),
                 };
@@ -608,6 +798,8 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
 
     // View.
     let mut view_items = vec![
+        b.labeled("AI Operations…", MenuAction::Command("AI Operations…")),
+        b.labeled("AI collaboration", MenuAction::Command("AI collaboration")),
         b.checked_text(
             format!("{}  F2", b.tr("Floor Plan")),
             MenuAction::Plan,
@@ -641,7 +833,7 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
     view_items.extend([
         b.separator(),
         b.checked("Trace", MenuAction::ToggleTrace, app.trace.enabled),
-        b.labeled("Trace Options", MenuAction::TraceOptions),
+        b.submenu_key("Trace Options", trace_items(&b, app)),
         b.separator(),
         b.submenu_key(
             "Guides",
@@ -673,7 +865,7 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
         b.checked(
             "Element Snap",
             MenuAction::ToggleElementSnap,
-            app.editor.snap,
+            app.host.document.editor.snap,
         ),
         b.submenu_key(
             "Snap Options",
@@ -681,7 +873,7 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
                 b.checked(
                     "Element Snap",
                     MenuAction::ToggleElementSnap,
-                    app.editor.snap,
+                    app.host.document.editor.snap,
                 ),
                 b.checked(
                     "Grid Snap",
@@ -716,9 +908,23 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
                 b.labeled("Show All", MenuAction::ShowAll3D),
             ],
         ),
-        b.submenu_key(
-            "3D View Options",
-            preview_items(
+        b.submenu_key("3D View Options", {
+            let mut items: Vec<_> = [
+                crate::view_settings::Model3dStyle::Wireframe,
+                crate::view_settings::Model3dStyle::Shaded,
+                crate::view_settings::Model3dStyle::ShadedWithEdges,
+            ]
+            .into_iter()
+            .map(|style| {
+                b.checked(
+                    style.label(),
+                    MenuAction::ModelStyle(style),
+                    app.host.document.editor.project.plan_options.model_3d_style == style,
+                )
+            })
+            .collect();
+            items.push(b.separator());
+            items.extend(preview_items(
                 &b,
                 &[
                     "Projection Settings…",
@@ -731,12 +937,12 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
                     "Detailed",
                     "Shadows",
                     "White Model",
-                    "Wireframe",
-                    "Orbit",
-                    "Explore Model",
                 ],
-            ),
-        ),
+            ));
+            items.push(b.labeled("Orbit", MenuAction::Orbit));
+            items.push(b.labeled("Explore Model", MenuAction::Explore));
+            items
+        }),
         b.submenu_key(
             "Zoom and Rebuild",
             vec![
@@ -766,6 +972,13 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
 
     // Design.
     let design_items = vec![
+        b.submenu_key(
+            "Analysis",
+            vec![b.labeled(
+                "Check current design",
+                MenuAction::Workbench(crate::workbench::WorkbenchCommand::Checks),
+            )],
+        ),
         b.submenu_key(
             "Architectural Tools",
             ARCHITECTURAL_TOOLS
@@ -830,6 +1043,7 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
 
     // Document.
     let document_items = vec![
+        b.labeled("Floor Plan Cut Plane…", MenuAction::FloorPlanCut),
         b.submenu_key(
             "Documenting Tools",
             DOCUMENTING_TOOLS
@@ -914,12 +1128,12 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
         b.checked(
             "Snap to geometry and grid",
             MenuAction::ToggleElementSnap,
-            app.editor.snap,
+            app.host.document.editor.snap,
         ),
         b.checked(
             "Orthogonal drawing",
             MenuAction::ToggleOrthogonal,
-            app.editor.orthogonal,
+            app.host.document.editor.orthogonal,
         ),
         b.separator(),
         b.submenu_key(
@@ -1007,6 +1221,7 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
             preview_items(
                 &b,
                 &[
+                    "Customize work environment…",
                     "Dialog Boxes and Palettes…",
                     "Selection and Element Information…",
                     "Tracker and Coordinate Input…",
@@ -1121,10 +1336,26 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
             "Toolbars",
             TOOLBAR_NAMES
                 .iter()
-                .map(|name| b.labeled(name, MenuAction::Toolbar(name)))
+                .map(|name| match *name {
+                    "Standard" => b.checked(
+                        "Standard toolbar",
+                        MenuAction::Toolbar(name),
+                        app.standard_toolbar_visible,
+                    ),
+                    "Edit Elements" => b.checked(
+                        "Edit toolbar",
+                        MenuAction::Toolbar(name),
+                        app.edit_toolbar_visible,
+                    ),
+                    _ => b.labeled(name, MenuAction::Toolbar(name)),
+                })
                 .collect(),
         ),
         b.separator(),
+        b.labeled(
+            "Save workspace layout",
+            MenuAction::Command("Save workspace layout"),
+        ),
         b.labeled("Reset workspace layout", MenuAction::ResetWorkspace),
     ];
 
@@ -1137,6 +1368,24 @@ fn build_main_menu(app: &AtelierApp, mtm: MainThreadMarker) -> BuiltMenu {
         main.addItem(&b.submenu("OpenArchi".to_owned(), app_items));
         main.addItem(&b.submenu_key("File", file_items));
         main.addItem(&b.submenu_key("Edit", edit_items));
+        main.addItem(
+            &b.submenu_key(
+                "Project",
+                app.current_environment_profile()
+                    .project_menu
+                    .iter()
+                    .map(|id| match crate::workbench::CommandRegistry::resolve(id) {
+                        Some(command)
+                            if command.disabled_reason(&app.host.document.editor).is_none() =>
+                        {
+                            b.item(b.tr(command.label()), MenuAction::Workbench(command))
+                        }
+                        Some(command) => b.disabled_text(b.tr(command.label())),
+                        None => b.disabled_text(format!("{} ({})", id, b.tr("Unavailable"))),
+                    })
+                    .collect(),
+            ),
+        );
         main.addItem(&b.submenu_key("View", view_items));
         main.addItem(&b.submenu_key("Design", design_items));
         main.addItem(&b.submenu_key("Document", document_items));
@@ -1167,20 +1416,40 @@ impl AtelierApp {
     /// rebuild on the next frame.
     pub(super) fn menu_signature(&self) -> String {
         format!(
-            "{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{}",
+            "{:?}|{:?}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{}|{:?}|{}|{}|{}|{:?}|{}|{}|{}",
             self.language,
             self.view,
-            self.editor.undo.is_empty(),
-            self.editor.redo.is_empty(),
+            self.host.document.editor.undo.is_empty(),
+            self.host.document.editor.redo.is_empty(),
             self.show_marquee_3d,
             self.marquee_outside,
             self.trace.enabled,
-            self.editor.project.guide_settings.guide_lines_enabled,
-            self.editor.project.guide_settings.snap_enabled,
-            self.editor.project.grid_settings.show_construction_grid,
-            self.editor.project.grid_settings.grid_snap_enabled,
-            self.editor.snap,
-            self.editor.orthogonal,
+            self.host
+                .document
+                .editor
+                .project
+                .guide_settings
+                .guide_lines_enabled,
+            self.host
+                .document
+                .editor
+                .project
+                .guide_settings
+                .snap_enabled,
+            self.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .show_construction_grid,
+            self.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .grid_snap_enabled,
+            self.host.document.editor.snap,
+            self.host.document.editor.orthogonal,
             self.all_stories,
             self.cutaway_enabled,
             self.show_left,
@@ -1188,51 +1457,123 @@ impl AtelierApp {
             self.quick_options_visible,
             self.quick_options_palette_visible,
             self.info_box_visible,
-            self.editor.selection_ids(),
-            self.editor.revision,
-            self.editor.clipboard.len(),
+            self.host.document.editor.selection_ids(),
+            self.host.document.editor.revision,
+            self.host.document.editor.clipboard.len(),
             self.edit_dialog.is_some(),
-            self.editor.tool,
+            self.host.document.editor.tool,
             self.reshape_session.is_some(),
+            self.drawings_ui.canvas_selected,
+            self.external_command_enabled("Save Hotlink as File…"),
+        ) + &format!(
+            "|{:?}|{:?}|{}|{}",
+            self.shortcut_overrides(),
+            self.current_environment_profile().project_menu,
+            self.standard_toolbar_visible,
+            self.edit_toolbar_visible
+        ) + &format!(
+            "|{:?}|{:?}|{:?}",
+            self.navigation.mode,
+            (
+                self.trace.drag_mode,
+                self.trace.rotate_mode,
+                self.trace.displace_mode,
+                self.trace.splitter.is_some()
+            ),
+            (
+                self.host.document.editor.story,
+                self.host.document.editor.previous_story,
+                self.trace_can_navigate()
+            )
         )
     }
 
-    /// True while a modal dialog or a special pointer mode blocks menu
-    /// commands, mirroring the egui shortcut gating.
-    fn menu_gated(&self) -> bool {
-        self.edit_dialog.is_some()
-            || self.reshape_session.is_some()
-            || self.file_action.is_some()
-            || self.help
-            || self.close_prompt
-            || self.recovery_prompt.is_some()
-            || self.element_settings.is_some()
-            || self.layer_settings.is_some()
-            || self.stair_settings_open
-            || self.grid_dialog.is_some()
-            || self.wall_settings_dialog.is_some()
-            || self.command_dialog.is_some()
-            || self.plan_option_dialog.is_some()
-            || self.transfer_dialog.is_some()
-            || self.guide_ui.values.is_some()
-            || self.trace.pointer_mode_active()
-            || self.orientation_pick_active
-            || self.rotated_grid_tool.is_some()
-            || self.pick_armed
-            || self.inject_armed
-            || self.guide_ui.action.is_some()
-            || self.guide_ui.drag.is_some()
+    fn perform_trace_action(&mut self, action: TraceAction) {
+        if self.view != View::Plan {
+            return;
+        }
+        if match action {
+            TraceAction::Choose(reference) => !self.trace_choice_enabled(reference),
+            TraceAction::OffEverywhere => false,
+            _ => !self.trace.enabled,
+        } {
+            return;
+        }
+        let needs_reference = !matches!(
+            action,
+            TraceAction::Choose(_)
+                | TraceAction::Browse
+                | TraceAction::OnTop
+                | TraceAction::Transparent
+                | TraceAction::OffEverywhere
+        );
+        if needs_reference
+            && self
+                .trace
+                .selection(
+                    &self.host.document.editor.project,
+                    self.host.document.editor.story,
+                    self.host.document.editor.previous_story,
+                )
+                .is_none()
+        {
+            return;
+        }
+        let before = crate::trace_document::TraceSettings::capture(&self.trace);
+        match action {
+            TraceAction::Choose(reference) => self.choose_trace_reference(reference),
+            TraceAction::Browse => {
+                self.trace.browse_choice = self.trace.reference;
+                self.trace.browse_open = true;
+                self.trace.palette_open = true;
+            }
+            TraceAction::Activate => self.activate_trace_reference(),
+            TraceAction::Switch => self.switch_trace_reference(),
+            TraceAction::Drag => self.toggle_trace_drag(),
+            TraceAction::Rotate => self.toggle_trace_rotate(),
+            TraceAction::Reset => self.reset_trace_position(),
+            TraceAction::Rebuild => self.rebuild_trace_reference(),
+            TraceAction::Displace => self.toggle_trace_displace(),
+            TraceAction::Splitter => self.toggle_trace_splitter(),
+            TraceAction::OnTop => self.trace.on_top = !self.trace.on_top,
+            TraceAction::Transparent => {
+                self.trace.transparent_fills = !self.trace.transparent_fills
+            }
+            TraceAction::OffEverywhere => self.turn_off_trace_everywhere(),
+        }
+        if before != crate::trace_document::TraceSettings::capture(&self.trace) {
+            self.persist_trace_state(false);
+        }
     }
 
     /// Replay one clicked native menu item through the same command paths as
     /// the egui menu.
     pub(super) fn perform_menu_action(&mut self, action: MenuAction, ctx: &Context) {
+        if self.navigation.mode != viewport_navigation::Mode::Edit
+            && !matches!(
+                action,
+                MenuAction::Quit
+                    | MenuAction::Orbit
+                    | MenuAction::Explore
+                    | MenuAction::Fit
+                    | MenuAction::Noop
+            )
+        {
+            self.host.document.editor.status = self
+                .language
+                .translate("Press Esc to finish navigating first")
+                .into();
+            return;
+        }
         match action {
             MenuAction::About => {
                 self.help = true;
             }
             MenuAction::Quit => {
-                if self.editor.dirty() {
+                if self.block_report_draft_close(ctx) {
+                    return;
+                }
+                if self.host.document.editor.dirty() {
                     self.close_prompt = true;
                     self.close_error.clear();
                     self.file_action = None;
@@ -1246,27 +1587,32 @@ impl AtelierApp {
                 if language != self.language {
                     self.language = language;
                     self.language.save_preference();
-                    self.editor.status = format!(
+                    self.host.document.editor.status = format!(
                         "{} · {}",
                         self.language.translate("Language"),
                         self.language.label()
                     );
                 }
             }
-            _ if self.menu_gated() => {}
+            _ if self.menu_gated()
+                && !(matches!(
+                    action,
+                    MenuAction::Trace(_) | MenuAction::ToggleTrace | MenuAction::TracePalette
+                ) && !self.trace_menu_gated()) => {}
             MenuAction::Noop => {}
+            MenuAction::Workbench(command) => self.dispatch_workbench(command),
             MenuAction::New => self.file_action = Some(FileAction::New),
             MenuAction::Open => self.file_action = Some(FileAction::Open),
-            MenuAction::Save => self.file_action = Some(FileAction::Save),
-            MenuAction::Plan => self.view = View::Plan,
+            MenuAction::Save => self.dispatch_workbench(crate::workbench::WorkbenchCommand::Save),
+            MenuAction::Plan => self.dispatch_workbench(crate::workbench::WorkbenchCommand::Plan),
             MenuAction::Split => self.view = View::Split,
-            MenuAction::Model => self.view = View::Model,
+            MenuAction::Model => self.dispatch_workbench(crate::workbench::WorkbenchCommand::Model),
             MenuAction::ShowIn3D => {
-                if self.editor.marquee.is_some() {
+                if self.host.document.editor.marquee.is_some() {
                     self.show_marquee_3d = true;
                     self.marquee_outside = false;
                     self.fit_marquee();
-                } else if !self.editor.selection_ids().is_empty() {
+                } else if !self.host.document.editor.selection_ids().is_empty() {
                     self.show_marquee_3d = true;
                     self.fit_selection();
                 }
@@ -1274,7 +1620,7 @@ impl AtelierApp {
             MenuAction::ToggleMarquee3D => {
                 self.show_marquee_3d = !self.show_marquee_3d;
                 if self.show_marquee_3d {
-                    if self.editor.marquee.is_some() {
+                    if self.host.document.editor.marquee.is_some() {
                         self.fit_marquee();
                     } else {
                         self.fit_selection();
@@ -1286,35 +1632,74 @@ impl AtelierApp {
                 self.trace.enabled = !self.trace.enabled;
                 self.trace_toggled();
             }
-            MenuAction::TraceOptions | MenuAction::TracePalette => self.open_trace_palette(),
+            MenuAction::TracePalette => self.open_trace_palette(),
+            MenuAction::Trace(action) => self.perform_trace_action(action),
             MenuAction::ToggleGuideLines => {
-                let before = self.editor.project.clone();
-                self.editor.project.guide_settings.guide_lines_enabled =
-                    !self.editor.project.guide_settings.guide_lines_enabled;
-                self.editor.commit(before);
+                let before = self.host.document.editor.project.clone();
+                self.host
+                    .document
+                    .editor
+                    .project
+                    .guide_settings
+                    .guide_lines_enabled = !self
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .guide_settings
+                    .guide_lines_enabled;
+                self.host.document.editor.commit(before);
             }
             MenuAction::ToggleConstructionGrid => {
-                self.editor.project.grid_settings.show_construction_grid =
-                    !self.editor.project.grid_settings.show_construction_grid;
+                self.host
+                    .document
+                    .editor
+                    .project
+                    .grid_settings
+                    .show_construction_grid = !self
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .grid_settings
+                    .show_construction_grid;
             }
-            MenuAction::ToggleElementSnap => self.editor.snap = !self.editor.snap,
+            MenuAction::ToggleElementSnap => {
+                self.host.document.editor.snap = !self.host.document.editor.snap
+            }
             MenuAction::ToggleGridSnap => {
-                let enabled = !self.editor.project.grid_settings.grid_snap_enabled;
+                let enabled = !self
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .grid_settings
+                    .grid_snap_enabled;
                 self.set_grid_snap_enabled(enabled);
             }
             MenuAction::ToggleSnapGuides => {
-                let before = self.editor.project.clone();
-                self.editor.project.guide_settings.snap_enabled =
-                    !self.editor.project.guide_settings.snap_enabled;
-                self.editor.commit(before);
+                let before = self.host.document.editor.project.clone();
+                self.host
+                    .document
+                    .editor
+                    .project
+                    .guide_settings
+                    .snap_enabled = !self
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .guide_settings
+                    .snap_enabled;
+                self.host.document.editor.commit(before);
             }
             MenuAction::SnapPointValues => {
-                let settings = self.editor.project.guide_settings.clone();
+                let settings = self.host.document.editor.project.guide_settings.clone();
                 self.guide_ui.values = Some(settings);
                 self.guide_ui.error.clear();
             }
             MenuAction::GridOptions => {
-                self.grid_dialog = Some(self.editor.project.grid_settings.clone());
+                self.grid_dialog = Some(self.host.document.editor.project.grid_settings.clone());
                 self.grid_dialog_error.clear();
                 self.grid_dialog_just_opened = true;
                 self.grid_preview_zoom = 25.0;
@@ -1324,24 +1709,31 @@ impl AtelierApp {
             MenuAction::ToggleMarqueeFilter => self.show_marquee_3d = !self.show_marquee_3d,
             MenuAction::ShowSelection3D => {
                 self.show_marquee_3d = true;
-                if self.editor.marquee.is_some() {
+                if self.host.document.editor.marquee.is_some() {
                     self.fit_marquee();
                 } else {
                     self.fit_selection();
                 }
             }
             MenuAction::HideSelection3D => {
-                self.editor.status = "3D selection visibility · interface preview".into();
+                self.host.document.editor.status =
+                    "3D selection visibility · interface preview".into();
             }
             MenuAction::ShowAll3D => {
-                self.editor.status = "All elements shown in 3D".into();
+                self.host.document.editor.status = "All elements shown in 3D".into();
             }
-            MenuAction::Fit => self.fit(),
+            MenuAction::ModelStyle(style) => {
+                self.apply_3d_style(style);
+                self.dispatch_workbench(crate::workbench::WorkbenchCommand::Model);
+            }
+            MenuAction::Fit => self.navigation_fit(),
+            MenuAction::Orbit => self.navigation_begin(viewport_navigation::Mode::Orbit),
+            MenuAction::Explore => self.navigation_begin(viewport_navigation::Mode::Explore),
             MenuAction::Rebuild | MenuAction::Refresh => {
-                self.editor.status = "View refreshed".into();
+                self.host.document.editor.status = "View refreshed".into();
             }
             MenuAction::Regenerate => {
-                self.editor.status = "Model refresh requested".into();
+                self.host.document.editor.status = "Model refresh requested".into();
             }
             MenuAction::Scale => self.open_plan_option_dialog(PlanOptionKind::Scale),
             MenuAction::PartialStructure => {
@@ -1361,12 +1753,15 @@ impl AtelierApp {
             MenuAction::Renovation => {
                 self.open_plan_option_dialog(PlanOptionKind::Renovation);
             }
+            MenuAction::FloorPlanCut => self.open_plan_option_dialog(PlanOptionKind::FloorPlanCut),
             MenuAction::Dimensions => {
                 self.open_plan_option_dialog(PlanOptionKind::Dimensions);
             }
-            MenuAction::ToggleOrthogonal => self.editor.orthogonal = !self.editor.orthogonal,
+            MenuAction::ToggleOrthogonal => {
+                self.host.document.editor.orthogonal = !self.host.document.editor.orthogonal
+            }
             MenuAction::AddOnManager => {
-                self.editor.status = "Add-On Manager · interface preview".into();
+                self.host.document.editor.status = "Add-On Manager · interface preview".into();
             }
             MenuAction::ToggleQuickOptionsBar => self.toggle_quick_options_bar(),
             MenuAction::ToggleToolbox => self.show_left = !self.show_left,
@@ -1374,21 +1769,21 @@ impl AtelierApp {
             MenuAction::ToggleInfoBox => self.toggle_info_box_visibility(),
             MenuAction::ToggleQuickOptionsPalette => self.toggle_quick_options_palette(),
             MenuAction::ResetWorkspace => {
-                self.show_left = true;
-                self.show_right = true;
-                self.quick_options_visible = true;
-                self.quick_options_palette_visible = false;
-                self.info_box_visible = true;
-                self.view = View::Plan;
-                self.split = 0.53;
+                self.dispatch_workbench(crate::workbench::WorkbenchCommand::ResetWorkspace)
             }
             MenuAction::TeamworkPalette => {
-                self.editor.status = "Teamwork Palette · standalone preview".into();
+                self.host.document.editor.status = "Teamwork Palette · standalone preview".into();
             }
             MenuAction::Tool(name) => self.activate_named_tool(name),
             MenuAction::Command(command) => self.open_command_preview(command.to_owned()),
-            MenuAction::Palette(name) => self.editor.status = format!("Palette · {name}"),
-            MenuAction::Toolbar(name) => self.editor.status = format!("Toolbar · {name}"),
+            MenuAction::Palette(name) => {
+                self.host.document.editor.status = format!("Palette · {name}")
+            }
+            MenuAction::Toolbar("Standard") => self.toggle_work_toolbar(true),
+            MenuAction::Toolbar("Edit Elements") => self.toggle_work_toolbar(false),
+            MenuAction::Toolbar(name) => {
+                self.host.document.editor.status = format!("Toolbar · {name}")
+            }
         }
     }
 }
@@ -1399,6 +1794,73 @@ mod tests {
 
     fn app() -> AtelierApp {
         AtelierApp::from_renderer(None, "Headless test".into())
+    }
+
+    #[test]
+    fn trace_native_menu_dispatches_shared_document_actions_bilingual() {
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let ctx = Context::default();
+            let mut app = app();
+            app.language = language;
+            app.view = View::Plan;
+            let geometry = app.host.document.editor.project.elements.clone();
+            let history = app.host.document.editor.undo.len();
+            app.perform_menu_action(
+                MenuAction::Trace(TraceAction::Choose(
+                    crate::trace::TraceReference::AboveCurrentStory,
+                )),
+                &ctx,
+            );
+            assert!(app.trace.enabled && app.host.document.editor.dirty());
+            app.perform_menu_action(MenuAction::Trace(TraceAction::OnTop), &ctx);
+            assert!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .trace
+                    .settings(crate::trace_document::TraceView::FloorPlan)
+                    .unwrap()
+                    .on_top
+            );
+            app.trace.offset = Point::new(3., 4.);
+            app.perform_menu_action(MenuAction::Trace(TraceAction::Reset), &ctx);
+            assert_eq!(app.trace.offset, Point::default());
+            app.perform_menu_action(MenuAction::Trace(TraceAction::Drag), &ctx);
+            assert!(app.trace.drag_mode);
+            app.perform_menu_action(MenuAction::Trace(TraceAction::Rotate), &ctx);
+            assert!(app.trace.rotate_mode && !app.trace.drag_mode);
+            app.file_action = Some(FileAction::Open);
+            app.perform_menu_action(MenuAction::Trace(TraceAction::OffEverywhere), &ctx);
+            assert!(app.trace.enabled, "Trace cannot bypass an open-file modal");
+            app.file_action = None;
+            app.perform_menu_action(MenuAction::Trace(TraceAction::OffEverywhere), &ctx);
+            assert!(!app.trace.enabled && !app.trace.pointer_mode_active());
+            let on_top = app.trace.on_top;
+            app.perform_menu_action(MenuAction::Trace(TraceAction::OnTop), &ctx);
+            app.perform_menu_action(
+                MenuAction::Trace(TraceAction::Choose(
+                    crate::trace::TraceReference::EntireModel,
+                )),
+                &ctx,
+            );
+            assert!(
+                !app.trace.enabled && app.trace.on_top == on_top,
+                "off-state native commands stay disabled"
+            );
+            assert!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .trace
+                    .windows
+                    .iter()
+                    .all(|w| !w.settings.enabled)
+            );
+            assert_eq!(app.host.document.editor.project.elements, geometry);
+            assert_eq!(app.host.document.editor.undo.len(), history);
+        }
     }
 
     #[test]
@@ -1433,14 +1895,76 @@ mod tests {
     }
 
     #[test]
+    fn personal_menu_and_real_toolbars_rebuild_and_keep_native_guards() {
+        use crate::workbench::{
+            WorkMode,
+            environment::{EnvironmentService, Profile},
+        };
+        let ctx = Context::default();
+        let mut app = app();
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        let initial = app.menu_signature();
+        app.perform_menu_action(MenuAction::Toolbar("Standard"), &ctx);
+        assert!(!app.standard_toolbar_visible);
+        assert_ne!(app.menu_signature(), initial);
+        app.perform_menu_action(MenuAction::Toolbar("Standard"), &ctx);
+        assert!(app.standard_toolbar_visible);
+        assert_eq!(app.menu_signature(), initial);
+        app.perform_menu_action(MenuAction::Toolbar("Edit Elements"), &ctx);
+        assert!(!app.edit_toolbar_visible);
+        let changed = app.menu_signature();
+        app.workbench.configuration_open = true;
+        app.perform_menu_action(MenuAction::Toolbar("Edit Elements"), &ctx);
+        assert!(
+            !app.edit_toolbar_visible,
+            "native menu cannot replace a modal draft's live baseline"
+        );
+        assert_eq!(app.menu_signature(), changed);
+        app.workbench.configuration_open = false;
+        app.perform_menu_action(MenuAction::Toolbar("Edit Elements"), &ctx);
+        // The existing initialization reads an actual saved personal layer.
+        let root = std::env::temp_dir().join(format!(
+            "oa-native-menu-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let mut service =
+            EnvironmentService::open(&root.join("work-environment.json"), WorkMode::Architecture)
+                .unwrap();
+        let mut config = service.configuration.clone();
+        let mut profile = Profile::builtin(WorkMode::Architecture);
+        profile.project_menu.reverse();
+        config.put(profile.layer());
+        service.save(config).unwrap();
+        app.initialize_work_mode(&root);
+        assert_eq!(
+            app.current_environment_profile().project_menu,
+            profile.project_menu
+        );
+        assert_ne!(
+            app.menu_signature(),
+            initial,
+            "native order is part of the rebuild identity"
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert!(app.host.document.editor.undo.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn modal_dialogs_gate_menu_commands_but_not_about() {
         let ctx = Context::default();
         AtelierApp::style(&ctx);
         let mut app = app();
         app.file_action = Some(FileAction::Open);
-        let snap = app.editor.snap;
+        let snap = app.host.document.editor.snap;
         app.perform_menu_action(MenuAction::ToggleElementSnap, &ctx);
-        assert_eq!(app.editor.snap, snap, "modal must gate menu commands");
+        assert_eq!(
+            app.host.document.editor.snap, snap,
+            "modal must gate menu commands"
+        );
         app.perform_menu_action(MenuAction::About, &ctx);
         assert!(app.help, "About must stay available while a modal is open");
     }

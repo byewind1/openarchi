@@ -18,9 +18,9 @@ pub(super) struct ReshapeSession {
     reference: Option<Point>,
     pub dialog: bool,
     graphical: bool,
-    scale: f32,
+    scale: f64,
     thickness: bool,
-    radius: f32,
+    radius: f64,
     chamfer: bool,
     error: String,
 }
@@ -74,14 +74,23 @@ impl AtelierApp {
             return true;
         }
         if name == "Magic Wand" {
-            return matches!(self.editor.tool, Tool::Wall | Tool::Slab | Tool::Polyline);
+            return matches!(
+                self.host.document.editor.tool,
+                Tool::Wall | Tool::Slab | Tool::Polyline
+            );
         }
-        let ids = self.editor.selection_ids();
-        if ids.is_empty() || ids.iter().any(|id| self.editor.locked_element(*id)) {
+        let ids = self.host.document.editor.selection_ids();
+        if ids.is_empty()
+            || ids
+                .iter()
+                .any(|id| self.host.document.editor.locked_element(*id))
+        {
             return false;
         }
-        if !self.editor.project.edit_state.suspend_groups
+        if !self.host.document.editor.project.edit_state.suspend_groups
             && self
+                .host
+                .document
                 .editor
                 .project
                 .edit_state
@@ -92,6 +101,8 @@ impl AtelierApp {
             return false;
         }
         let es: Vec<_> = self
+            .host
+            .document
             .editor
             .project
             .elements
@@ -103,7 +114,7 @@ impl AtelierApp {
             .filter_map(|e| reshape::straight_path(e))
             .collect();
         let hosted =
-            self.editor.project.elements.iter().any(
+            self.host.document.editor.project.elements.iter().any(
                 |e| matches!(e.shape,Shape::Opening{host_wall,..} if ids.contains(&host_wall)),
             );
         match name {
@@ -139,7 +150,7 @@ impl AtelierApp {
                 "Two straight lines or polyline corners; walls support Chamfer only"
             }
             "Resize…" => "Set a ratio or define it graphically, then click a fixed point",
-            _ => "Requires Roof/Shell model support, which is not available yet",
+            _ => "Associative roof/shell trimming is not implemented yet",
         };
         format!(
             "{}\n{}",
@@ -191,23 +202,28 @@ impl AtelierApp {
         self.wall_edit = None;
 
         self.disarm_transfer();
-        self.editor.cancel_wall_draft();
-        self.editor.cancel_polyline();
-        self.editor.anchor = None;
+        self.host.document.editor.cancel_wall_draft();
+        self.host.document.editor.cancel_polyline();
+        self.host.document.editor.anchor = None;
         if name == "Intersect" {
-            if let Err(e) = self.editor.reshape(ReshapeCommand::Intersect {
-                ids: self.editor.selection_ids(),
-            }) {
-                self.editor.status = e;
+            if let Err(e) = self
+                .host
+                .document
+                .editor
+                .reshape(ReshapeCommand::Intersect {
+                    ids: self.host.document.editor.selection_ids(),
+                })
+            {
+                self.host.document.editor.status = e;
             }
             return;
         }
         self.reshape_session = Some(ReshapeSession::new(
             name,
-            self.editor.selection_ids(),
-            self.editor.revision,
+            self.host.document.editor.selection_ids(),
+            self.host.document.editor.revision,
         ));
-        self.editor.status = match name {
+        self.host.document.editor.status = match name {
             "Trim" => "Click the segment to trim · Escape cancels",
             "Magic Wand" => "Hover an edge or enclosed region, then click · Escape cancels",
             "Adjust" => "Click a boundary edge or two points · Escape cancels",
@@ -227,7 +243,9 @@ impl AtelierApp {
         let mut cancel = false;
         let lang = self.language;
         let wall = s.ids.iter().any(|id| {
-            self.editor
+            self.host
+                .document
+                .editor
                 .project
                 .elements
                 .iter()
@@ -286,21 +304,21 @@ impl AtelierApp {
             });
         });
         if cancel || modal.should_close() {
-            self.editor.status = "Reshape cancelled".into();
+            self.host.document.editor.status = "Reshape cancelled".into();
             return;
         }
         if ok {
             if s.name == "Trim" {
                 // Each cut (including after undo) resolves against the current model.
-                s.revision = self.editor.revision;
+                s.revision = self.host.document.editor.revision;
             }
-            if s.revision != self.editor.revision {
+            if s.revision != self.host.document.editor.revision {
                 s.error = "Project changed; reopen this command".into();
             } else if s.name == "Resize…" {
                 s.dialog = false;
-                self.editor.status = "Click the fixed point · Escape cancels".into();
+                self.host.document.editor.status = "Click the fixed point · Escape cancels".into();
             } else {
-                match self.editor.reshape(ReshapeCommand::Corner {
+                match self.host.document.editor.reshape(ReshapeCommand::Corner {
                     ids: s.ids.clone(),
                     radius: s.radius,
                     chamfer: s.chamfer,
@@ -320,14 +338,23 @@ impl AtelierApp {
     ) -> bool {
         let cmd_trim = self.trim_modifier_active(ui.ctx());
         let magic_transient = !cmd_trim
+            && !self.canvas_editing_owns_input()
+            && !self.canvas_keyboard_blocked(ui)
+            && self.canvas_pick_idle()
+            && !ui.input(|i| {
+                i.modifiers.shift || i.modifiers.alt || i.modifiers.command || i.modifiers.ctrl
+            })
             && self.reshape_session.is_none()
             && self.edit_dialog.is_none()
             && self.pointer_drag.is_none()
-            && self.editor.anchor.is_none()
-            && self.editor.wall_points.is_empty()
-            && self.editor.polyline_points.is_empty()
+            && self.host.document.editor.anchor.is_none()
+            && self.host.document.editor.wall_points.is_empty()
+            && self.host.document.editor.polyline_points.is_empty()
             && ui.input(|i| i.key_down(Key::Space))
-            && matches!(self.editor.tool, Tool::Wall | Tool::Slab | Tool::Polyline);
+            && matches!(
+                self.host.document.editor.tool,
+                Tool::Wall | Tool::Slab | Tool::Polyline
+            );
         let transient = cmd_trim || magic_transient;
         if cmd_trim {
             if response.hovered() && ui.input(|i| i.pointer.primary_pressed()) {
@@ -347,8 +374,8 @@ impl AtelierApp {
         let session = if cmd_trim {
             Some(ReshapeSession::new(
                 "Trim",
-                self.editor.selection_ids(),
-                self.editor.revision,
+                self.host.document.editor.selection_ids(),
+                self.host.document.editor.revision,
             ))
         } else {
             self.reshape_session.take()
@@ -362,10 +389,10 @@ impl AtelierApp {
         }
         if s.name == "Trim" {
             // Each cut (including after undo) resolves against the current model.
-            s.revision = self.editor.revision;
+            s.revision = self.host.document.editor.revision;
         }
-        if s.revision != self.editor.revision {
-            self.editor.status = "Project changed; reopen this command".into();
+        if s.revision != self.host.document.editor.revision {
+            self.host.document.editor.status = "Project changed; reopen this command".into();
             return true;
         }
         let Some(pos) = response.hover_pos().filter(|p| r.contains(*p)) else {
@@ -388,8 +415,8 @@ impl AtelierApp {
             ui.ctx().set_cursor_icon(CursorIcon::Crosshair);
         }
         let edge = reshape::edge_at(
-            &self.editor.project,
-            self.editor.story,
+            &self.host.document.editor.project,
+            self.host.document.editor.story,
             point,
             tolerance,
             if s.name == "Adjust" { &s.ids } else { &[] },
@@ -403,7 +430,7 @@ impl AtelierApp {
                     command = Some(ReshapeCommand::Trim {
                         id,
                         point,
-                        story: self.editor.story,
+                        story: self.host.document.editor.story,
                     });
                 }
             }
@@ -454,8 +481,8 @@ impl AtelierApp {
             }
             "Magic Wand" => {
                 match reshape::trace(
-                    &self.editor.project,
-                    self.editor.story,
+                    &self.host.document.editor.project,
+                    self.host.document.editor.story,
                     &s.ids,
                     point,
                     tolerance,
@@ -467,23 +494,18 @@ impl AtelierApp {
             _ => {}
         }
         if let Some(c) = &command {
-            match reshape::candidate(&self.editor.project, c) {
+            match reshape::candidate(&self.host.document.editor.project, c) {
                 Ok((p, ids)) => {
                     preview = Some(
                         p.elements
                             .iter()
                             .filter(|e| ids.contains(&e.id))
-                            .map(|e| match &e.shape {
-                                Shape::Polyline { points, arcs } => {
-                                    geometry::polyline_path(points, arcs)
-                                }
-                                _ => {
-                                    let mut ps = geometry::element_footprint(&p, e).to_vec();
-                                    if !ps.is_empty() {
-                                        ps.push(ps[0]);
-                                    }
-                                    ps
-                                }
+                            .flat_map(|e| {
+                                geometry::element_plan_paths_on_story(
+                                    &p,
+                                    e,
+                                    self.host.document.editor.story,
+                                )
                             })
                             .collect(),
                     );
@@ -503,34 +525,38 @@ impl AtelierApp {
         }
         if response.clicked_by(PointerButton::Primary) {
             if s.name == "Magic Wand" {
-                match self.editor.magic_wand(point, tolerance) {
+                match self.host.document.editor.magic_wand(point, tolerance) {
                     Ok(()) => return true,
-                    Err(e) => self.editor.status = e,
+                    Err(e) => self.host.document.editor.status = e,
                 }
             } else if s.name == "Adjust" && s.anchor.is_none() && edge.is_none() {
                 s.anchor = Some(point);
-                self.editor.status = "Click the second boundary point · Escape cancels".into();
+                self.host.document.editor.status =
+                    "Click the second boundary point · Escape cancels".into();
             } else if s.name == "Resize…" && s.graphical && s.anchor.is_none() {
                 s.anchor = Some(point);
-                self.editor.status = "Click the reference distance point · Escape cancels".into();
+                self.host.document.editor.status =
+                    "Click the reference distance point · Escape cancels".into();
             } else if s.name == "Resize…" && s.graphical && s.reference.is_none() {
                 if s.anchor.unwrap().distance(point) > 0.01 {
                     s.reference = Some(point);
-                    self.editor.status = "Click the new distance point · Escape cancels".into();
+                    self.host.document.editor.status =
+                        "Click the new distance point · Escape cancels".into();
                 }
             } else if let Some(c) = command {
-                match self.editor.reshape(c) {
+                match self.host.document.editor.reshape(c) {
                     Ok(()) => {
                         if s.name == "Trim" && !transient {
-                            s.revision = self.editor.revision;
+                            s.revision = self.host.document.editor.revision;
                             self.reshape_session = Some(s);
                         }
                         return true;
                     }
-                    Err(e) => self.editor.status = e,
+                    Err(e) => self.host.document.editor.status = e,
                 }
             } else {
-                self.editor.status = error.unwrap_or_else(|| "Click a supported edge".into());
+                self.host.document.editor.status =
+                    error.unwrap_or_else(|| "Click a supported edge".into());
             }
         }
         // Modifier modes exist only for this frame; explicit toolbar/menu modes persist.

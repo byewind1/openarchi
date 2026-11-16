@@ -40,8 +40,8 @@ pub struct WallSettingsDraft {
     pub story: u32,
     pub layer: ElementLayer,
     pub renovation: RenovationStatus,
-    pub thickness: f32,
-    pub height: f32,
+    pub thickness: f64,
+    pub height: f64,
     pub position: Option<WallPosition>,
 }
 
@@ -70,8 +70,8 @@ impl WallSettingsDraft {
 
     pub fn defaults(
         settings: &WallSettings,
-        thickness: f32,
-        height: f32,
+        thickness: f64,
+        height: f64,
         story: u32,
         layer: ElementLayer,
         renovation: RenovationStatus,
@@ -216,8 +216,8 @@ impl WallSettingsDialog {
 
     pub fn defaults(
         settings: &WallSettings,
-        thickness: f32,
-        height: f32,
+        thickness: f64,
+        height: f64,
         story: u32,
         layer: ElementLayer,
         renovation: RenovationStatus,
@@ -400,8 +400,44 @@ impl WallSettingsDialog {
 }
 
 pub fn localized_error(language: UiLanguage, error: &str) -> String {
+    if let Some(message) = language.geometry_error_message(error) {
+        return message;
+    }
     if language == UiLanguage::English {
         return error.to_owned();
+    }
+    for (suffix, template) in [
+        (
+            " is taller than its host wall",
+            "Opening {name} is taller than its host wall",
+        ),
+        (
+            " is below its host wall",
+            "Opening {name} is below its host wall",
+        ),
+        (
+            " is outside its host wall",
+            "Opening {name} is outside its host wall",
+        ),
+        (
+            " would be outside its host wall",
+            "Opening {name} would be outside its host wall",
+        ),
+        (
+            " references a missing host wall",
+            "Opening {name} references a missing host wall",
+        ),
+        (
+            " must be on the same story as its host wall",
+            "Opening {name} must be on the same story as its host wall",
+        ),
+    ] {
+        if let Some(name) = error
+            .strip_prefix("Opening ")
+            .and_then(|rest| rest.strip_suffix(suffix))
+        {
+            return language.translate(template).replace("{name}", name);
+        }
     }
     if error.starts_with("Wall setting ") {
         if error.ends_with(" must be finite") {
@@ -565,7 +601,7 @@ fn muted_note(ui: &mut Ui, language: UiLanguage, text: &str) {
     );
 }
 
-fn number(ui: &mut Ui, language: UiLanguage, text: &str, value: &mut f32) {
+fn number(ui: &mut Ui, language: UiLanguage, text: &str, value: &mut f64) {
     label(ui, language, text);
     ui.add(
         DragValue::new(value)
@@ -582,9 +618,9 @@ fn integer(ui: &mut Ui, language: UiLanguage, text: &str, value: &mut u16, max: 
     ui.end_row();
 }
 
-fn text_row(ui: &mut Ui, language: UiLanguage, text: &str, value: &mut String, width: f32) {
+fn text_row(ui: &mut Ui, language: UiLanguage, text: &str, value: &mut String, width: f64) {
     label(ui, language, text);
-    ui.add_sized([width, 20.], egui::TextEdit::singleline(value));
+    ui.add_sized([width as f32, 20.], egui::TextEdit::singleline(value));
     ui.end_row();
 }
 
@@ -1583,7 +1619,7 @@ mod tests {
     fn invalid_draft_is_rejected_without_mutating_the_element() {
         let element = wall();
         let mut draft = WallSettingsDraft::from_element(&element).unwrap();
-        draft.height = f32::NAN;
+        draft.height = f64::NAN;
         let mut target = element.clone();
         assert!(draft.apply_to_element(&mut target).is_err());
         assert_eq!(target, element);

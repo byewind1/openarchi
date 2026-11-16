@@ -1,6 +1,6 @@
 [package]
 name = "atelier-bim"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 default-run = "openarchi"
 rust-version = "1.95"
@@ -9,7 +9,7 @@ license = "Apache-2.0"
 
 [package.metadata.openarchi]
 product-name = "OpenArchi"
-version-display = "0.1"
+version-display = "0.2.0"
 
 [[bin]]
 name = "openarchi"
@@ -18,11 +18,25 @@ path = "src/main.rs"
 [dependencies]
 eframe = { version = "=0.36.2", default-features = false, features = ["default_fonts", "wgpu", "accesskit"] }
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["float_roundtrip"] }
 glam = "0.34"
 bytemuck = { version = "1", features = ["derive"] }
 rfd = "0.15"
 geo = { version = "=0.33.1", default-features = false, features = ["earcut"] }
+# Same coordinate adapter used by geo 0.33.1 / i_overlay; keep membership on its grid.
+i_float = "=1.16.0"
+image = { version = "=0.25.10", default-features = false, features = ["png", "jpeg"] }
+sha2 = "=0.10.9"
+schemars = "=1.2.3"
+libc = "=0.2.190"
+calamine = { version = "=0.38.0", default-features = false }
+csv = "=1.4.0"
+encoding_rs = "=0.8.44"
+zip = { version = "=9.0.0", default-features = false, features = ["deflate"] }
+quick-xml = "=0.42.0"
+roxmltree = "=0.21.1"
+rstar = "=0.12.2"
+scraper = { version = "=0.29.0", default-features = false }
 
 # Native macOS menu bar. Versions match what eframe/rfd already pin in
 # Cargo.lock (objc2 0.6.5 / objc2-app-kit 0.3.2 / objc2-foundation 0.3.2).
@@ -44,4 +58,8 @@ opt-level = 1
 opt-level = 2
 
 [profile.release]
-strip = "none"
+strip = "debuginfo"
+
+# Backport the upstream KVO teardown fix without upgrading the native UI stack.
+[patch.crates-io]
+accesskit_macos = { path = "vendor/accesskit_macos" }

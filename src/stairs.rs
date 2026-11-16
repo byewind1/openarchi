@@ -4,18 +4,18 @@
 //! generator returns plan/detail curves and a closed, triangulated 3D solid.
 
 use crate::model::Point;
-use glam::Vec3;
+use glam::DVec3;
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct StairSpec {
     pub start: Point,
     pub end: Point,
-    pub width: f32,
-    pub total_rise: f32,
+    pub width: f64,
+    pub total_rise: f64,
     pub risers: u16,
-    pub slab_thickness: f32,
-    pub handrail_height: f32,
+    pub slab_thickness: f64,
+    pub handrail_height: f64,
 }
 
 impl Default for StairSpec {
@@ -33,8 +33,33 @@ impl Default for StairSpec {
 }
 
 impl StairSpec {
+    pub fn plan_area_m2(&self) -> f64 {
+        self.start.distance(self.end) * self.width
+    }
+    /// Exact prism section integral; call after parameter validation.
+    pub fn material_volume_m3(&self) -> f64 {
+        let run = self.start.distance(self.end);
+        self.width
+            * run
+            * (self.slab_thickness * run.hypot(self.total_rise) / run
+                + self.total_rise / (2. * f64::from(self.risers)))
+    }
     pub fn validate(&self) -> Result<(), &'static str> {
-        if !self.start.finite() || !self.end.finite() || self.start.distance(self.end) < 0.3 {
+        let run = self.start.distance(self.end);
+        if !self.start.finite()
+            || !self.end.finite()
+            || !run.is_finite()
+            || !crate::precision::length_meets_minimum(
+                run,
+                0.3,
+                self.start
+                    .x
+                    .abs()
+                    .max(self.start.y.abs())
+                    .max(self.end.x.abs())
+                    .max(self.end.y.abs()),
+            )
+        {
             return Err("stair run must be at least 0.30 m and have finite endpoints");
         }
         if !self.width.is_finite() || !(0.5..=5.0).contains(&self.width) {
@@ -63,16 +88,21 @@ pub struct StairGeometry {
     /// One line across the stair width at each riser.
     pub tread_lines: Vec<[Point; 2]>,
     /// Closed prism surface triangles in project coordinates.
-    pub triangles: Vec<[Vec3; 3]>,
+    pub triangles: Vec<[DVec3; 3]>,
     /// Architectural section edges without triangulation diagonals.
-    pub edges: Vec<[Vec3; 2]>,
+    pub edges: Vec<[DVec3; 2]>,
     /// Two sloped handrail centerlines, one on each side of the flight.
-    pub handrails: [[Vec3; 2]; 2],
+    pub handrails: [[DVec3; 2]; 2],
     /// Stair side section profile in (run distance, elevation above base).
-    pub section: Vec<[f32; 2]>,
+    pub section: Vec<[f64; 2]>,
+    /// One cap connectivity shared by body and clipping cells.
+    pub section_triangles: Vec<[usize; 3]>,
 }
 
-pub fn generate(spec: &StairSpec, base_elevation: f32) -> Result<StairGeometry, &'static str> {
+pub(crate) fn generate_source(
+    spec: &StairSpec,
+    base_elevation: f64,
+) -> Result<StairGeometry, &'static str> {
     spec.validate()?;
     if !base_elevation.is_finite() {
         return Err("base elevation must be finite");
@@ -85,14 +115,14 @@ pub fn generate(spec: &StairSpec, base_elevation: f32) -> Result<StairGeometry, 
     let uy = dy / run;
     let nx = -uy;
     let ny = ux;
-    let world = |along: f32, across: f32| {
+    let world = |along: f64, across: f64| {
         Point::new(
             spec.start.x + ux * along + nx * across,
             spec.start.y + uy * along + ny * across,
         )
     };
-    let step_run = run / f32::from(spec.risers);
-    let step_rise = spec.total_rise / f32::from(spec.risers);
+    let step_run = run / f64::from(spec.risers);
+    let step_rise = spec.total_rise / f64::from(spec.risers);
     let soffit_drop = spec.slab_thickness * run.hypot(spec.total_rise) / run;
 
     // Walk the stepped upper profile and close it with a sloped soffit. This
@@ -100,11 +130,11 @@ pub fn generate(spec: &StairSpec, base_elevation: f32) -> Result<StairGeometry, 
     // parallel to the flight slope at the requested normal thickness.
     let mut section = vec![[0.0, -soffit_drop], [0.0, 0.0], [0.0, step_rise]];
     for i in 1..=spec.risers {
-        let x = f32::from(i) * step_run;
-        let z = f32::from(i) * step_rise;
+        let x = f64::from(i) * step_run;
+        let z = f64::from(i) * step_rise;
         section.push([x, z]);
         if i < spec.risers {
-            section.push([x, f32::from(i + 1) * step_rise]);
+            section.push([x, f64::from(i + 1) * step_rise]);
         }
     }
     section.push([run, spec.total_rise - soffit_drop]);
@@ -117,15 +147,15 @@ pub fn generate(spec: &StairSpec, base_elevation: f32) -> Result<StairGeometry, 
     ];
     let tread_lines = (1..=spec.risers)
         .map(|i| {
-            let p = world(f32::from(i) * step_run, 0.0);
-            let q = world(f32::from(i) * step_run, spec.width);
+            let p = world(f64::from(i) * step_run, 0.0);
+            let q = world(f64::from(i) * step_run, spec.width);
             [p, q]
         })
         .collect();
 
-    let at = |run_pos: f32, across: f32, z: f32| {
+    let at = |run_pos: f64, across: f64, z: f64| {
         let p = world(run_pos, across);
-        Vec3::new(p.x, p.y, base_elevation + z)
+        DVec3::new(p.x, p.y, base_elevation + z)
     };
     let mut triangles = Vec::new();
     let mut edges = Vec::new();
@@ -143,19 +173,19 @@ pub fn generate(spec: &StairSpec, base_elevation: f32) -> Result<StairGeometry, 
 
     // Ear clipping triangulates the concave side profile for both end caps.
     let cap_tris = triangulate(&section).ok_or("could not triangulate stair profile")?;
-    for [a, b, c] in cap_tris {
+    for &[a, b, c] in &cap_tris {
         let p = section[a];
         let q = section[b];
         let r = section[c];
         triangles.push([
-            at(p[0], 0.0, p[1]),
-            at(q[0], 0.0, q[1]),
             at(r[0], 0.0, r[1]),
+            at(q[0], 0.0, q[1]),
+            at(p[0], 0.0, p[1]),
         ]);
         triangles.push([
-            at(r[0], spec.width, r[1]),
-            at(q[0], spec.width, q[1]),
             at(p[0], spec.width, p[1]),
+            at(q[0], spec.width, q[1]),
+            at(r[0], spec.width, r[1]),
         ]);
     }
     for point in &section {
@@ -183,14 +213,170 @@ pub fn generate(spec: &StairSpec, base_elevation: f32) -> Result<StairGeometry, 
         edges,
         handrails,
         section,
+        section_triangles: cap_tris,
     })
 }
 
-fn triangulate(poly: &[[f32; 2]]) -> Option<Vec<[usize; 3]>> {
+pub fn generate(spec: &StairSpec, base: f64) -> Result<StairGeometry, &'static str> {
+    spec.validate()?;
+    if !base.is_finite() {
+        return Err("base elevation must be finite");
+    }
+    crate::stair_geometry::snapshot(spec, base)
+        .map(|g| g.source)
+        .map_err(|_| "Invalid stair surface")
+}
+/// Compatibility display adapter over the shared stair snapshot.
+pub fn clipped_geometry(
+    spec: &StairSpec,
+    base: f64,
+    clip: Option<&[Point]>,
+    range: Option<(f64, f64)>,
+) -> Result<(crate::column::ColumnMesh, Vec<[DVec3; 2]>), String> {
+    crate::stair_geometry::snapshot(spec, base)?
+        .clipped(clip, range)
+        .map(|g| (g.mesh, g.handrails))
+}
+
+/// Display geometry from the same stair section, optionally intersected with a marquee.
+pub(crate) fn clip_source(
+    spec: &StairSpec,
+    base: f64,
+    geometry: &StairGeometry,
+    clip: Option<&[Point]>,
+    z_range: Option<(f64, f64)>,
+) -> Result<(crate::column::ColumnMesh, Vec<[DVec3; 2]>), String> {
+    use crate::column::ColumnMesh;
+    use geo::BooleanOps;
+    if clip.is_none() && z_range.is_none() {
+        return Ok((
+            ColumnMesh {
+                triangles: geometry.triangles.clone(),
+                edges: geometry.edges.clone(),
+            },
+            geometry.handrails.to_vec(),
+        ));
+    }
+    let run = spec.start.distance(spec.end);
+    let direction = DVec3::new(
+        (spec.end.x - spec.start.x) / run,
+        (spec.end.y - spec.start.y) / run,
+        0.,
+    );
+    let across = DVec3::new(-direction.y, direction.x, 0.);
+    let origin = DVec3::new(spec.start.x, spec.start.y, base);
+    let at = |i: usize, width: f64| {
+        origin
+            + direction * geometry.section[i][0]
+            + across * width
+            + DVec3::Z * geometry.section[i][1]
+    };
+    let mut mesh = ColumnMesh::default();
+    for &indices in &geometry.section_triangles {
+        let [a, b, c] = indices;
+        let center = (at(a, 0.)
+            + at(b, 0.)
+            + at(c, 0.)
+            + at(a, spec.width)
+            + at(b, spec.width)
+            + at(c, spec.width))
+            / 6.;
+        let mut part = ColumnMesh::default();
+        let mut hidden = Vec::new();
+        let mut seams = Vec::new();
+        let mut add = |mut t: [DVec3; 3], internal: bool| {
+            if (t[1] - t[0])
+                .cross(t[2] - t[0])
+                .dot((t[0] + t[1] + t[2]) / 3. - center)
+                < 0.
+            {
+                t.swap(1, 2);
+            }
+            part.triangles.push(t);
+            hidden.push(internal);
+        };
+        add([at(a, 0.), at(b, 0.), at(c, 0.)], false);
+        add(
+            [at(a, spec.width), at(b, spec.width), at(c, spec.width)],
+            false,
+        );
+        for j in 0..3 {
+            let a = indices[j];
+            let b = indices[(j + 1) % 3];
+            let internal =
+                (a + 1) % geometry.section.len() != b && (b + 1) % geometry.section.len() != a;
+            let t = [at(a, 0.), at(b, 0.), at(b, spec.width)];
+            add(t, internal);
+            add([at(a, 0.), at(b, spec.width), at(a, spec.width)], internal);
+            if internal {
+                seams.push(t);
+            } else {
+                part.edges.extend([
+                    [at(a, 0.), at(b, 0.)],
+                    [at(a, spec.width), at(b, spec.width)],
+                ]);
+            }
+        }
+        // Only real section vertices produce cross-width edges, never diagonals.
+        for i in indices {
+            part.edges.push([at(i, 0.), at(i, spec.width)]);
+        }
+        let clipped = crate::column_clip::clip_convex_mesh(part, clip, z_range, &hidden, &seams)?;
+        mesh.triangles.extend(clipped.triangles);
+        mesh.edges.extend(clipped.edges);
+    }
+    let polygon = clip.map(|points| {
+        geo::Polygon::new(
+            geo::LineString::from(
+                points
+                    .iter()
+                    .chain(points.first())
+                    .map(|p| (f64::from(p.x), f64::from(p.y)))
+                    .collect::<Vec<_>>(),
+            ),
+            vec![],
+        )
+    });
+    let mut rails = Vec::new();
+    for [a, b] in geometry.handrails {
+        let input = geo::MultiLineString(vec![geo::LineString::from(vec![
+            (f64::from(a.x), f64::from(a.y)),
+            (f64::from(b.x), f64::from(b.y)),
+        ])]);
+        let segments = polygon
+            .as_ref()
+            .map_or(input.clone(), |p| p.clip(&input, false));
+        let d = b - a;
+        for segment in segments {
+            for pair in segment.0.windows(2) {
+                let parameter = |p: geo::Coord<f64>| {
+                    (((p.x - f64::from(a.x)) * f64::from(d.x)
+                        + (p.y - f64::from(a.y)) * f64::from(d.y))
+                        / (f64::from(d.x).powi(2) + f64::from(d.y).powi(2)))
+                        as f64
+                };
+                let t0 = parameter(pair[0]);
+                let t1 = parameter(pair[1]);
+                let mut lo = t0.min(t1).max(0.);
+                let mut hi = t0.max(t1).min(1.);
+                if let Some((z0, z1)) = z_range {
+                    lo = lo.max((z0.min(z1) - a.z) / d.z);
+                    hi = hi.min((z0.max(z1) - a.z) / d.z);
+                }
+                if hi > lo {
+                    rails.push([a + d * lo, a + d * hi]);
+                }
+            }
+        }
+    }
+    Ok((mesh, rails))
+}
+
+fn triangulate(poly: &[[f64; 2]]) -> Option<Vec<[usize; 3]>> {
     if poly.len() < 3 {
         return None;
     }
-    let area: f32 = (0..poly.len())
+    let area: f64 = (0..poly.len())
         .map(|i| {
             let a = poly[i];
             let b = poly[(i + 1) % poly.len()];
@@ -208,7 +394,9 @@ fn triangulate(poly: &[[f32; 2]]) -> Option<Vec<[usize; 3]>> {
             let prev = remaining[(i + remaining.len() - 1) % remaining.len()];
             let curr = remaining[i];
             let next = remaining[(i + 1) % remaining.len()];
-            if cross(poly[prev], poly[curr], poly[next]) * orientation <= 1e-6 {
+            if cross(poly[prev], poly[curr], poly[next]) * orientation
+                <= crate::precision::GeometryContext::TOPOLOGY.triangle_double_area_m2
+            {
                 continue;
             }
             if remaining.iter().copied().any(|p| {
@@ -234,15 +422,17 @@ fn triangulate(poly: &[[f32; 2]]) -> Option<Vec<[usize; 3]>> {
     Some(out)
 }
 
-fn cross(a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> f32 {
+fn cross(a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> f64 {
     (b[0] - a[0]) * (c[1] - a[1]) - (b[1] - a[1]) * (c[0] - a[0])
 }
 
-fn point_in_triangle(p: [f32; 2], a: [f32; 2], b: [f32; 2], c: [f32; 2]) -> bool {
+fn point_in_triangle(p: [f64; 2], a: [f64; 2], b: [f64; 2], c: [f64; 2]) -> bool {
     let ab = cross(a, b, p);
     let bc = cross(b, c, p);
     let ca = cross(c, a, p);
-    (ab >= -1e-6 && bc >= -1e-6 && ca >= -1e-6) || (ab <= 1e-6 && bc <= 1e-6 && ca <= 1e-6)
+    let epsilon = crate::precision::GeometryContext::TOPOLOGY.triangle_double_area_m2;
+    (ab >= -epsilon && bc >= -epsilon && ca >= -epsilon)
+        || (ab <= epsilon && bc <= epsilon && ca <= epsilon)
 }
 
 #[cfg(test)]

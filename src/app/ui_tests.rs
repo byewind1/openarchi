@@ -1,14 +1,949 @@
 use super::*;
+
+#[test]
+fn manual_workspace_compact_menus_and_title_context_cancel_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.in_window_menus = false;
+        let before = app.host.document.editor.project.clone();
+        let workspace = app.workbench.workspace.clone();
+        for _ in 0..3 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        for hidden in [
+            "Panel placement",
+            "Check current design",
+            "Preview location diagram",
+        ] {
+            assert!(text_center(&out.shapes, language.translate(hidden)).is_none());
+        }
+        let a = text_center(&out.shapes, language.translate("Tasks and settings")).unwrap();
+        let b = text_center(&out.shapes, language.translate("Checks and diagrams")).unwrap();
+        let c = text_center(&out.shapes, language.translate("Find command…")).unwrap();
+        assert!(
+            (a.y - b.y).abs() < 2. && (b.y - c.y).abs() < 2.,
+            "one compact task row"
+        );
+        let title = text_center(&out.shapes, language.translate("Toolbox")).unwrap();
+        for pressed in [true, false] {
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![
+                    Event::PointerMoved(title),
+                    Event::PointerButton {
+                        pos: title,
+                        button: PointerButton::Secondary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        for _ in 0..3 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("Float panel group")).is_some());
+        assert_eq!(
+            app.workbench.workspace, workspace,
+            "opening menu does not edit layout"
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("Float panel group")).is_none());
+        let at = text_center(&out.shapes, language.translate("Checks and diagrams")).unwrap();
+        layers_click(&ctx, &mut app, at);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let at = text_center(&out.shapes, language.translate("Check current design")).unwrap();
+        layers_click(&ctx, &mut app, at);
+        assert!(app.checks_ui.open);
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+    }
+}
+
+#[test]
+fn ai_workspace_real_mode_buttons_reclaim_canvas_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.in_window_menus = false;
+        app.ai_workspace.enabled = true;
+        let before = app.host.document.editor.project.elements.clone();
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        let mut out = layers_frame_output(&ctx, &mut app, vec![]);
+        for _ in 0..3 {
+            out = layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        assert!(text_center(&out.shapes, language.translate("Panel placement")).is_none());
+        assert!(text_center(&out.shapes, language.translate("Work mode")).is_none());
+        assert!(text_center(&out.shapes, language.translate("Check current design")).is_none());
+        let ai_canvas = app.workbench.panel_rects["view.canvas"];
+        let manual = text_center(&out.shapes, language.translate("Manual editing")).unwrap();
+        layers_click(&ctx, &mut app, manual);
+        assert!(!app.ai_workspace.enabled);
+        let mut out = layers_frame_output(&ctx, &mut app, vec![]);
+        for _ in 0..3 {
+            out = layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let manual_canvas = app.workbench.panel_rects["view.canvas"];
+        assert!(ai_canvas.width() > manual_canvas.width() + 200.);
+        assert!(ai_canvas.height() > manual_canvas.height());
+        let ai = text_center(&out.shapes, language.translate("AI collaboration")).unwrap();
+        layers_click(&ctx, &mut app, ai);
+        assert!(app.ai_workspace.enabled);
+        assert_eq!(app.host.document.editor.project.elements, before);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+    }
+}
+
+#[test]
+fn inspector_number_focus_preserves_exact_value_and_explicit_input_bilingual() {
+    fn frame(
+        ctx: &Context,
+        lang: UiLanguage,
+        values: &mut [f64; 2],
+        events: Vec<Event>,
+    ) -> (egui::FullOutput, Rect) {
+        let mut done = Rect::NOTHING;
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.))),
+                events: discrete_key_events(ctx, events),
+                ..Default::default()
+            },
+            |ui| {
+                egui::CentralPanel::default().show(ui, |ui| {
+                    egui::Grid::new("existing-inspector-numbers").show(ui, |ui| {
+                        AtelierApp::number(ui, lang, "Center X", &mut values[0]);
+                        AtelierApp::number(ui, lang, "Height", &mut values[1]);
+                    });
+                    done = ui.button("Leave numbers").rect;
+                });
+            },
+        );
+        output.textures_delta.clear();
+        (output, done)
+    }
+    fn click(ctx: &Context, lang: UiLanguage, values: &mut [f64; 2], p: Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                lang,
+                values,
+                vec![
+                    Event::PointerMoved(p),
+                    Event::PointerButton {
+                        pos: p,
+                        button: egui::PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        frame(ctx, lang, values, vec![]);
+    }
+    for lang in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        // Authored public values; real project coordinates stay in private evidence.
+        for original in [
+            123456.78901234567,
+            -987.6543210987654,
+            0.0001234567890123456,
+        ] {
+            let ctx = Context::default();
+            let mut values = [original, 3.612345678901234];
+            let initial = values.map(f64::to_bits);
+            for _ in 0..3 {
+                let (out, _) = frame(&ctx, lang, &mut values, vec![]);
+                let displayed = format!("{original:.3}");
+                let at = text_center(&out.shapes, &displayed)
+                    .or_else(|| text_center(&out.shapes, &format!("{displayed} m")))
+                    .expect("compact idle numeric value");
+                click(&ctx, lang, &mut values, at);
+                frame(
+                    &ctx,
+                    lang,
+                    &mut values,
+                    vec![key(Key::Tab, Modifiers::NONE)],
+                );
+                let (_, done) = frame(&ctx, lang, &mut values, vec![]);
+                click(&ctx, lang, &mut values, done.center());
+                assert_eq!(
+                    values.map(f64::to_bits),
+                    initial,
+                    "focus/Tab/leave must never round geometry"
+                );
+            }
+            let (out, _) = frame(&ctx, lang, &mut values, vec![]);
+            let displayed = format!("{original:.3}");
+            let at = text_center(&out.shapes, &displayed)
+                .or_else(|| text_center(&out.shapes, &format!("{displayed} m")))
+                .unwrap();
+            click(&ctx, lang, &mut values, at);
+            frame(
+                &ctx,
+                lang,
+                &mut values,
+                vec![key(Key::Escape, Modifiers::NONE)],
+            );
+            assert_eq!(values.map(f64::to_bits), initial);
+            let (out, _) = frame(&ctx, lang, &mut values, vec![]);
+            let at = text_center(&out.shapes, &displayed)
+                .or_else(|| text_center(&out.shapes, &format!("{displayed} m")))
+                .unwrap();
+            click(&ctx, lang, &mut values, at);
+            let replacement = 12.345678901234567_f64;
+            frame(
+                &ctx,
+                lang,
+                &mut values,
+                vec![
+                    key(Key::A, Modifiers::COMMAND),
+                    Event::Text(replacement.to_string()),
+                ],
+            );
+            let (_, done) = frame(&ctx, lang, &mut values, vec![]);
+            click(&ctx, lang, &mut values, done.center());
+            assert_eq!(values[0].to_bits(), replacement.to_bits());
+            assert_eq!(
+                values[1].to_bits(),
+                initial[1],
+                "old caller's untouched height stays exact"
+            );
+        }
+    }
+}
+
+#[test]
+fn normal_open_keeps_fitted_model_camera_without_navigation_bilingual() {
+    let scratch = std::env::temp_dir().join(format!(
+        "oa-model-open-fit-{}",
+        storage::new_document_identity()
+    ));
+    let input = std::env::var_os("OPENARCHI_CANVAS_RESUME_INPUT")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| {
+            // A reproducible large model needs no private case or image assets.
+            let mut editor = Editor::new(Project::default());
+            editor
+                .place_concept_mass(crate::concept_mass::ConceptMassSpec {
+                    arcs: vec![],
+                    hole_arcs: vec![],
+                    outline: vec![
+                        Point::new(1000., 2000.),
+                        Point::new(1200., 2000.),
+                        Point::new(1200., 2100.),
+                        Point::new(1000., 2100.),
+                    ],
+                    holes: vec![],
+                    height: 7.2,
+                    bottom_offset: 0.,
+                })
+                .unwrap();
+            std::fs::create_dir_all(&scratch).unwrap();
+            let input = scratch.join("large-concept.json");
+            storage::save(&editor.project, &input).unwrap();
+            input
+        });
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.view = View::Model;
+        open_test_project(&ctx, &mut app, &input);
+        assert!(app.file_action.is_none(), "{}", app.file_error);
+        let loaded = app.host.document.editor.project.clone();
+        let camera_after_open = app.camera.clone();
+        app.fit();
+        let fit = app.camera.clone();
+        eprintln!("{language:?}: after Open {camera_after_open:?}; Fit {fit:?}");
+        assert_eq!(camera_after_open.target, fit.target);
+        assert_eq!(camera_after_open.span, fit.span);
+        let canvas = app.workbench.panel_rects["view.canvas"];
+        for _ in 0..3 {
+            layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(canvas.center())]);
+        }
+        assert_eq!(app.camera.target, fit.target);
+        assert_eq!(
+            app.camera.span, fit.span,
+            "idle hover must retain the fitted view"
+        );
+        // A deliberate pan/orbit/zoom is equally authoritative while idle.
+        app.camera.target += glam::DVec3::new(2., -1., 0.5);
+        app.camera.yaw += 0.1;
+        app.camera.pitch -= 0.1;
+        app.camera.span *= 1.1;
+        let navigated = app.camera.clone();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(app.camera.target, navigated.target);
+        assert_eq!(app.camera.span, navigated.span);
+        assert_eq!(app.camera.yaw, navigated.yaw);
+        assert_eq!(app.camera.pitch, navigated.pitch);
+        assert_eq!(app.host.document.editor.project, loaded);
+        assert!(!app.host.document.editor.dirty());
+    }
+    if scratch.exists() {
+        std::fs::remove_dir_all(scratch).unwrap();
+    }
+}
+
+#[test]
+fn zone_pointer_creation_cancel_and_bilingual_presentation_preserve_history() {
+    let ctx = Context::default();
+    let mut app = AtelierApp::from_renderer(None, "test".into());
+    app.host.document.editor = Editor::new(Project::default());
+    app.view = View::Plan;
+    app.plan_scale = 40.;
+    app.plan_center = Point::default();
+    app.activate_named_tool("Zone");
+    assert_eq!(app.host.document.editor.tool, Tool::Zone);
+    assert!(app.preview_tool.is_none());
+    click(&ctx, &mut app, pos2(400., 300.));
+    assert!(app.host.document.editor.anchor.is_some());
+    assert!(app.host.document.editor.project.elements.is_empty());
+    plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+    assert!(app.host.document.editor.anchor.is_none());
+    assert!(app.host.document.editor.undo.is_empty());
+    app.activate_named_tool("Zone");
+    click(&ctx, &mut app, pos2(400., 300.));
+    click(&ctx, &mut app, pos2(520., 220.));
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    assert!(matches!(
+        app.host.document.editor.project.elements[0].shape,
+        Shape::Zone { .. }
+    ));
+    assert!((app.host.document.editor.project.elements[0].area() - 6.).abs() < 1e-9);
+    let before = app.host.document.editor.project.clone();
+    let undo = app.host.document.editor.undo.len();
+    for language in [
+        UiLanguage::English,
+        UiLanguage::SimplifiedChinese,
+        UiLanguage::English,
+    ] {
+        app.language = language;
+        let output = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(!output.shapes.is_empty());
+        let mut frame = ctx.run_ui(RawInput::default(), |ui| {
+            app.zone_tool_ui(ui);
+        });
+        frame.textures_delta.clear();
+        app.zone_analysis_open = true;
+        let mut frame = ctx.run_ui(RawInput::default(), |ui| {
+            app.zone_analysis_ui(ui.ctx());
+        });
+        frame.textures_delta.clear();
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), undo);
+        assert_eq!(
+            language.translate("Analyze spaces"),
+            if language == UiLanguage::English {
+                "Analyze spaces"
+            } else {
+                "分析空间"
+            }
+        );
+    }
+}
+
+#[test]
+fn opening_3d_size_handles_preview_release_undo_and_cancel_bilingual() {
+    use crate::opening_joinery::ResizeEdge;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.view = View::Model;
+        let wall = app
+            .host
+            .document
+            .editor
+            .place_wall_segments(vec![(Point::new(0., 0.), Point::new(6., 0.))])
+            .unwrap()[0];
+        let id = app
+            .host
+            .document
+            .editor
+            .place_opening_on_wall(
+                OpeningKind::Window,
+                wall,
+                3.,
+                OpeningKind::Window.defaults(),
+            )
+            .unwrap();
+        app.host.document.editor.set_tool(Tool::Select);
+        app.host.document.editor.set_selection(vec![id]);
+        app.camera.target = glam::DVec3::new(3., 0., 1.5);
+        app.camera.span = 8.;
+        app.camera.yaw = -1.2;
+        app.camera.pitch = 0.35;
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        model_frame(&ctx, &mut app, vec![]);
+        let before = app.host.document.editor.project.clone();
+        let count = app.host.document.editor.undo.len();
+        for edge in [
+            ResizeEdge::Right,
+            ResizeEdge::Left,
+            ResizeEdge::Top,
+            ResizeEdge::Bottom,
+        ] {
+            let original = app.host.document.editor.project.clone();
+            let handles = app.opening_handles(rect);
+            let p=handles.iter().find(|x|x.0==edge).unwrap_or_else(||panic!("missing {edge:?}: handles={handles:?}, selection={:?}, tool={:?}, locked={}, marquee={}, visible={}",app.host.document.editor.selection_ids(),app.host.document.editor.tool,app.host.document.editor.locked_element(id),app.show_marquee_3d,app.host.document.editor.project.plan_options.element_visible(&app.host.document.editor.project.elements[1],&app.host.document.editor.project.layers))).1;
+            let q = p + match edge {
+                ResizeEdge::Right => vec2(25., 0.),
+                ResizeEdge::Left => vec2(-20., 0.),
+                ResizeEdge::Top => vec2(0., -15.),
+                ResizeEdge::Bottom => vec2(0., -10.),
+            };
+            model_frame(&ctx, &mut app, vec![Event::PointerMoved(p)]);
+            model_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerButton {
+                    pos: p,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            model_frame(&ctx, &mut app, vec![Event::PointerMoved(q)]);
+            assert!(
+                app.opening_resize.is_some(),
+                "size handle must win over camera orbit"
+            );
+            assert_eq!(
+                app.host.document.editor.project, original,
+                "drag preview cannot mutate model"
+            );
+            model_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerButton {
+                    pos: q,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            assert!(app.opening_resize.is_none());
+            assert_ne!(app.host.document.editor.project, original);
+            let resized = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, original);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, resized);
+            app.host.document.editor.set_selection(vec![id]);
+        }
+        assert_eq!(app.host.document.editor.undo.len(), count + 4);
+        let original = app.host.document.editor.project.clone();
+        let p = app.opening_handles(rect)[0].1;
+        let q = p + vec2(30., 0.);
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::PointerMoved(p),
+                Event::PointerButton {
+                    pos: p,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        model_frame(&ctx, &mut app, vec![Event::PointerMoved(q)]);
+        model_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![Event::PointerButton {
+                pos: q,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        assert!(app.opening_resize.is_none());
+        assert_eq!(app.host.document.editor.project, original);
+        assert_ne!(app.host.document.editor.project, before);
+        app.host.document.editor.set_selection(vec![id]);
+        let p = app
+            .opening_handles(rect)
+            .into_iter()
+            .find(|x| x.0 == ResizeEdge::Right)
+            .unwrap()
+            .1;
+        let q = p + vec2(3000., 0.);
+        let history = app.host.document.editor.undo.len();
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::PointerMoved(p),
+                Event::PointerButton {
+                    pos: p,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        model_frame(&ctx, &mut app, vec![Event::PointerMoved(q)]);
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![Event::PointerButton {
+                pos: q,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        assert_eq!(app.host.document.editor.project, original);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        app.host.document.editor.set_selection(vec![id]);
+        let p = app.opening_handles(rect)[0].1;
+        let q = p + vec2(20., 0.);
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::PointerMoved(p),
+                Event::PointerButton {
+                    pos: p,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        model_frame(&ctx, &mut app, vec![Event::PointerMoved(q)]);
+        assert!(app.opening_resize.is_some());
+        let _ = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(rect),
+                focused: false,
+                events: vec![Event::WindowFocused(false)],
+                ..Default::default()
+            },
+            |ui| {
+                CentralPanel::default()
+                    .frame(Frame::NONE)
+                    .show(ui, |ui| app.model_view(ui));
+            },
+        );
+        assert!(app.opening_resize.is_none());
+        assert_eq!(app.host.document.editor.project, original);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::WindowFocused(true),
+                Event::PointerButton {
+                    pos: q,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+    }
+}
+
+#[test]
+fn opening_tool_single_double_presets_and_flip_keep_custom_width() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Door);
+        let o = layers_frame_output(&ctx, &mut app, vec![]);
+        let at = text_center(&o.shapes, language.translate("Single door")).unwrap();
+        layers_click(&ctx, &mut app, at);
+        let o = layers_frame_output(&ctx, &mut app, vec![]);
+        let at = text_center(&o.shapes, language.translate("Double door")).unwrap();
+        layers_click(&ctx, &mut app, at);
+        assert_eq!(app.host.document.editor.door_defaults.width, 1.5);
+        assert_eq!(
+            app.host.document.editor.opening_joinery.door_style,
+            crate::opening_joinery::DoorStyle::Double
+        );
+        app.info_box_opening_tool.as_mut().unwrap().defaults.width = 1.7;
+        app.commit_info_box_opening_tool();
+        let o = layers_frame_output(&ctx, &mut app, vec![]);
+        let at = text_center(&o.shapes, language.translate("Flip swing")).unwrap();
+        layers_click(&ctx, &mut app, at);
+        assert_eq!(app.host.document.editor.door_defaults.width, 1.7);
+    }
+}
+
+#[test]
+fn slab_rotated_creation_workspace_three_clicks_preview_and_history_bilingual() {
+    use crate::slab_creation::{SlabDraft, SlabGeometryMethod};
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let tool = text_center(&output.shapes, language.translate("Slab")).unwrap();
+        layers_click(&ctx, &mut app, tool);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let method = text_center(&output.shapes, language.translate("Rotated Rectangle")).unwrap();
+        layers_click(&ctx, &mut app, method);
+        assert_eq!(
+            app.host.document.editor.slab_method,
+            SlabGeometryMethod::RotatedRectangle
+        );
+        let before = app.host.document.editor.project.clone();
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        assert!(matches!(
+            app.host.document.editor.slab_draft,
+            Some(SlabDraft::BaselineEnd { .. })
+        ));
+        assert_eq!(app.host.document.editor.project, before);
+        let draft = app.host.document.editor.slab_draft;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, language.translate("Create [Enter]")).is_none());
+        let disabled = text_center(&output.shapes, language.translate("Rectangular")).unwrap();
+        layers_click(&ctx, &mut app, disabled);
+        assert_eq!(
+            app.host.document.editor.slab_method,
+            SlabGeometryMethod::RotatedRectangle
+        );
+        assert_eq!(app.host.document.editor.slab_draft, draft);
+        layers_click(&ctx, &mut app, pos2(700., 450.));
+        assert!(matches!(
+            app.host.document.editor.slab_draft,
+            Some(SlabDraft::Width { .. })
+        ));
+        let preview =
+            layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(650., 650.))]);
+        assert!(preview.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Mesh(mesh)
+            if mesh.vertices.len()==6 && mesh.vertices.iter().all(|v|v.color==Color32::from_rgba_unmultiplied(39,146,137,50)))));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.revision, 0);
+        layers_click(&ctx, &mut app, pos2(650., 650.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(app.host.document.editor.slab_draft.is_none());
+        let contour = app.host.document.editor.project.elements[0]
+            .slab_contour
+            .as_ref()
+            .unwrap();
+        assert_eq!(contour.points.len(), 4);
+        let a = contour.points[0];
+        let b = contour.points[1];
+        let c = contour.points[2];
+        assert!(((b.x - a.x) * (c.x - b.x) + (b.y - a.y) * (c.y - b.y)).abs() < 1e-4);
+        assert!(app.host.document.editor.project.elements[0].area() > 1.);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let created = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+        assert_eq!(app.host.document.editor.project, before);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        );
+        assert_eq!(app.host.document.editor.project, created);
+        layers_click(&ctx, &mut app, pos2(600., 500.));
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.host.document.editor.slab_draft.is_none());
+        assert_eq!(app.host.document.editor.project, created);
+    }
+}
+
+#[test]
+fn slab_rotated_workspace_invalid_points_cancel_preserve_nonempty_redo_bilingual() {
+    use crate::slab_creation::{SlabDraft, SlabGeometryMethod};
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(20., 20.))
+            .unwrap();
+        let with_column = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        let before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Slab")).unwrap(),
+        );
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Rotated Rectangle")).unwrap(),
+        );
+        assert_eq!(
+            app.host.document.editor.slab_method,
+            SlabGeometryMethod::RotatedRectangle
+        );
+        layers_click(&ctx, &mut app, pos2(600., 500.));
+        layers_click(&ctx, &mut app, pos2(600., 500.));
+        assert!(matches!(
+            app.host.document.editor.slab_draft,
+            Some(SlabDraft::BaselineEnd { .. })
+        ));
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &output.shapes,
+                language.translate("Slab rotation baseline needs two distinct points")
+            )
+            .is_some()
+        );
+        layers_click(&ctx, &mut app, pos2(700., 500.));
+        layers_click(&ctx, &mut app, pos2(750., 500.));
+        assert!(matches!(
+            app.host.document.editor.slab_draft,
+            Some(SlabDraft::Width { .. })
+        ));
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &output.shapes,
+                language.translate("Slab needs a non-zero perpendicular width")
+            )
+            .is_some()
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.redo.len(), 1);
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.host.document.editor.slab_draft.is_none());
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        );
+        assert_eq!(app.host.document.editor.project, with_column);
+    }
+}
+#[test]
+fn external_drawing_places_on_active_canvas_and_scale_range_manual_ai_share_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let root = std::env::temp_dir().join(format!(
+            "oa-worksheet-ui-{}-{:?}",
+            std::process::id(),
+            language
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let source = root.join("worksheet.png");
+        image::RgbaImage::from_pixel(400, 200, image::Rgba([250, 250, 240, 255]))
+            .save(&source)
+            .unwrap();
+        app.new_worksheet().unwrap();
+        app.drawings_ui.path = source.display().to_string();
+        app.drawings_ui.cache_override = Some(root.join("assets"));
+        app.open_command_preview("Place External Drawing…".into());
+        assert!(app.command_dialog.is_none());
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Place drawing"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert!(!app.drawings_ui.open);
+        assert!(app.host.document.editor.project.drawings.pages.is_empty());
+        let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let origin = app.screen(viewport, Point::default());
+        click(&ctx, &mut app, origin);
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .active_worksheet,
+            Some(1)
+        );
+        assert!(
+            app.host.document.editor.project.drawings.regions[0]
+                .calibration
+                .is_none()
+        );
+        assert!(app.drawings_ui.mode.is_none());
+        let history = app.host.document.editor.undo.len();
+        let project = app.host.document.editor.project.clone();
+        let output = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(output.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Mesh(mesh) if mesh.vertices.len()==4 && mesh.texture_id!=TextureId::default())));
+        let a = app.screen(viewport, Point::new(1., -1.));
+        let b = app.screen(viewport, Point::new(2., -1.));
+        click(&ctx, &mut app, a);
+        click(&ctx, &mut app, b);
+        secondary_click(&ctx, &mut app, b);
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(
+            app.host.document.editor.project.elements[0].worksheet,
+            Some(1)
+        );
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, project);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(app.external_content_command("Drawing Manager"));
+        for _ in 0..3 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let settings = text_center(&output.shapes, language.translate("Drawing settings / AI…"))
+            .expect("image settings must stay reachable in Drawing Manager");
+        layers_click(&ctx, &mut app, settings);
+        assert!(app.drawings_ui.settings);
+        app.drawings_ui.manager = false;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Adjust source scale"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert_eq!(
+            app.drawings_ui.mode,
+            Some(super::drawings_ui::Pick::Calibrate)
+        );
+        click(&ctx, &mut app, a);
+        click(&ctx, &mut app, b);
+        assert_eq!(app.drawings_ui.points.len(), 2);
+        app.drawings_ui.distance = 2000.;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Apply"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert!(
+            (app.host.document.editor.project.drawings.regions[0]
+                .calibration
+                .as_ref()
+                .unwrap()
+                .mm_per_pixel()
+                .unwrap()
+                - 20.)
+                .abs()
+                < 0.01
+        );
+        assert!(app.host.document.editor.project.elements.is_empty());
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Adjust redraw area"].center();
+        layers_click(&ctx, &mut app, pos);
+        let a = app.screen(viewport, Point::new(1., -1.));
+        let b = app.screen(viewport, Point::new(4., -2.));
+        click(&ctx, &mut app, a);
+        click(&ctx, &mut app, b);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Apply"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert_eq!(app.host.document.editor.project.drawings.regions.len(), 2);
+        assert!(app.host.document.editor.project.elements.is_empty());
+        let before = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Adjust redraw area"].center();
+        layers_click(&ctx, &mut app, pos);
+        click(&ctx, &mut app, a);
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.project, before);
+        let region = app
+            .host
+            .document
+            .editor
+            .project
+            .drawings
+            .regions
+            .last()
+            .unwrap();
+        let proposal = crate::drawings::WorksheetProposal {
+            placement: app.host.document.editor.project.drawings.pages[0]
+                .placement
+                .clone(),
+            target_worksheet: Some(1),
+            target_story: 0,
+            worksheet: 2,
+            source_sha256: app.host.document.editor.project.drawings.pages[0]
+                .sha256
+                .clone(),
+            region: region.id,
+            region_revision: region.revision,
+            scale_revision: app.host.document.editor.project.drawings.regions[0].revision,
+            project_revision: app.host.document.editor.revision,
+            polylines: vec![vec![[70., 70.], [130., 70.]]],
+        };
+        let exchange = root.join("proposal.json");
+        std::fs::write(&exchange, serde_json::to_vec(&proposal).unwrap()).unwrap();
+        app.drawings_ui.exchange_path = exchange.display().to_string();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Load AI proposal"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert_eq!(app.host.document.editor.project, before);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let pos = app.drawings_ui.rects["Accept proposal"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(
+            app.host.document.editor.project.elements[0].worksheet,
+            Some(1)
+        );
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        let after_ai = app.host.document.editor.project.clone();
+        let pos = app.drawings_ui.rects["Load AI proposal"].center();
+        layers_click(&ctx, &mut app, pos);
+        assert_eq!(app.host.document.editor.project, after_ai);
+        app.host.document.editor.mark_saved();
+        app.host.document.editor.switch_worksheet(None);
+        assert!(!app.host.document.editor.dirty());
+        assert_eq!(
+            crate::geometry::hit_plan(
+                &app.host.document.editor.project,
+                0,
+                Point::new(1., -1.),
+                0.1
+            ),
+            None
+        );
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+/// Substitute only the OS file selection; exercise the real shortcut and confirmation UI.
+fn open_test_project(ctx: &Context, app: &mut AtelierApp, path: &std::path::Path) {
+    // A user invokes Open from an already laid-out window. The former custom
+    // path dialog incidentally supplied these frames before file selection.
+    for _ in 0..3 {
+        layers_frame_output(ctx, app, vec![]);
+    }
+    app.project_open.choices.push_back(Some(path.to_owned()));
+    layers_frame_output(ctx, app, vec![key(Key::O, Modifiers::COMMAND)]);
+    for _ in 0..3 {
+        layers_frame_output(ctx, app, vec![]);
+    }
+    let out = layers_frame_output(ctx, app, vec![]);
+    if let Some(at) = text_center(&out.shapes, app.language.translate("Don't Save")) {
+        layers_click(ctx, app, at);
+    }
+}
+
 fn setup() -> (Context, AtelierApp) {
     let ctx = Context::default();
     AtelierApp::style(&ctx);
     let mut app = AtelierApp::from_renderer(None, "Headless test".into());
-    app.recovery_path = None;
+    app.recovery_slot = None;
     // Headless tests run on macOS too, where the production app hides the
     // in-window menus in favor of the native menu bar; force the egui menu
     // path back on so workspace tests keep covering it.
     app.in_window_menus = true;
-    app.editor = Editor::new(Project::default());
+    app.host.document.editor = Editor::new(Project::default());
     app.plan_center = Point::default();
     app.plan_scale = 50.;
     (ctx, app)
@@ -75,6 +1010,7 @@ fn model_frame_output(
     app: &mut AtelierApp,
     events: Vec<Event>,
 ) -> eframe::egui::FullOutput {
+    let events = discrete_key_events(ctx, events);
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.))),
@@ -164,9 +1100,68 @@ fn drag(ctx: &Context, app: &mut AtelierApp, from: Pos2, to: Pos2) {
     );
 }
 #[test]
+fn select_cursor_frame_snapshot_rejects_stale_revision_and_document_session() {
+    let (_, mut app) = setup();
+    let mut p = Project::default();
+    p.add(
+        0,
+        Material::Concrete,
+        Shape::Wall {
+            start: Point::new(0., 0.),
+            end: Point::new(4., 0.),
+            thickness: 0.3,
+            height: 3.,
+        },
+    );
+    app.host.document.editor = Editor::new(p);
+    app.plan_scale = 100.;
+    let old = app
+        .host
+        .document
+        .editor
+        .geometry_batch(&[1], Some(0))
+        .unwrap();
+    assert_eq!(
+        app.select_cursor_feedback_in_frame(Point::new(0., 0.), &old),
+        CursorFeedback::ArrowWithCheck
+    );
+    app.host
+        .document
+        .editor
+        .apply(crate::command::ModelCommand::MoveElements {
+            ids: vec![1],
+            offset: Point::new(10., 0.),
+        })
+        .unwrap();
+    assert_eq!(
+        app.select_cursor_feedback_in_frame(Point::new(0., 0.), &old),
+        CursorFeedback::Empty
+    );
+    assert_eq!(
+        app.select_cursor_feedback_in_frame(Point::new(10., 0.), &old),
+        CursorFeedback::ArrowWithCheck
+    );
+    // Opening another document may restart revision at zero; session also binds the frame.
+    let fresh = app.host.document.editor.project.clone();
+    app.host.document.editor = Editor::new(fresh);
+    assert_eq!(app.host.document.editor.revision, old.revision);
+    assert_ne!(
+        app.host.document.editor.document_session(),
+        old.document_session
+    );
+    assert_eq!(
+        app.select_cursor_feedback_in_frame(Point::new(0., 0.), &old),
+        CursorFeedback::Empty
+    );
+    assert_eq!(
+        app.select_cursor_feedback_in_frame(Point::new(10., 0.), &old),
+        CursorFeedback::ArrowWithCheck
+    );
+}
+#[test]
 fn select_cursor_uses_arrow_on_body_check_at_nodes_and_triple_ray_on_edges() {
     let (ctx, mut app) = setup();
-    app.editor.project.add(
+    app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Polyline {
@@ -174,7 +1169,7 @@ fn select_cursor_uses_arrow_on_body_check_at_nodes_and_triple_ray_on_edges() {
             arcs: vec![],
         },
     );
-    app.editor.project.add(
+    app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Slab {
@@ -237,7 +1232,7 @@ fn key(key: Key, modifiers: Modifiers) -> Event {
         modifiers,
     }
 }
-fn collect_text(shapes: &[egui::epaint::ClippedShape], output: &mut Vec<String>) {
+pub(super) fn collect_text(shapes: &[egui::epaint::ClippedShape], output: &mut Vec<String>) {
     fn walk(shape: &egui::Shape, output: &mut Vec<String>) {
         match shape {
             egui::Shape::Text(text) => output.push(text.galley.text().to_owned()),
@@ -283,7 +1278,7 @@ fn collect_shapes<'a>(shapes: &'a [egui::epaint::ClippedShape], output: &mut Vec
 #[test]
 fn selected_wall_draws_the_archicad_style_reference_line_and_handles() {
     let (ctx, mut app) = setup();
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -293,8 +1288,8 @@ fn selected_wall_draws_the_archicad_style_reference_line_and_handles() {
             height: 3.,
         },
     );
-    app.editor.project.elements[0].wall_settings = Some(WallSettings::default());
-    app.editor.project.elements[0]
+    app.host.document.editor.project.elements[0].wall_settings = Some(WallSettings::default());
+    app.host.document.editor.project.elements[0]
         .wall_settings
         .as_mut()
         .unwrap()
@@ -312,7 +1307,7 @@ fn selected_wall_draws_the_archicad_style_reference_line_and_handles() {
         "an unselected wall must not show its reference line"
     );
 
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     let output = plan_frame_output(&ctx, &mut app, vec![]);
     let mut shapes = Vec::new();
     collect_shapes(&output.shapes, &mut shapes);
@@ -353,9 +1348,11 @@ fn selected_wall_draws_the_archicad_style_reference_line_and_handles() {
             "the blue line must end in the black square handles"
         );
     }
-    let before = app.editor.project.clone();
-    let undo_count = app.editor.undo.len();
+    let before = app.host.document.editor.project.clone();
+    let undo_count = app.host.document.editor.undo.len();
     let length = app
+        .host
+        .document
         .editor
         .project
         .plan_options
@@ -372,15 +1369,15 @@ fn selected_wall_draws_the_archicad_style_reference_line_and_handles() {
             text_center(&output.shapes, &length).is_some(),
             "the separate overall dimension must remain"
         );
-        assert_eq!(app.editor.project, before);
-        assert_eq!(app.editor.undo.len(), undo_count);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), undo_count);
     }
 }
 
 #[test]
 fn same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups() {
     let (ctx, mut app) = setup();
-    app.editor.project.add_with_status(
+    app.host.document.editor.project.add_with_status(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -391,7 +1388,7 @@ fn same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups
         },
         RenovationStatus::Existing,
     );
-    app.editor.project.add_with_status(
+    app.host.document.editor.project.add_with_status(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -407,7 +1404,7 @@ fn same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups
     let mut shapes = Vec::new();
     collect_shapes(&output.shapes, &mut shapes);
     let style = app
-        .plan_style(&app.editor.project.elements[0])
+        .plan_style(&app.host.document.editor.project.elements[0])
         .expect("wall plan style");
     let outline_color = AtelierApp::plan_color(style.line);
     let mut outline_segments = Vec::new();
@@ -444,7 +1441,7 @@ fn same_material_wall_join_has_no_internal_plan_outline_across_renovation_groups
     );
 }
 fn add_wall_for_editing(app: &mut AtelierApp) -> u64 {
-    app.editor.project.add(
+    app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -457,6 +1454,8 @@ fn add_wall_for_editing(app: &mut AtelierApp) -> u64 {
 }
 fn wall_reference_line(app: &AtelierApp, id: u64) -> (Point, Point) {
     let wall = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -472,11 +1471,11 @@ fn wall_reference_line(app: &AtelierApp, id: u64) -> (Point, Point) {
 fn wall_endpoint_handle_drag_stretches_only_that_endpoint_once() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    let settings = app.editor.project.elements[0]
+    let settings = app.host.document.editor.project.elements[0]
         .wall_settings
         .clone()
         .expect("wall settings");
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
 
     drag(&ctx, &mut app, pos2(400., 300.), pos2(450., 300.));
 
@@ -484,9 +1483,16 @@ fn wall_endpoint_handle_drag_stretches_only_that_endpoint_once() {
         wall_reference_line(&app, id),
         (Point::new(1., 0.), Point::new(4., 0.))
     );
-    assert_eq!(app.editor.project.elements[0].wall_settings, Some(settings));
-    assert_eq!(app.editor.undo.len(), 1, "one drag is one transaction");
-    assert_eq!(app.editor.selection_ids(), vec![id]);
+    assert_eq!(
+        app.host.document.editor.project.elements[0].wall_settings,
+        Some(settings)
+    );
+    assert_eq!(
+        app.host.document.editor.undo.len(),
+        1,
+        "one drag is one transaction"
+    );
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
     assert!(app.wall_edit.is_none(), "a committed drag closes the edit");
 
     plan_frame(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
@@ -508,18 +1514,18 @@ fn wall_endpoint_handle_drag_stretches_only_that_endpoint_once() {
 fn wall_baseline_drag_inserts_node_on_release() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     drag(&ctx, &mut app, pos2(500., 300.), pos2(500., 200.));
     assert!(app.pointer_drag.is_none());
     assert!(app.wall_insert.is_none());
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert_eq!(
         wall_reference_line(&app, id),
         (Point::new(0., 0.), Point::new(2., 2.))
     );
-    app.editor.undo();
-    assert_eq!(app.editor.project.elements.len(), 1);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
     assert_eq!(
         wall_reference_line(&app, id),
         (Point::new(0., 0.), Point::new(4., 0.))
@@ -530,7 +1536,7 @@ fn wall_baseline_drag_inserts_node_on_release() {
 fn wall_endpoint_drag_snaps_to_another_reference_line_and_joins() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    let target = app.editor.project.add(
+    let target = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -540,7 +1546,7 @@ fn wall_endpoint_drag_snaps_to_another_reference_line_and_joins() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
 
     drag(&ctx, &mut app, pos2(400., 300.), pos2(497., 301.));
 
@@ -550,16 +1556,24 @@ fn wall_endpoint_drag_snaps_to_another_reference_line_and_joins() {
         "the released endpoint must land exactly on the target reference line"
     );
     assert!(
-        app.editor
+        app.host
+            .document
+            .editor
             .status
             .starts_with("Wall endpoint joined at reference line"),
         "status was {}",
-        app.editor.status
+        app.host.document.editor.status
     );
     assert!(app.wall_edit.is_none(), "a committed drag closes the edit");
-    assert_eq!(app.editor.undo.len(), 1, "one drag is one transaction");
+    assert_eq!(
+        app.host.document.editor.undo.len(),
+        1,
+        "one drag is one transaction"
+    );
 
     let walls: Vec<&Element> = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -575,7 +1589,7 @@ fn wall_endpoint_drag_snaps_to_another_reference_line_and_joins() {
     let min_x = footprints[edited]
         .iter()
         .map(|corner| corner.x)
-        .fold(f32::MAX, f32::min);
+        .fold(f64::MAX, f64::min);
     assert!(
         (min_x - 2.1).abs() < 1e-4,
         "the T join must trim the edited wall to the near face of the target, got {min_x}"
@@ -593,12 +1607,17 @@ fn wall_endpoint_drag_snaps_to_another_reference_line_and_joins() {
 #[test]
 fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
     let (ctx, mut app) = setup();
-    app.editor.project.grid_settings.grid_snap_enabled = true;
-    app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .grid_snap_enabled = true;
+    app.host.document.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
     let id = add_wall_for_editing(&mut app);
     // The pointer lands 17.5 px from the target reference line but inside its
     // 1 m body. A material or renovation boundary must not block the join.
-    let target = app.editor.project.add_with_status(
+    let target = app.host.document.editor.project.add_with_status(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -611,7 +1630,7 @@ fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
     );
     click(&ctx, &mut app, pos2(430., 300.));
     assert_eq!(
-        app.editor.selection_ids(),
+        app.host.document.editor.selection_ids(),
         vec![id],
         "the drag must start from a normally selected wall"
     );
@@ -628,11 +1647,13 @@ fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
         "the snap must keep the pointer's along-wall position: {start:?}"
     );
     assert!(
-        app.editor
+        app.host
+            .document
+            .editor
             .status
             .starts_with("Wall endpoint joined at reference line"),
         "status was {}",
-        app.editor.status
+        app.host.document.editor.status
     );
     assert_eq!(
         wall_reference_line(&app, target),
@@ -641,6 +1662,8 @@ fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
     );
 
     let walls: Vec<&Element> = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -656,7 +1679,7 @@ fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
     let min_x = footprints[edited]
         .iter()
         .map(|corner| corner.x)
-        .fold(f32::MAX, f32::min);
+        .fold(f64::MAX, f64::min);
     assert!(
         (min_x - 2.5).abs() < 1e-4,
         "the branch must be cut at the far face of the thick host, got {min_x}"
@@ -678,7 +1701,7 @@ fn wall_endpoint_drag_onto_a_foreign_material_wall_body_snaps_and_joins() {
 fn wall_endpoint_reference_snap_wins_over_a_coarse_grid_snap() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    let target = app.editor.project.add(
+    let target = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -688,12 +1711,27 @@ fn wall_endpoint_reference_snap_wins_over_a_coarse_grid_snap() {
             height: 3.,
         },
     );
-    app.editor.project.grid_settings.grid_snap_enabled = true;
-    app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
-    app.editor.project.grid_settings.snap_spacing_x = 1.;
-    app.editor.project.grid_settings.snap_spacing_y = 1.;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .grid_snap_enabled = true;
+    app.host.document.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .snap_spacing_x = 1.;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .snap_spacing_y = 1.;
     click(&ctx, &mut app, pos2(430., 300.));
-    assert_eq!(app.editor.selection_ids(), vec![id]);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
 
     // The pointer is exactly on the target baseline, but ordinary grid snap
     // would first move it to x = 2.0 (0.4 m away). The endpoint must still
@@ -707,11 +1745,13 @@ fn wall_endpoint_reference_snap_wins_over_a_coarse_grid_snap() {
     );
     assert!((start.y - 0.).abs() < 1e-3);
     assert!(
-        app.editor
+        app.host
+            .document
+            .editor
             .status
             .starts_with("Wall endpoint joined at reference line"),
         "status was {}",
-        app.editor.status
+        app.host.document.editor.status
     );
     assert_eq!(
         wall_reference_line(&app, target),
@@ -723,10 +1763,15 @@ fn wall_endpoint_reference_snap_wins_over_a_coarse_grid_snap() {
 #[test]
 fn wall_endpoint_release_inside_snap_radius_joins_without_pointer_move() {
     let (ctx, mut app) = setup();
-    app.editor.project.grid_settings.grid_snap_enabled = true;
-    app.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .grid_snap_enabled = true;
+    app.host.document.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::SnapGrid;
     let id = add_wall_for_editing(&mut app);
-    app.editor.project.add(
+    app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -736,7 +1781,7 @@ fn wall_endpoint_release_inside_snap_radius_joins_without_pointer_move() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     let from = pos2(400., 300.);
     let to = pos2(497., 301.);
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(from)]);
@@ -769,15 +1814,21 @@ fn wall_endpoint_release_inside_snap_radius_joins_without_pointer_move() {
         wall_reference_line(&app, id),
         (Point::new(2., 0.), Point::new(4., 0.))
     );
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert!(app.wall_edit.is_none());
-    assert!(app.editor.status.starts_with("Wall endpoint joined"));
+    assert!(
+        app.host
+            .document
+            .editor
+            .status
+            .starts_with("Wall endpoint joined")
+    );
 }
 #[test]
 fn wall_endpoint_snap_preview_matches_the_active_language() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    let target = app.editor.project.add(
+    let target = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -787,7 +1838,7 @@ fn wall_endpoint_snap_preview_matches_the_active_language() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     let from = pos2(400., 300.);
     let to = pos2(497., 301.);
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(from)]);
@@ -844,14 +1895,16 @@ fn wall_endpoint_snap_preview_matches_the_active_language() {
 fn wall_baseline_click_opens_endpoint_or_line_edit_and_escape_closes_it() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
 
     click(&ctx, &mut app, pos2(400., 300.));
     let edit = app.wall_edit.as_ref().expect("endpoint edit");
     assert_eq!((edit.element_id, edit.node), (id, Some(0)));
     assert_eq!(edit.command, WallEditCommand::MoveNode);
     assert!(
-        app.editor
+        app.host
+            .document
+            .editor
             .status
             .starts_with("Wall reference-line endpoint edit")
     );
@@ -865,7 +1918,7 @@ fn wall_baseline_click_opens_endpoint_or_line_edit_and_escape_closes_it() {
 
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert!(app.wall_edit.is_none());
-    assert_eq!(app.editor.selection_ids(), vec![id]);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
 }
 #[test]
 fn wall_reference_line_palette_renders_in_both_languages() {
@@ -875,8 +1928,8 @@ fn wall_reference_line_palette_renders_in_both_languages() {
             let (ctx, mut app) = setup();
             app.language = language;
             let id = add_wall_for_editing(&mut app);
-            app.editor.set_selection(vec![id]);
-            let before = app.editor.project.clone();
+            app.host.document.editor.set_selection(vec![id]);
+            let before = app.host.document.editor.project.clone();
             click(&ctx, &mut app, at);
             plan_frame(&ctx, &mut app, vec![]);
             let output = plan_frame_output(&ctx, &mut app, vec![]);
@@ -909,8 +1962,8 @@ fn wall_reference_line_palette_renders_in_both_languages() {
                     .iter()
                     .any(|s| s.starts_with("Length:") || s.starts_with("长度:"))
             );
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
             plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
             click(&ctx, &mut app, pos2(500., 300.));
             plan_frame(&ctx, &mut app, vec![]);
@@ -927,7 +1980,7 @@ fn wall_reference_line_palette_renders_in_both_languages() {
 fn wall_palette_keeps_the_edit_when_the_canvas_is_under_the_popup() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     click(&ctx, &mut app, pos2(400., 300.));
     assert!(app.wall_edit_palette_rect.is_some());
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 500.))]);
@@ -971,21 +2024,21 @@ fn wall_palette_keeps_the_edit_when_the_canvas_is_under_the_popup() {
         wall_reference_line(&app, id),
         (Point::new(0., 0.), Point::new(4., 0.))
     );
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
 
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert!(
         app.wall_edit.is_none(),
         "Escape dismisses the unchanged icon palette"
     );
-    assert!(app.editor.undo.is_empty());
-    assert_eq!(app.editor.selection_ids(), vec![id]);
+    assert!(app.host.document.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
 }
 #[test]
 fn escape_cancels_a_live_wall_baseline_drag_without_undo() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
 
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
     plan_frame(
@@ -1019,14 +2072,14 @@ fn escape_cancels_a_live_wall_baseline_drag_without_undo() {
         wall_reference_line(&app, id),
         (Point::new(0., 0.), Point::new(4., 0.))
     );
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
     assert!(app.wall_edit.is_none());
 }
 #[test]
 fn wall_baseline_edit_refuses_to_strand_a_hosted_opening() {
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.project.add(
+    app.host.document.editor.project.add(
         0,
         Material::Timber,
         Shape::Opening {
@@ -1038,7 +2091,7 @@ fn wall_baseline_edit_refuses_to_strand_a_hosted_opening() {
             offset: 3.5,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
 
     drag(&ctx, &mut app, pos2(600., 300.), pos2(500., 300.));
 
@@ -1046,7 +2099,7 @@ fn wall_baseline_edit_refuses_to_strand_a_hosted_opening() {
         wall_reference_line(&app, id),
         (Point::new(0., 0.), Point::new(4., 0.))
     );
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
     let edit = app.wall_edit.as_ref().expect("edit remains for feedback");
     assert!(edit.error.contains("outside its host wall"));
 }
@@ -1055,13 +2108,13 @@ fn pointer_wall_creation_selection_drag_undo_redo() {
     let (ctx, mut app) = setup();
     plan_frame(&ctx, &mut app, vec![key(Key::W, Modifiers::NONE)]);
     click(&ctx, &mut app, pos2(400., 300.));
-    assert_eq!(app.editor.anchor, Some(Point::new(0., 0.)));
+    assert_eq!(app.host.document.editor.anchor, Some(Point::new(0., 0.)));
     click(&ctx, &mut app, pos2(600., 300.));
-    assert_eq!(app.editor.project.elements.len(), 1);
-    assert_eq!(app.editor.project.elements[0].area(), 12.);
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements[0].area(), 12.);
     plan_frame(&ctx, &mut app, vec![key(Key::V, Modifiers::NONE)]);
     click(&ctx, &mut app, pos2(500., 300.));
-    assert_eq!(app.editor.selected, Some(1));
+    assert_eq!(app.host.document.editor.selected, Some(1));
     assert!(
         app.wall_insert.is_some(),
         "the wall was already selected after drawing"
@@ -1101,12 +2154,16 @@ fn pointer_wall_creation_selection_drag_undo_redo() {
         }],
     );
     assert!(app.wall_insert.is_none());
-    let wall = &app.editor.project.elements[0];
+    let wall = &app.host.document.editor.project.elements[0];
     assert!(matches!(wall.shape,Shape::Wall{start,..} if start==Point::new(1.,1.)));
-    assert_eq!(app.editor.undo.len(), 2, "one drag is one transaction");
+    assert_eq!(
+        app.host.document.editor.undo.len(),
+        2,
+        "one drag is one transaction"
+    );
     plan_frame(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
     assert!(
-        matches!(app.editor.project.elements[0].shape,Shape::Wall{start,..} if start==Point::default())
+        matches!(app.host.document.editor.project.elements[0].shape,Shape::Wall{start,..} if start==Point::default())
     );
     plan_frame(
         &ctx,
@@ -1114,7 +2171,7 @@ fn pointer_wall_creation_selection_drag_undo_redo() {
         vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
     );
     assert!(
-        matches!(app.editor.project.elements[0].shape,Shape::Wall{start,..} if start==Point::new(1.,1.))
+        matches!(app.host.document.editor.project.elements[0].shape,Shape::Wall{start,..} if start==Point::new(1.,1.))
     );
 }
 #[test]
@@ -1123,31 +2180,168 @@ fn pointer_slab_creation_and_cancel() {
     plan_frame(&ctx, &mut app, vec![key(Key::L, Modifiers::NONE)]);
     click(&ctx, &mut app, pos2(400., 300.));
     click(&ctx, &mut app, pos2(600., 150.));
-    assert_eq!(app.editor.project.elements[0].area(), 12.);
+    assert_eq!(app.host.document.editor.project.elements[0].area(), 12.);
     click(&ctx, &mut app, pos2(350., 350.));
-    assert!(app.editor.anchor.is_some());
+    assert!(app.host.document.editor.anchor.is_some());
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-    assert!(app.editor.anchor.is_none());
-    assert_eq!(app.editor.project.elements.len(), 1);
+    assert!(app.host.document.editor.anchor.is_none());
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+}
+
+// Check emitted canvas geometry, rather than just successful model creation.
+fn rectangular_slab_is_painted(
+    output: &egui::FullOutput,
+    corners: &[Pos2; 4],
+    selected: bool,
+) -> bool {
+    let is_corner = |p: Pos2| corners.iter().any(|q| p.distance(*q) < 0.01);
+    let outline = output.shapes.iter().any(|s| {
+        matches!(&s.shape, egui::Shape::Path(path)
+            if path.closed && path.points.len() == 4
+                && path.points.iter().all(|p| is_corner(*p))
+                && path.stroke.width > 0.)
+    });
+    let fill = output.shapes.iter().any(|s| {
+        matches!(&s.shape, egui::Shape::Mesh(mesh)
+            if mesh.indices.len() == 6 && mesh.vertices.len() == 6
+                && mesh.vertices.iter().all(|v| is_corner(v.pos)
+                    && v.color.a() > 0
+                    && (!selected || v.color == Color32::from_rgb(195, 225, 218))))
+    });
+    outline && fill
+}
+
+#[test]
+fn rectangular_slab_plan_paints_after_pointer_create_select_undo_redo_and_reload() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        plan_frame(&ctx, &mut app, vec![key(Key::L, Modifiers::NONE)]);
+        click(&ctx, &mut app, pos2(400., 300.));
+        click(&ctx, &mut app, pos2(600., 150.));
+        let slab = &app.host.document.editor.project.elements[0];
+        assert!(
+            slab.slab_contour.is_none(),
+            "ordinary zero-offset rectangle"
+        );
+        let corners = [
+            pos2(400., 300.),
+            pos2(600., 300.),
+            pos2(600., 150.),
+            pos2(400., 150.),
+        ];
+        let created = app.host.document.editor.project.clone();
+        app.host.document.editor.set_tool(Tool::Select);
+        app.host.document.editor.set_selection(vec![]);
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            rectangular_slab_is_painted(&out, &corners, false),
+            "{language:?}: created slab needs fill and outline"
+        );
+        click(&ctx, &mut app, pos2(500., 225.));
+        assert_eq!(app.host.document.editor.selection_ids(), vec![1]);
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(rectangular_slab_is_painted(&out, &corners, true));
+        assert_eq!(
+            app.host.document.editor.project, created,
+            "painting/selection never changes model"
+        );
+        app.host.document.editor.undo();
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(!rectangular_slab_is_painted(&out, &corners, false));
+        app.host.document.editor.redo();
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(rectangular_slab_is_painted(&out, &corners, false));
+        let restored =
+            serde_json::from_slice::<Project>(&serde_json::to_vec(&created).unwrap()).unwrap();
+        app.host.document.editor = Editor::new(restored);
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(rectangular_slab_is_painted(&out, &corners, false));
+        assert_eq!(app.host.document.editor.project, created);
+        // Explicit contours must retain the same visible rectangle.
+        let contour = crate::slab_geometry::contour(&created.elements[0]);
+        let mut explicit = created.clone();
+        explicit.elements[0].slab_contour = Some(contour);
+        app.host.document.editor = Editor::new(explicit);
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(rectangular_slab_is_painted(&out, &corners, false));
+        // Existing story/layer filters still apply.
+        app.host.document.editor.story = 1;
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(!rectangular_slab_is_painted(&out, &corners, false));
+        let mut hidden = created;
+        hidden.elements[0].layer = crate::layers::ElementLayer(crate::layers::HIDDEN_LAYER);
+        app.host.document.editor = Editor::new(hidden);
+        let out = plan_frame_output(&ctx, &mut app, vec![]);
+        assert!(!rectangular_slab_is_painted(&out, &corners, false));
+    }
+}
+
+#[test]
+#[ignore = "Requires an explicitly supplied private project; never a public test fixture"]
+fn rectangular_slab_plan_saved_project_readonly_regression() {
+    let input =
+        std::path::PathBuf::from(std::env::var_os("OPENARCHI_SLAB_CASE_INPUT").expect("case path"));
+    let project = Editor::from_stored_document(&input).unwrap().project;
+    let mut checked = 0;
+    for slab in &project.elements {
+        let Shape::Slab { min, max, .. } = slab.shape else {
+            continue;
+        };
+        if !project.plan_options.element_visible(slab, &project.layers) {
+            continue;
+        }
+        for view in [View::Plan, View::Split] {
+            let (ctx, mut app) = setup();
+            app.host.document.editor = Editor::new(project.clone());
+            app.host.document.editor.story = slab.story;
+            app.view = view;
+            app.plan_center = Point::new((min.x + max.x) / 2., (min.y + max.y) / 2.);
+            app.plan_scale = 150. / (max.x - min.x).max(max.y - min.y);
+            for _ in 0..4 {
+                layers_frame_output(&ctx, &mut app, vec![]);
+            }
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            let g = app.host.document.editor.slab_geometry(slab.id).unwrap();
+            for ring in &g.plan_paths {
+                assert!(
+                    out.shapes
+                        .iter()
+                        .any(|s| matches!(&s.shape, egui::Shape::Path(path)
+                    if path.closed && path.points == ring.iter().map(|p| app.screen(s.clip_rect, *p)).collect::<Vec<_>>())),
+                    "slab #{} in {view:?}: missing outline",
+                    slab.id
+                );
+            }
+            assert!(out.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Mesh(mesh)
+                if mesh.vertices.len() == g.plan_triangles.len() * 3 && mesh.vertices.iter().zip(g.plan_triangles.iter().flatten()).all(|(v,p)| v.pos == app.screen(s.clip_rect, *p) && v.color.a() > 0))), "slab #{} in {view:?}: missing fill", slab.id);
+            assert!(g.triangles().next().is_some(), "same slab has 3D surfaces");
+            assert_eq!(app.host.document.editor.project, project);
+            assert!(app.host.document.editor.undo.is_empty());
+            checked += 1;
+        }
+    }
+    assert!(checked > 0, "case must contain visible slabs");
+    eprintln!("Readonly case checked {checked} slab/view combinations; model unchanged");
 }
 #[test]
 fn pointer_polyline_draw_commit_json_undo_and_redo() {
     let (ctx, mut app) = setup();
     plan_frame(&ctx, &mut app, vec![key(Key::P, Modifiers::NONE)]);
-    assert_eq!(app.editor.tool, Tool::Polyline);
+    assert_eq!(app.host.document.editor.tool, Tool::Polyline);
     click(&ctx, &mut app, pos2(360., 280.));
     click(&ctx, &mut app, pos2(470., 250.));
     click(&ctx, &mut app, pos2(580., 320.));
     assert_eq!(
-        app.editor.project.elements.len(),
+        app.host.document.editor.project.elements.len(),
         0,
         "nodes stay a preview until commit"
     );
-    assert_eq!(app.editor.polyline_points.len(), 3);
+    assert_eq!(app.host.document.editor.polyline_points.len(), 3);
     plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-    assert_eq!(app.editor.project.elements.len(), 1);
-    assert_eq!(app.editor.selected, Some(1));
-    let Shape::Polyline { points, .. } = &app.editor.project.elements[0].shape else {
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    assert_eq!(app.host.document.editor.selected, Some(1));
+    let Shape::Polyline { points, .. } = &app.host.document.editor.project.elements[0].shape else {
         panic!("Polyline tool created a different shape");
     };
     assert_eq!(points.len(), 3);
@@ -1156,52 +2350,52 @@ fn pointer_polyline_draw_commit_json_undo_and_redo() {
             .windows(2)
             .all(|pair| pair[0].distance(pair[1]) >= 0.01)
     );
-    assert!(app.editor.project.validate().is_ok());
-    let json = serde_json::to_string(&app.editor.project).unwrap();
+    assert!(app.host.document.editor.project.validate().is_ok());
+    let json = serde_json::to_string(&app.host.document.editor.project).unwrap();
     assert_eq!(
         serde_json::from_str::<Project>(&json).unwrap(),
-        app.editor.project
+        app.host.document.editor.project
     );
-    app.editor.undo();
-    assert!(app.editor.project.elements.is_empty());
-    app.editor.redo();
+    app.host.document.editor.undo();
+    assert!(app.host.document.editor.project.elements.is_empty());
+    app.host.document.editor.redo();
     assert!(
-        matches!(app.editor.project.elements[0].shape, Shape::Polyline { ref points , .. } if points.len() == 3)
+        matches!(app.host.document.editor.project.elements[0].shape, Shape::Polyline { ref points , .. } if points.len() == 3)
     );
 }
 #[test]
 fn pointer_polyline_escape_discards_draft_without_model_change() {
     let (ctx, mut app) = setup();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     plan_frame(&ctx, &mut app, vec![key(Key::P, Modifiers::NONE)]);
     click(&ctx, &mut app, pos2(360., 280.));
-    assert_eq!(app.editor.polyline_points.len(), 1);
+    assert_eq!(app.host.document.editor.polyline_points.len(), 1);
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-    assert_eq!(app.editor.tool, Tool::Select);
-    assert!(app.editor.polyline_points.is_empty());
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.tool, Tool::Select);
+    assert!(app.host.document.editor.polyline_points.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn escape_cancels_current_command_returns_to_previous_then_select() {
     let (ctx, mut app) = setup();
     plan_frame(&ctx, &mut app, vec![key(Key::W, Modifiers::NONE)]);
     plan_frame(&ctx, &mut app, vec![key(Key::P, Modifiers::NONE)]);
-    app.editor.polyline_points = vec![Point::new(1., 1.), Point::new(2., 1.)];
+    app.host.document.editor.polyline_points = vec![Point::new(1., 1.), Point::new(2., 1.)];
 
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert_eq!(
-        app.editor.tool,
+        app.host.document.editor.tool,
         Tool::Wall,
         "first Escape restores the previous command"
     );
     assert!(
-        app.editor.polyline_points.is_empty(),
+        app.host.document.editor.polyline_points.is_empty(),
         "first Escape cancels the active drawing"
     );
 
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert_eq!(
-        app.editor.tool,
+        app.host.document.editor.tool,
         Tool::Select,
         "second Escape returns to Select"
     );
@@ -1209,32 +2403,35 @@ fn escape_cancels_current_command_returns_to_previous_then_select() {
 #[test]
 fn pointer_stair_creation_persists_parametric_settings_and_undoes() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Stair);
-    app.editor.stair_spec.width = 1.25;
-    app.editor.stair_spec.total_rise = 3.4;
-    app.editor.stair_spec.risers = 20;
+    app.host.document.editor.set_tool(Tool::Stair);
+    app.host.document.editor.stair_spec.width = 1.25;
+    app.host.document.editor.stair_spec.total_rise = 3.4;
+    app.host.document.editor.stair_spec.risers = 20;
     click(&ctx, &mut app, pos2(400., 300.));
     click(&ctx, &mut app, pos2(640., 300.));
-    assert_eq!(app.editor.project.elements.len(), 1);
-    let element = &app.editor.project.elements[0];
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    let element = &app.host.document.editor.project.elements[0];
     let Shape::Stair { spec } = &element.shape else {
         panic!("stair tool created another kind")
     };
     assert_eq!(spec.width, 1.25);
     assert_eq!(spec.risers, 20);
-    let geometry =
-        crate::stairs::generate(spec, app.editor.project.elevation(element.story)).unwrap();
+    let geometry = crate::stairs::generate(
+        spec,
+        app.host.document.editor.project.elevation(element.story),
+    )
+    .unwrap();
     assert_eq!(geometry.tread_lines.len(), 20);
-    assert!(app.editor.project.validate().is_ok());
-    let json = serde_json::to_string(&app.editor.project).unwrap();
+    assert!(app.host.document.editor.project.validate().is_ok());
+    let json = serde_json::to_string(&app.host.document.editor.project).unwrap();
     let restored: Project = serde_json::from_str(&json).unwrap();
-    assert_eq!(restored, app.editor.project);
-    app.editor.undo();
-    assert!(app.editor.project.elements.is_empty());
-    app.editor.redo();
-    assert_eq!(app.editor.project.elements.len(), 1);
-    let id = app.editor.project.elements[0].id;
-    app.editor.set_selection(vec![id]);
+    assert_eq!(restored, app.host.document.editor.project);
+    app.host.document.editor.undo();
+    assert!(app.host.document.editor.project.elements.is_empty());
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    let id = app.host.document.editor.project.elements[0].id;
+    app.host.document.editor.set_selection(vec![id]);
     app.open_element_settings();
     if let Some(Element {
         shape: Shape::Stair { spec },
@@ -1245,21 +2442,21 @@ fn pointer_stair_creation_persists_parametric_settings_and_undoes() {
     }
     app.apply_element_settings().unwrap();
     assert!(
-        matches!(app.editor.project.elements[0].shape, Shape::Stair { ref spec } if spec.width == 1.4)
+        matches!(app.host.document.editor.project.elements[0].shape, Shape::Stair { ref spec } if spec.width == 1.4)
     );
-    app.editor.undo();
+    app.host.document.editor.undo();
     assert!(
-        matches!(app.editor.project.elements[0].shape, Shape::Stair { ref spec } if spec.width == 1.25)
+        matches!(app.host.document.editor.project.elements[0].shape, Shape::Stair { ref spec } if spec.width == 1.25)
     );
 }
 #[test]
 fn command_t_opens_selected_wall_settings_or_wall_defaults() {
     let (_ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(0., 0.), 0.);
-    app.editor.click(Point::new(3., 0.), 0.);
-    let id = app.editor.project.elements[0].id;
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(3., 0.), 0.);
+    let id = app.host.document.editor.project.elements[0].id;
+    app.host.document.editor.set_selection(vec![id]);
     app.open_element_settings();
     assert!(app.element_settings.is_none());
     let selected = app.wall_settings_dialog.as_ref().unwrap();
@@ -1268,8 +2465,8 @@ fn command_t_opens_selected_wall_settings_or_wall_defaults() {
         crate::wall_ui::WallSettingsMode::Selected(id)
     );
     app.wall_settings_dialog = None;
-    app.editor.set_selection(Vec::new());
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_selection(Vec::new());
+    app.host.document.editor.set_tool(Tool::Wall);
     app.open_element_settings();
     assert_eq!(
         app.wall_settings_dialog.as_ref().unwrap().mode,
@@ -1279,13 +2476,13 @@ fn command_t_opens_selected_wall_settings_or_wall_defaults() {
 #[test]
 fn wall_settings_dialog_renders_without_mutating_the_project() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(0., 0.), 0.);
-    app.editor.click(Point::new(3., 0.), 0.);
-    let id = app.editor.project.elements[0].id;
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(3., 0.), 0.);
+    let id = app.host.document.editor.project.elements[0].id;
+    app.host.document.editor.set_selection(vec![id]);
     app.open_element_settings();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900., 700.))),
@@ -1295,13 +2492,13 @@ fn wall_settings_dialog_renders_without_mutating_the_project() {
     );
     output.textures_delta.clear();
     assert!(app.wall_settings_dialog.is_some());
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn stair_settings_dialog_renders_without_mutating_the_project() {
     let (ctx, mut app) = setup();
     app.stair_settings_open = true;
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.))),
@@ -1311,12 +2508,174 @@ fn stair_settings_dialog_renders_without_mutating_the_project() {
     );
     output.textures_delta.clear();
     assert!(app.stair_settings_open);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
+}
+#[test]
+fn stair_dynamic_summary_and_step_height_follow_language_without_model_changes() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app, _, _) =
+            opening_info_box_permission_fixture(language, OpeningKind::Door, "none");
+        app.host.document.editor.set_selection(vec![]);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let before = app.host.document.editor.project.clone();
+        let saved = app.host.document.editor.saved.clone();
+        let dirty = app.host.document.editor.dirty();
+        let revision = app.host.document.editor.revision;
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        let redo = app.host.document.editor.redo[0].delta.clone();
+        layers_frame_output(&ctx, &mut app, vec![key(Key::S, Modifiers::NONE)]);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(app.stair_settings_open);
+        assert_eq!(
+            app.status_text(),
+            match language {
+                UiLanguage::English => "Stair · Set parameters, then click run start and end",
+                UiLanguage::SimplifiedChinese => "楼梯 · 设置参数后，点击跑梯起点和终点",
+            }
+        );
+        let (default_height, edited_height, summary) = match language {
+            UiLanguage::English => (
+                "Rise per step: 178 mm",
+                "Rise per step: 170 mm",
+                "20 risers · 1.25 m wide · 3.40 m rise",
+            ),
+            UiLanguage::SimplifiedChinese => (
+                "每级高度：178 mm",
+                "每级高度：170 mm",
+                "20 级踏步 · 宽 1.25 m · 总高 3.40 m",
+            ),
+        };
+        assert!(text_center(&output.shapes, default_height).is_some());
+        app.stair_settings_draft.risers = 20;
+        app.stair_settings_draft.total_rise = 3.4;
+        app.stair_settings_draft.width = 1.25;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, edited_height).is_some());
+        let apply = text_center(&output.shapes, language.translate("Apply")).unwrap();
+        layers_click(&ctx, &mut app, apply);
+        assert!(app.stair_settings_open);
+        assert_eq!(app.host.document.editor.stair_spec.risers, 20);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let start = text_center(&output.shapes, language.translate("Start Drawing")).unwrap();
+        layers_click(&ctx, &mut app, start);
+        assert!(!app.stair_settings_open);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, summary).is_some());
+        let mut rendered = Vec::new();
+        collect_text(&output.shapes, &mut rendered);
+        assert!(
+            text_center(
+                &output.shapes,
+                language.translate(app.host.document.editor.material.name())
+            )
+            .is_some(),
+            "{language:?}: {rendered:?}"
+        );
+        let settings = text_center(&output.shapes, language.translate("Stair Settings…")).unwrap();
+        layers_click(&ctx, &mut app, settings);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, edited_height).is_some());
+        let cancel = text_center(&output.shapes, language.translate("Cancel")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert!(!app.stair_settings_open);
+        for tool in [Tool::Slab, Tool::Polyline, Tool::Stair] {
+            app.host.document.editor.set_tool(tool);
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            assert!(
+                text_center(
+                    &output.shapes,
+                    language.translate(app.host.document.editor.material.name())
+                )
+                .is_some(),
+                "{tool:?}/{language:?}"
+            );
+        }
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.saved, saved);
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert!(app.host.document.editor.selection_ids().is_empty());
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        assert_eq!(app.host.document.editor.redo[0].delta, redo);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project.name, "Redo candidate");
+    }
+}
+#[test]
+fn shared_plan_snap_labels_follow_language_and_keep_geometry_and_history() {
+    for (kind, english, chinese) in [
+        (SnapKind::Free, "Free", "自由"),
+        (SnapKind::Endpoint, "Endpoint", "端点"),
+        (SnapKind::Midpoint, "Midpoint", "中点"),
+        (SnapKind::Grid, "Grid", "网格点"),
+        (SnapKind::SnapPoint, "SnapPoint", "捕捉点"),
+        (SnapKind::Guide, "Guide", "辅助线"),
+        (SnapKind::Angle, "Angle", "角度"),
+        (SnapKind::Perpendicular, "Perpendicular", "垂直"),
+        (SnapKind::Alignment, "Alignment", "对齐"),
+    ] {
+        assert_eq!(format!("{kind:?}"), english);
+        assert_eq!(UiLanguage::English.translate(english), english);
+        assert_eq!(UiLanguage::SimplifiedChinese.translate(english), chinese);
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for tool in [Tool::Wall, Tool::Slab, Tool::Polyline, Tool::Stair] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.project.add(
+                0,
+                Material::Plaster,
+                Shape::Polyline {
+                    points: vec![Point::new(0., 0.), Point::new(4., 0.)],
+                    arcs: vec![],
+                },
+            );
+            app.host.document.editor.set_tool(tool);
+            app.host.document.editor.snap = true;
+            let before = app.host.document.editor.project.clone();
+            let revision = app.host.document.editor.revision;
+            let history = (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len(),
+            );
+            let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            for (point, label) in [
+                (Point::new(-3., -2.), "Free"),
+                (Point::new(0., 0.), "Endpoint"),
+            ] {
+                let pointer = app.screen(viewport, point);
+                let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pointer)]);
+                assert!(
+                    text_center(&output.shapes, language.translate(label)).is_some(),
+                    "{tool:?}/{language:?}/{label}"
+                );
+            }
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert_eq!(
+                (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len()
+                ),
+                history
+            );
+            assert!(app.host.document.editor.anchor.is_none());
+        }
+    }
 }
 #[test]
 fn stair_shortcut_opens_settings_and_activates_the_real_tool() {
     let (ctx, mut app) = setup();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.))),
@@ -1326,9 +2685,9 @@ fn stair_shortcut_opens_settings_and_activates_the_real_tool() {
         |ui| app.shortcuts(ui.ctx()),
     );
     output.textures_delta.clear();
-    assert_eq!(app.editor.tool, Tool::Stair);
+    assert_eq!(app.host.document.editor.tool, Tool::Stair);
     assert!(app.stair_settings_open);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn marquee_rectangle_is_created_by_plan_canvas_drag() {
@@ -1360,14 +2719,20 @@ fn marquee_rectangle_is_created_by_plan_canvas_drag() {
             modifiers: Modifiers::NONE,
         }],
     );
-    let area = app.editor.marquee.as_ref().expect("drag places a marquee");
+    let area = app
+        .host
+        .document
+        .editor
+        .marquee
+        .as_ref()
+        .expect("drag places a marquee");
     assert_eq!(area.vertices.len(), 4);
     assert!(area.z_range.is_none());
 }
 #[test]
 fn polygon_marquee_uses_right_click_to_close_and_enter_does_not_close() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Marquee);
+    app.host.document.editor.set_tool(Tool::Marquee);
     app.marquee_geometry = MarqueeGeometry::Polygon;
     click(&ctx, &mut app, pos2(330., 270.));
     click(&ctx, &mut app, pos2(470., 270.));
@@ -1380,7 +2745,7 @@ fn polygon_marquee_uses_right_click_to_close_and_enter_does_not_close() {
     );
     plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
     assert!(
-        app.editor.marquee.is_none(),
+        app.host.document.editor.marquee.is_none(),
         "Enter is reserved for numeric tracker input"
     );
     let pos = pos2(440., 370.);
@@ -1408,17 +2773,22 @@ fn polygon_marquee_uses_right_click_to_close_and_enter_does_not_close() {
         }],
     );
     assert_eq!(
-        app.editor.marquee.as_ref().map(|area| area.vertices.len()),
+        app.host
+            .document
+            .editor
+            .marquee
+            .as_ref()
+            .map(|area| area.vertices.len()),
         Some(3),
         "right-click close failed: points={:?}, status={:?}",
         app.marquee_points,
-        app.editor.status
+        app.host.document.editor.status
     );
 }
 #[test]
 fn three_dimensional_polygon_marquee_previews_and_closes_on_right_click() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Marquee);
+    app.host.document.editor.set_tool(Tool::Marquee);
     app.marquee_geometry = MarqueeGeometry::Polygon;
     let points = [pos2(250., 450.), pos2(430., 450.), pos2(410., 500.)];
     click_model(&ctx, &mut app, points[0], PointerButton::Primary);
@@ -1426,7 +2796,7 @@ fn three_dimensional_polygon_marquee_previews_and_closes_on_right_click() {
         app.marquee_3d_points.len(),
         1,
         "first screen point not registered: {:?}",
-        app.editor.status
+        app.host.document.editor.status
     );
     click_model(&ctx, &mut app, points[1], PointerButton::Primary);
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(points[2])]);
@@ -1435,7 +2805,7 @@ fn three_dimensional_polygon_marquee_previews_and_closes_on_right_click() {
         2,
         "ground points={:?}, status={:?}",
         app.marquee_points,
-        app.editor.status
+        app.host.document.editor.status
     );
     assert!(
         app.marquee_3d_cursor.is_some(),
@@ -1443,11 +2813,13 @@ fn three_dimensional_polygon_marquee_previews_and_closes_on_right_click() {
     );
     click_model(&ctx, &mut app, points[2], PointerButton::Primary);
     assert!(
-        app.editor.marquee.is_none(),
+        app.host.document.editor.marquee.is_none(),
         "three vertices only define the base until right-click"
     );
     click_model(&ctx, &mut app, points[2], PointerButton::Secondary);
     let area = app
+        .host
+        .document
         .editor
         .marquee
         .as_ref()
@@ -1460,17 +2832,23 @@ fn three_dimensional_polygon_marquee_previews_and_closes_on_right_click() {
 #[test]
 fn three_dimensional_rotated_rectangle_uses_three_ground_plane_points() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Marquee);
+    app.host.document.editor.set_tool(Tool::Marquee);
     app.marquee_geometry = MarqueeGeometry::RotatedRectangle;
     for pos in [pos2(250., 440.), pos2(430., 430.), pos2(420., 500.)] {
         click_model(&ctx, &mut app, pos, PointerButton::Primary);
     }
-    let area = app.editor.marquee.as_ref().unwrap_or_else(|| {
-        panic!(
-            "third point failed: points={:?}, status={:?}",
-            app.marquee_points, app.editor.status
-        )
-    });
+    let area = app
+        .host
+        .document
+        .editor
+        .marquee
+        .as_ref()
+        .unwrap_or_else(|| {
+            panic!(
+                "third point failed: points={:?}, status={:?}",
+                app.marquee_points, app.host.document.editor.status
+            )
+        });
     assert_eq!(area.vertices.len(), 4);
     assert_eq!(area.z_range, Some((0., app.marquee_height)));
     assert!(app.show_marquee_3d);
@@ -1479,7 +2857,7 @@ fn three_dimensional_rotated_rectangle_uses_three_ground_plane_points() {
 fn default_is_single_plan_window_and_f_keys_switch_3d_workflow() {
     let (ctx, mut app) = setup();
     assert_eq!(app.view, View::Plan);
-    let selected_id = app.editor.project.add(
+    let selected_id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -1489,8 +2867,8 @@ fn default_is_single_plan_window_and_f_keys_switch_3d_workflow() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![selected_id]);
-    app.editor.marquee = MarqueeArea::new(
+    app.host.document.editor.set_selection(vec![selected_id]);
+    app.host.document.editor.marquee = MarqueeArea::new(
         vec![
             Point::new(0., 0.),
             Point::new(2., 0.),
@@ -1503,20 +2881,26 @@ fn default_is_single_plan_window_and_f_keys_switch_3d_workflow() {
     plan_frame(&ctx, &mut app, vec![key(Key::F5, Modifiers::NONE)]);
     assert_eq!(app.view, View::Model);
     assert!(app.show_marquee_3d);
-    assert!(app.editor.status.contains("clipped Marquee"));
-    assert_eq!(app.editor.selection_ids(), vec![selected_id]);
+    assert!(app.host.document.editor.status.contains("clipped Marquee"));
+    assert_eq!(app.host.document.editor.selection_ids(), vec![selected_id]);
     plan_frame(&ctx, &mut app, vec![key(Key::F2, Modifiers::NONE)]);
     assert_eq!(app.view, View::Plan);
-    app.editor.marquee = None;
+    app.host.document.editor.marquee = None;
     plan_frame(&ctx, &mut app, vec![key(Key::F5, Modifiers::NONE)]);
-    assert!(app.editor.status.contains("selected elements"));
+    assert!(
+        app.host
+            .document
+            .editor
+            .status
+            .contains("selected elements")
+    );
     plan_frame(&ctx, &mut app, vec![key(Key::F3, Modifiers::NONE)]);
     assert_eq!(app.view, View::Model);
 }
 #[test]
 fn command_t_opens_independent_element_settings_and_applies_edits() {
     let (ctx, mut app) = setup();
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Slab {
@@ -1525,7 +2909,7 @@ fn command_t_opens_independent_element_settings_and_applies_edits() {
             thickness: 0.2,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.tab = Tab::Library;
     app.show_right = false;
     plan_frame(&ctx, &mut app, vec![key(Key::T, Modifiers::COMMAND)]);
@@ -1552,17 +2936,17 @@ fn command_t_opens_independent_element_settings_and_applies_edits() {
     }
     app.apply_element_settings().unwrap();
     assert!(
-        matches!(app.editor.project.elements[0].shape, Shape::Slab { thickness, .. } if thickness == 0.35)
+        matches!(app.host.document.editor.project.elements[0].shape, Shape::Slab { thickness, .. } if thickness == 0.35)
     );
-    app.editor.undo();
+    app.host.document.editor.undo();
     assert!(
-        matches!(app.editor.project.elements[0].shape, Shape::Slab { thickness, .. } if thickness == 0.2)
+        matches!(app.host.document.editor.project.elements[0].shape, Shape::Slab { thickness, .. } if thickness == 0.2)
     );
 }
 #[test]
 fn shift_middle_drag_orbits_3d_while_plain_middle_drag_pans() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Marquee);
+    app.host.document.editor.set_tool(Tool::Marquee);
     let yaw = app.camera.yaw;
     let pitch = app.camera.pitch;
     let target = app.camera.target;
@@ -1653,8 +3037,8 @@ fn shift_middle_drag_orbits_3d_while_plain_middle_drag_pans() {
 #[test]
 fn tracker_enter_creates_exact_wall() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.anchor = Some(Point::new(1., 2.));
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.anchor = Some(Point::new(1., 2.));
     app.tracker_a = 5.25;
     app.tracker_b = 90.;
     app.tracker_locked = true;
@@ -1666,8 +3050,8 @@ fn tracker_enter_creates_exact_wall() {
         |ui| app.tracker(ui),
     );
     output.textures_delta.clear();
-    assert_eq!(app.editor.project.elements.len(), 1);
-    if let Shape::Wall { start, end, .. } = app.editor.project.elements[0].shape {
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    if let Shape::Wall { start, end, .. } = app.host.document.editor.project.elements[0].shape {
         assert!((start.distance(end) - 5.25).abs() < 1e-5);
         assert!((end.y - 7.25).abs() < 1e-5);
     } else {
@@ -1677,8 +3061,8 @@ fn tracker_enter_creates_exact_wall() {
 #[test]
 fn tracker_labels_follow_language() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.anchor = Some(Point::new(1., 2.));
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.anchor = Some(Point::new(1., 2.));
     for (language, expected) in [
         (
             UiLanguage::English,
@@ -1708,6 +3092,236 @@ fn tracker_labels_follow_language() {
         }
     }
 }
+
+fn slab_tracker_creation_from_toolbox(enter: bool) {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for previous_wall_method in [WallGeometryMethod::Single, WallGeometryMethod::Rectangular] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host
+                .document
+                .editor
+                .wall_settings
+                .geometry
+                .geometry_method = previous_wall_method;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let tool = text_center(&output.shapes, language.translate("Slab")).unwrap();
+            layers_click(&ctx, &mut app, tool);
+            assert_eq!(app.host.document.editor.tool, Tool::Slab);
+            layers_click(&ctx, &mut app, pos2(650., 550.));
+            let anchor = app
+                .host
+                .document
+                .editor
+                .anchor
+                .expect("real canvas click starts slab");
+            let before = app.host.document.editor.project.clone();
+            assert!(before.elements.is_empty());
+            app.host.document.editor.thickness = 0.2;
+            app.host.document.editor.slab_elevation = if enter { 0.6 } else { 0. };
+            app.tracker_a = 10.;
+            app.tracker_b = 8.;
+            app.tracker_locked = true;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            if enter {
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            } else {
+                let create = text_center(&output.shapes, language.translate("Create [Enter]"))
+                    .expect("actual tracker create button");
+                layers_click(&ctx, &mut app, create);
+            }
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "{language:?}/{previous_wall_method:?}"
+            );
+            assert_eq!(
+                app.host.document.editor.project.elements[0].shape,
+                Shape::Slab {
+                    min: anchor,
+                    max: Point::new(anchor.x + 10., anchor.y + 8.),
+                    thickness: 0.2,
+                },
+                "Slab tracker must ignore the previous wall method"
+            );
+            assert_eq!(
+                crate::slab_geometry::contour(&app.host.document.editor.project.elements[0])
+                    .elevation,
+                app.host.document.editor.slab_elevation
+            );
+            assert!(app.host.document.editor.anchor.is_none());
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            app.host.document.editor.project.validate().unwrap();
+            let after = app.host.document.editor.project.clone();
+            let bytes = serde_json::to_vec(&after).unwrap();
+            assert_eq!(serde_json::from_slice::<Project>(&bytes).unwrap(), after);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn slab_tracker_create_button_uses_slab_after_either_wall_method_bilingual() {
+    slab_tracker_creation_from_toolbox(false);
+}
+
+#[test]
+fn slab_tracker_enter_uses_slab_after_either_wall_method_bilingual() {
+    slab_tracker_creation_from_toolbox(true);
+}
+
+#[test]
+fn slab_tracker_rejects_zero_width_then_cancel_preserves_redo_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Slab);
+        app.host.document.editor.click(Point::default(), 0.);
+        app.host.document.editor.click(Point::new(2., 2.), 0.);
+        app.host.document.editor.undo();
+        let before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        assert_eq!(history, (0, 1));
+        app.host
+            .document
+            .editor
+            .wall_settings
+            .geometry
+            .geometry_method = WallGeometryMethod::Rectangular;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(&ctx, &mut app, pos2(650., 550.));
+        assert!(app.host.document.editor.anchor.is_some());
+        app.tracker_a = 0.;
+        app.tracker_b = 8.;
+        app.tracker_locked = true;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let create = text_center(&output.shapes, language.translate("Create [Enter]")).unwrap();
+        layers_click(&ctx, &mut app, create);
+        assert_eq!(
+            app.host.document.editor.status,
+            "Slab needs a non-zero width and depth"
+        );
+        let expected = match language {
+            UiLanguage::English => "Slab needs a non-zero width and depth",
+            UiLanguage::SimplifiedChinese => "楼板需要非零宽度和深度",
+        };
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(app.status_text(), expected);
+        assert!(text_center(&output.shapes, expected).is_some());
+        assert!(
+            app.host.document.editor.anchor.is_some(),
+            "invalid slab remains a draft"
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let cancel = text_center(&output.shapes, language.translate("Cancel")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert!(app.host.document.editor.anchor.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Slab { .. }
+        ));
+    }
+}
+
+#[test]
+fn stair_tracker_uses_existing_stair_creation_instead_of_wall_method() {
+    let (ctx, mut app) = setup();
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Rectangular;
+    app.host.document.editor.set_tool(Tool::Stair);
+    app.host.document.editor.anchor = Some(Point::default());
+    app.tracker_a = 4.;
+    app.tracker_b = 0.;
+    app.tracker_locked = true;
+    let mut output = ctx.run_ui(
+        RawInput {
+            events: vec![key(Key::Enter, Modifiers::NONE)],
+            ..Default::default()
+        },
+        |ui| app.tracker(ui),
+    );
+    output.textures_delta.clear();
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    assert!(matches!(
+        app.host.document.editor.project.elements[0].shape,
+        Shape::Stair { ref spec } if spec.start == Point::default() && spec.end == Point::new(4., 0.)
+    ));
+    app.host.document.editor.project.validate().unwrap();
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+}
+
+#[test]
+fn rectangular_wall_tracker_keeps_its_four_segment_commit() {
+    let (ctx, mut app) = setup();
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Rectangular;
+    app.host.document.editor.anchor = Some(Point::default());
+    app.tracker_a = 10.;
+    app.tracker_b = 8.;
+    app.tracker_locked = true;
+    let before = app.host.document.editor.project.clone();
+    let mut output = ctx.run_ui(
+        RawInput {
+            events: vec![key(Key::Enter, Modifiers::NONE)],
+            ..Default::default()
+        },
+        |ui| app.tracker(ui),
+    );
+    output.textures_delta.clear();
+    assert_eq!(app.host.document.editor.project.elements.len(), 4);
+    assert!(
+        app.host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .all(|e| matches!(e.shape, Shape::Wall { .. }))
+    );
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    let after = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, after);
+}
+
 #[test]
 fn workspace_all_views_and_tabs_render_at_minimum_window() {
     let (ctx, mut app) = setup();
@@ -1792,7 +3406,7 @@ fn workspace_does_not_repeat_the_native_window_title_or_language_picker() {
 fn simplified_chinese_workspace_renders_without_changing_model_state() {
     let (ctx, mut app) = setup();
     app.language = UiLanguage::SimplifiedChinese;
-    let before = app.editor.project.elements.clone();
+    let before = app.host.document.editor.project.elements.clone();
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1050., 700.))),
@@ -1810,13 +3424,13 @@ fn simplified_chinese_workspace_renders_without_changing_model_state() {
         chinese_glyphs_present,
         "the UI font fallback must contain Simplified Chinese glyphs"
     );
-    assert_eq!(app.editor.project.elements, before);
+    assert_eq!(app.host.document.editor.project.elements, before);
 }
 #[test]
 fn quick_options_bar_and_palette_render_in_the_selected_language() {
     let (ctx, mut app) = setup();
     app.quick_options_palette_visible = true;
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
 
     app.language = UiLanguage::English;
     let mut first = ctx.run_ui(
@@ -1879,13 +3493,13 @@ fn quick_options_bar_and_palette_render_in_the_selected_language() {
             .any(|text| text.contains("Layer Combination")),
         "English Quick Options labels remain after switching to Chinese: {chinese:?}"
     );
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn main_window_status_tabs_and_counts_follow_the_selected_language() {
     let (ctx, mut app) = setup();
-    app.editor.status = "Selected 2 element(s) in Marquee".into();
-    let before = app.editor.project.clone();
+    app.host.document.editor.status = "Selected 2 element(s) in Marquee".into();
+    let before = app.host.document.editor.project.clone();
 
     app.language = UiLanguage::SimplifiedChinese;
     for pass in 0..2 {
@@ -1951,16 +3565,29 @@ fn main_window_status_tabs_and_counts_follow_the_selected_language() {
         );
     }
     assert_eq!(
-        app.editor.status, "Selected 2 element(s) in Marquee",
+        app.host.document.editor.status, "Selected 2 element(s) in Marquee",
         "switching language must not rewrite model/editor state"
     );
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn status_text_localizes_dynamic_messages_without_rewriting_editor_state() {
-    let (_ctx, mut app) = setup();
+    let (ctx, mut app) = setup();
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.project.name = "Status history baseline".into();
+    app.host.document.editor.commit(before);
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.project.name = "Status history redo".into();
+    app.host.document.editor.commit(before);
+    let redone = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    app.host.document.editor.mark_saved();
     app.language = UiLanguage::SimplifiedChinese;
     for (status, expected) in [
+        (
+            "Select an element · Drag to move · Delete to remove",
+            "选择构件 · 拖动移动 · 按 Delete 删除",
+        ),
         (
             "Selected 2 element(s) in Marquee",
             "在选区框中选择 2 个构件",
@@ -1968,9 +3595,57 @@ fn status_text_localizes_dynamic_messages_without_rewriting_editor_state() {
         ("Copied 3 element(s)", "已复制 3 个构件"),
         ("Cut 1 element(s)", "已剪切 1 个构件"),
         ("Pasted 4 element(s)", "已粘贴 4 个构件"),
+        (
+            "Slab · Click two opposite corners · Enter commits Tracker values",
+            "楼板 · 点击两个相对角点 · 按 Enter 确认追踪器数值",
+        ),
         ("Created element 013", "已创建构件 013"),
+        ("Created Polyline 004", "已创建多段线 004"),
+        ("Created Door 002", "已创建门 002"),
+        ("Created Window 003", "已创建窗 003"),
+        (
+            "Command cancelled · Select restored",
+            "命令已取消 · 已恢复选择工具",
+        ),
+        (
+            "Command cancelled · Wall restored",
+            "命令已取消 · 已恢复墙工具",
+        ),
+        ("Stretched nodes on 2 element(s)", "已拉伸 2 个构件的节点"),
+        ("Layer Interior - Lamp is locked", "图层 室内 - 灯具 已锁定"),
+        ("Layer Custom BIM 42 is locked", "图层 Custom BIM 42 已锁定"),
+        (
+            "Door · Click a wall to place a rectangular door opening",
+            "门 · 点击墙体放置矩形门洞口",
+        ),
+        (
+            "Window · Click a wall to place a rectangular window opening",
+            "窗 · 点击墙体放置矩形窗洞口",
+        ),
+        ("Click on a wall to place a door", "请点击墙体放置门"),
+        ("Click on a wall to place a window", "请点击墙体放置窗"),
+        (
+            "Polyline · 12 node(s) · right-click to finish",
+            "多段线 · 12 个节点 · 右键完成",
+        ),
+        (
+            "Polyline needs at least two distinct nodes",
+            "多段线至少需要两个不同的节点",
+        ),
+        (
+            "Polyline · Click start, left-click nodes, right-click to finish · click start to close",
+            "多段线 · 点击起点，左键添加节点，右键完成 · 点击起点闭合",
+        ),
         ("Element Settings · Wall 007", "构件设置 · 墙 007"),
         ("Project saved", "项目已保存"),
+        (
+            "Axonometry · viewport interface preview",
+            "轴测图 · 视口界面预览",
+        ),
+        (
+            "Explore Model · viewport interface preview",
+            "漫游模型 · 视口界面预览",
+        ),
         ("Navigator item · Ground Floor", "导航器项目 · 首层"),
         ("View Map · South Elevation", "视图地图 · 南立面"),
         (
@@ -1978,18 +3653,162 @@ fn status_text_localizes_dynamic_messages_without_rewriting_editor_state() {
             "墙 · 工具已选择 · 界面预览",
         ),
     ] {
-        app.editor.status = status.into();
+        app.host.document.editor.status = status.into();
         assert_eq!(app.status_text(), expected, "status {status:?}");
         assert_eq!(
-            app.editor.status, status,
+            app.host.document.editor.status, status,
             "editor state must stay canonical"
         );
+        if status == "Select an element · Drag to move · Delete to remove" {
+            let before = app.host.document.editor.project.clone();
+            let saved = app.host.document.editor.saved.clone();
+            let selection = app.host.document.editor.selection_ids();
+            let dirty = app.host.document.editor.dirty();
+            let revision = app.host.document.editor.revision;
+            let history = (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len(),
+            );
+            let redo = app.host.document.editor.redo[0].delta.clone();
+            for language in [
+                UiLanguage::English,
+                UiLanguage::SimplifiedChinese,
+                UiLanguage::English,
+                UiLanguage::SimplifiedChinese,
+            ] {
+                app.language = language;
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                assert!(
+                    text_center(
+                        &output.shapes,
+                        if language == UiLanguage::English {
+                            status
+                        } else {
+                            expected
+                        }
+                    )
+                    .is_some()
+                );
+                assert_eq!(app.host.document.editor.status, status);
+                assert_eq!(app.host.document.editor.project, before);
+                assert_eq!(app.host.document.editor.saved, saved);
+                assert_eq!(app.host.document.editor.selection_ids(), selection);
+                assert_eq!(app.host.document.editor.dirty(), dirty);
+                assert_eq!(app.host.document.editor.revision, revision);
+                assert_eq!(
+                    (
+                        app.host.document.editor.undo.len(),
+                        app.host.document.editor.redo.len()
+                    ),
+                    history
+                );
+                assert_eq!(app.host.document.editor.redo[0].delta, redo);
+            }
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, redone);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+        }
+    }
+    for status in [
+        "Created Door ",
+        "Created Door 2a",
+        "Created Window 003 extra",
+        "Stretched nodes on 2a element(s)",
+        "Layer  is locked",
+        "Layer Custom is locked extra",
+    ] {
+        app.host.document.editor.status = status.into();
+        assert_eq!(app.status_text(), status.trim());
+    }
+    app.host.document.editor.status = "Command cancelled · Unknown restored".into();
+    assert_eq!(app.status_text(), "命令已取消 · Unknown restored");
+    for tool in [
+        "Roof", "Beam", "Column", "Select", "Marquee", "Wall", "Slab", "Stair", "Polyline", "Door",
+        "Window",
+    ] {
+        let status = format!("Command cancelled · {tool} restored");
+        app.host.document.editor.status = status.clone();
+        assert_eq!(
+            app.status_text(),
+            format!("命令已取消 · 已恢复{}工具", app.language.translate(tool))
+        );
+        assert_eq!(app.host.document.editor.status, status);
+        app.language = UiLanguage::English;
+        assert_eq!(app.status_text(), status);
+        app.language = UiLanguage::SimplifiedChinese;
+    }
+}
+
+#[test]
+fn in_window_view_options_menu_uses_both_languages_without_model_changes() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.in_window_menus = true;
+        app.language = language;
+        let before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        let dirty = app.host.document.editor.dirty();
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let view = text_center(&output.shapes, language.translate("View")).expect("View menu");
+        layers_click(&ctx, &mut app, view);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let submenu = text_center(&output.shapes, language.translate("3D View Options"))
+            .expect("3D view submenu");
+        layers_click(&ctx, &mut app, submenu);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        for label in [
+            "Axonometry",
+            "Basic",
+            "Vectorial",
+            "Simple Shading",
+            "Technical",
+            "Detailed",
+            "Shadows",
+            "White Model",
+            "Wireframe",
+            "Orbit",
+            "Explore Model",
+        ] {
+            assert!(
+                text_center(&output.shapes, language.translate(label)).is_some(),
+                "missing {label}"
+            );
+        }
+        let axonometry = text_center(&output.shapes, language.translate("Axonometry"))
+            .expect("Axonometry entry");
+        layers_click(&ctx, &mut app, axonometry);
+        assert_eq!(
+            app.host.document.editor.status,
+            "Axonometry · viewport interface preview"
+        );
+        assert_eq!(
+            app.status_text(),
+            match language {
+                UiLanguage::English => "Axonometry · viewport interface preview",
+                UiLanguage::SimplifiedChinese => "轴测图 · 视口界面预览",
+            }
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        assert_eq!(app.host.document.editor.dirty(), dirty);
     }
 }
 #[test]
 fn command_preview_dialog_renders_without_mutating_the_project() {
     let (ctx, mut app) = setup();
-    let initial = app.editor.project.clone();
+    let initial = app.host.document.editor.project.clone();
     app.command_dialog = Some("Wall Settings".into());
     app.command_dialog_name = "Wall Settings".into();
     for tab in 0..4 {
@@ -2004,7 +3823,7 @@ fn command_preview_dialog_renders_without_mutating_the_project() {
         output.textures_delta.clear();
         assert!(!output.shapes.is_empty());
     }
-    assert_eq!(app.editor.project, initial);
+    assert_eq!(app.host.document.editor.project, initial);
 }
 #[test]
 fn trace_toggle_opens_plan_and_resolves_an_available_story() {
@@ -2016,9 +3835,9 @@ fn trace_toggle_opens_plan_and_resolves_an_available_story() {
     assert_eq!(app.trace.reference, crate::trace::TraceReference::Story(1));
     assert_eq!(
         app.trace.selection(
-            &app.editor.project,
-            app.editor.story,
-            app.editor.previous_story
+            &app.host.document.editor.project,
+            app.host.document.editor.story,
+            app.host.document.editor.previous_story
         ),
         Some(crate::trace::TraceSelection::Story(1))
     );
@@ -2026,25 +3845,26 @@ fn trace_toggle_opens_plan_and_resolves_an_available_story() {
 #[test]
 fn trace_switch_reference_preserves_model_and_undo_history() {
     let (_ctx, mut app) = setup();
-    app.editor.switch_story(1);
+    app.host.document.editor.switch_story(1);
     app.trace.enabled = true;
     app.trace.reference = crate::trace::TraceReference::AboveCurrentStory;
-    let initial = app.editor.project.clone();
-    let undo_len = app.editor.undo.len();
+    let mut initial = app.host.document.editor.project.clone();
+    let undo_len = app.host.document.editor.undo.len();
     app.switch_trace_reference();
-    assert_eq!(app.editor.story, 2);
+    assert_eq!(app.host.document.editor.story, 2);
     assert_eq!(app.trace.reference, crate::trace::TraceReference::Story(1));
-    assert_eq!(app.editor.project, initial);
-    assert_eq!(app.editor.undo.len(), undo_len);
-    assert!(!app.editor.dirty());
+    initial.trace = app.host.document.editor.project.trace.clone();
+    assert_eq!(app.host.document.editor.project, initial);
+    assert_eq!(app.host.document.editor.undo.len(), undo_len);
+    assert!(app.host.document.editor.dirty());
 }
 #[test]
 fn trace_drag_moves_only_the_reference() {
     let (ctx, mut app) = setup();
-    app.editor.switch_story(1);
+    app.host.document.editor.switch_story(1);
     app.trace.enabled = true;
     app.trace.reference = crate::trace::TraceReference::BelowCurrentStory;
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let offset = app.trace.offset;
     app.trace.drag_mode = true;
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
@@ -2064,9 +3884,9 @@ fn trace_drag_moves_only_the_reference() {
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(450., 320.))]);
     assert_ne!(app.trace.offset, offset);
     assert!((app.trace.offset.x - 1.).abs() < 1e-5);
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
-    assert!(!app.editor.dirty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
+    assert!(!app.host.document.editor.dirty());
 }
 #[test]
 fn escape_cancels_trace_pointer_mode_and_restores_temporary_displacement() {
@@ -2082,13 +3902,13 @@ fn escape_cancels_trace_pointer_mode_and_restores_temporary_displacement() {
 #[test]
 fn trace_overlay_palette_and_splitter_render_without_mutating_the_model() {
     let (ctx, mut app) = setup();
-    app.editor.switch_story(1);
+    app.host.document.editor.switch_story(1);
     app.trace.enabled = true;
     app.trace.palette_open = true;
     app.trace.browse_open = true;
     app.trace.splitter = Some(0.5);
     app.trace.on_top = true;
-    let initial = app.editor.project.clone();
+    let initial = app.host.document.editor.project.clone();
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100., 760.))),
@@ -2098,10 +3918,11 @@ fn trace_overlay_palette_and_splitter_render_without_mutating_the_model() {
     );
     output.textures_delta.clear();
     assert!(!output.shapes.is_empty());
-    assert_eq!(app.editor.project, initial);
+    assert_eq!(app.host.document.editor.project, initial);
 }
 fn quick_option_element(layer: crate::layers::ElementLayer, design_option: Option<u32>) -> Element {
     Element {
+        worksheet: None,
         id: 1,
         name: "Wall 001".into(),
         story: 0,
@@ -2111,6 +3932,7 @@ fn quick_option_element(layer: crate::layers::ElementLayer, design_option: Optio
         design_option,
         wall_contour: None,
         slab_contour: None,
+        opening_joinery: None,
         wall_settings: None,
         shape: Shape::Wall {
             start: Point::new(0., 0.),
@@ -2125,16 +3947,23 @@ fn quick_option_element(layer: crate::layers::ElementLayer, design_option: Optio
 fn quick_options_edit_plan_options_through_undoable_commands() {
     let (_ctx, mut app) = setup();
     assert_eq!(
-        app.editor.project.plan_options.pen_set,
+        app.host.document.editor.project.plan_options.pen_set,
         PenSet::Architectural100
     );
     assert_eq!(
-        app.editor.project.plan_options.partial_structure,
+        app.host
+            .document
+            .editor
+            .project
+            .plan_options
+            .partial_structure,
         PartialStructureDisplay::EntireModel
     );
 
     // Applying a layer combination is one reversible layer-document change.
     let detailed = app
+        .host
+        .document
         .editor
         .project
         .layers
@@ -2151,21 +3980,29 @@ fn quick_options_edit_plan_options_through_undoable_commands() {
     app.set_renovation_filter(RenovationFilter::NewConstruction);
     app.set_dimension_style(DimensionStyle::PlainMillimeter);
     assert_eq!(
-        app.editor.project.plan_options.pen_set,
+        app.host.document.editor.project.plan_options.pen_set,
         PenSet::ColorConceptual
     );
     assert_eq!(
-        app.editor.project.plan_options.partial_structure,
+        app.host
+            .document
+            .editor
+            .project
+            .plan_options
+            .partial_structure,
         PartialStructureDisplay::WithoutFinishes
     );
-    assert_eq!(app.editor.undo.len(), 7);
+    assert_eq!(app.host.document.editor.undo.len(), 7);
 
     for _ in 0..7 {
-        app.editor.undo();
+        app.host.document.editor.undo();
     }
-    assert_eq!(app.editor.project.plan_options, PlanOptions::default());
     assert_eq!(
-        app.editor.project.layers,
+        app.host.document.editor.project.plan_options,
+        PlanOptions::default()
+    );
+    assert_eq!(
+        app.host.document.editor.project.layers,
         crate::layers::LayerDocument::template(),
         "undo restores the layer document"
     );
@@ -2178,36 +4015,42 @@ fn quick_option_visibility_follows_layers_and_design_options() {
     let main = quick_option_element(crate::layers::ElementLayer(electrical), None);
     let mut option_element = main.clone();
     option_element.id = 2;
-    let option_id = app.editor.project.design_options.create("Option A".into());
+    let option_id = app
+        .host
+        .document
+        .editor
+        .project
+        .design_options
+        .create("Option A".into());
     option_element.design_option = Some(option_id);
-    app.editor.project.elements = vec![main.clone(), option_element.clone()];
-    app.editor.project.next_id = 3;
-    app.editor.project.validate().unwrap();
+    app.host.document.editor.project.elements = vec![main.clone(), option_element.clone()];
+    app.host.document.editor.project.next_id = 3;
+    app.host.document.editor.project.validate().unwrap();
 
-    let layers = &app.editor.project.layers;
-    let options = &app.editor.project.plan_options;
+    let layers = &app.host.document.editor.project.layers;
+    let options = &app.host.document.editor.project.plan_options;
     assert!(options.element_visible(&main, layers));
 
     // 01 Site hides MEP layers; Show All restores them.
     app.apply_layer_combination(1);
-    let layers = &app.editor.project.layers;
-    let options = &app.editor.project.plan_options;
+    let layers = &app.host.document.editor.project.layers;
+    let options = &app.host.document.editor.project.plan_options;
     assert!(!layers.is_visible(electrical));
     assert!(!options.element_visible(&main, layers));
     assert!(!options.element_visible(&option_element, layers));
     app.apply_show_all_layers(true);
-    let layers = &app.editor.project.layers;
-    let options = &app.editor.project.plan_options;
+    let layers = &app.host.document.editor.project.layers;
+    let options = &app.host.document.editor.project.plan_options;
     assert!(options.element_visible(&main, layers));
 
     app.set_active_design_option(None);
-    let layers = &app.editor.project.layers;
-    let options = &app.editor.project.plan_options;
+    let layers = &app.host.document.editor.project.layers;
+    let options = &app.host.document.editor.project.plan_options;
     assert!(options.element_visible(&main, layers));
     assert!(!options.element_visible(&option_element, layers));
     app.set_active_design_option(Some(option_id));
-    let layers = &app.editor.project.layers;
-    let options = &app.editor.project.plan_options;
+    let layers = &app.host.document.editor.project.layers;
+    let options = &app.host.document.editor.project.plan_options;
     assert!(options.element_visible(&option_element, layers));
 }
 
@@ -2216,31 +4059,41 @@ fn quick_options_bar_and_palette_visibility_are_independent() {
     let (_ctx, mut app) = setup();
     assert!(app.quick_options_visible);
     assert!(!app.quick_options_palette_visible);
-    let before = app.editor.project.clone();
-    let undo_len = app.editor.undo.len();
+    let before = app.host.document.editor.project.clone();
+    let undo_len = app.host.document.editor.undo.len();
 
     app.toggle_quick_options_palette();
     assert!(app.quick_options_visible);
     assert!(app.quick_options_palette_visible);
-    assert_eq!(app.editor.project, before);
-    assert_eq!(app.editor.undo.len(), undo_len);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), undo_len);
 
     app.toggle_quick_options_bar();
     assert!(!app.quick_options_visible);
     assert!(app.quick_options_palette_visible);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 
     app.toggle_quick_options_palette();
     assert!(!app.quick_options_palette_visible);
-    assert_eq!(app.editor.project, before);
-    assert_eq!(app.editor.undo.len(), undo_len);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), undo_len);
 }
 
 #[test]
 fn plan_orientation_round_trips_between_world_and_screen() {
     let (_ctx, mut app) = setup();
     app.set_orientation_degrees(37.5);
-    assert!((app.editor.project.plan_options.normalized_orientation() - 37.5).abs() < 1e-5);
+    assert!(
+        (app.host
+            .document
+            .editor
+            .project
+            .plan_options
+            .normalized_orientation()
+            - 37.5)
+            .abs()
+            < 1e-5
+    );
     let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
     for point in [
         Point::new(0., 0.),
@@ -2259,18 +4112,18 @@ fn quick_options_zoom_and_bar_visibility_round_trip() {
     assert!(app.quick_options_visible);
     app.set_plan_zoom_percent(150.);
     assert!((app.plan_scale - 60.).abs() < 1e-5);
-    assert_eq!(app.editor.status, "Zoom · 150.0%");
+    assert_eq!(app.host.document.editor.status, "Zoom · 150.0%");
 
     app.toggle_quick_options_bar();
     assert!(!app.quick_options_visible);
-    assert_eq!(app.editor.status, "Quick Options bar hidden");
+    assert_eq!(app.host.document.editor.status, "Quick Options bar hidden");
     app.toggle_quick_options_bar();
     assert!(app.quick_options_visible);
-    assert_eq!(app.editor.status, "Quick Options bar shown");
+    assert_eq!(app.host.document.editor.status, "Quick Options bar shown");
 }
 
-fn add_info_box_wall(app: &mut AtelierApp, id_offset: f32) -> u64 {
-    app.editor.project.add(
+fn add_info_box_wall(app: &mut AtelierApp, id_offset: f64) -> u64 {
+    app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -2283,7 +4136,9 @@ fn add_info_box_wall(app: &mut AtelierApp, id_offset: f32) -> u64 {
 }
 
 fn info_box_wall(app: &AtelierApp, id: u64) -> &Element {
-    app.editor
+    app.host
+        .document
+        .editor
         .project
         .elements
         .iter()
@@ -2295,7 +4150,7 @@ fn info_box_wall(app: &AtelierApp, id: u64) -> &Element {
 fn info_box_tracks_single_wall_selection() {
     let (_ctx, mut app) = setup();
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
     let state = app.info_box_wall.as_ref().expect("wall state");
     assert_eq!(state.element_id, id);
@@ -2303,7 +4158,7 @@ fn info_box_tracks_single_wall_selection() {
     assert_eq!(state.draft.thickness, 0.2);
     assert_eq!(state.draft.height, 3.);
 
-    app.editor.set_selection(Vec::new());
+    app.host.document.editor.set_selection(Vec::new());
     app.sync_info_box_wall();
     assert!(app.info_box_wall.is_none());
 }
@@ -2312,7 +4167,7 @@ fn info_box_tracks_single_wall_selection() {
 fn info_box_renders_wall_fields_and_follows_palette_visibility() {
     let (ctx, mut app) = setup();
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 900.))),
@@ -2359,7 +4214,7 @@ fn info_box_wall_fields_follow_simplified_chinese() {
     let (ctx, mut app) = setup();
     app.language = UiLanguage::SimplifiedChinese;
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     let mut output = ctx.run_ui(
         RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 900.))),
@@ -2386,7 +4241,7 @@ fn info_box_wall_fields_follow_simplified_chinese() {
 fn info_box_commit_updates_plan_model_and_single_undo_restores() {
     let (_ctx, mut app) = setup();
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
     {
         let state = app.info_box_wall.as_mut().expect("wall state");
@@ -2412,9 +4267,9 @@ fn info_box_commit_updates_plan_model_and_single_undo_restores() {
         crate::wall::WallReferenceLine::Outside
     );
     assert_eq!(settings.geometry.reference_offset, 0.12);
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 
-    app.editor.undo();
+    app.host.document.editor.undo();
     let wall = info_box_wall(&app, id);
     assert!(matches!(
         wall.shape,
@@ -2432,7 +4287,7 @@ fn info_box_commit_updates_plan_model_and_single_undo_restores() {
             .reference_line,
         crate::wall::WallReferenceLine::Center
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
     assert_eq!(
         app.info_box_wall.as_ref().expect("wall state").draft.height,
@@ -2445,7 +4300,7 @@ fn info_box_invalid_thickness_preserves_model_and_reports_error() {
     let (_ctx, mut app) = setup();
     app.language = UiLanguage::SimplifiedChinese;
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
     {
         let state = app.info_box_wall.as_mut().expect("wall state");
@@ -2460,7 +4315,86 @@ fn info_box_invalid_thickness_preserves_model_and_reports_error() {
     let state = app.info_box_wall.as_ref().expect("wall state");
     assert!(state.dirty);
     assert!(state.error.contains("墙厚"));
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
+}
+
+#[test]
+fn info_box_wall_error_has_its_own_row_at_different_widths() {
+    for (language, width, error, apply) in [
+        (
+            UiLanguage::English,
+            1400.,
+            "Opening Door 006 is taller than its host wall",
+            "Apply",
+        ),
+        (
+            UiLanguage::SimplifiedChinese,
+            800.,
+            "洞口 Door 006 高于其宿主墙",
+            "应用",
+        ),
+    ] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let id = add_info_box_wall(&mut app, 0.);
+        app.host.document.editor.set_selection(vec![id]);
+        app.sync_info_box_wall();
+        let state = app.info_box_wall.as_mut().unwrap();
+        state.dirty = true;
+        state.error = error.into();
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(width, 900.))),
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        let error_pos = text_center(&output.shapes, error).expect("visible error");
+        let apply_pos = text_center(&output.shapes, apply).expect("visible apply button");
+        output.textures_delta.clear();
+        assert!(error_pos.y > apply_pos.y, "error must follow controls");
+        assert!(error_pos.x < width - 10., "error must fit the panel");
+        assert!(app.info_box_wall.as_ref().unwrap().dirty);
+        assert!(app.host.document.editor.undo.is_empty());
+    }
+}
+
+#[test]
+fn wall_info_box_buttons_fit_narrow_workspace_for_selection_and_tool() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for selected in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            if selected {
+                let id = add_info_box_wall(&mut app, 0.);
+                app.host.document.editor.set_selection(vec![id]);
+            } else {
+                app.host.document.editor.set_tool(Tool::Wall);
+            }
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1050., 808.))),
+                    ..Default::default()
+                },
+                |ui| app.workspace(ui),
+            );
+            for name in [
+                "Single",
+                "Continuous",
+                "Polygonal",
+                "Rectangular",
+                "Center",
+                "Inside",
+                "Outside",
+            ] {
+                let label = language.translate(name);
+                let center = text_center(&output.shapes, label).expect("wall choice visible");
+                assert!(center.x >= 0. && center.x < 1050., "{label} is off screen");
+            }
+            output.textures_delta.clear();
+            assert!(app.host.document.editor.undo.is_empty());
+        }
+    }
 }
 
 #[test]
@@ -2468,14 +4402,14 @@ fn info_box_selection_change_commits_pending_wall() {
     let (_ctx, mut app) = setup();
     let first = add_info_box_wall(&mut app, 0.);
     let second = add_info_box_wall(&mut app, 6.);
-    app.editor.set_selection(vec![first]);
+    app.host.document.editor.set_selection(vec![first]);
     app.sync_info_box_wall();
     {
         let state = app.info_box_wall.as_mut().expect("wall state");
         state.draft.thickness = 0.31;
         state.dirty = true;
     }
-    app.editor.set_selection(vec![second]);
+    app.host.document.editor.set_selection(vec![second]);
     app.sync_info_box_wall();
     assert!(matches!(
         info_box_wall(&app, first).shape,
@@ -2494,7 +4428,7 @@ fn info_box_selection_change_commits_pending_wall() {
 fn info_box_hide_commits_pending_value() {
     let (_ctx, mut app) = setup();
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
     {
         let state = app.info_box_wall.as_mut().expect("wall state");
@@ -2513,7 +4447,7 @@ fn info_box_hide_commits_pending_value() {
 fn command_t_commits_pending_info_box_edit_before_wall_settings() {
     let (ctx, mut app) = setup();
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
     {
         let state = app.info_box_wall.as_mut().expect("wall state");
@@ -2536,7 +4470,7 @@ fn command_t_commits_pending_info_box_edit_before_wall_settings() {
 fn info_box_floor_plan_and_settings_buttons_open_wall_settings() {
     let (_ctx, mut app) = setup();
     let id = add_info_box_wall(&mut app, 0.);
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.sync_info_box_wall();
 
     app.open_info_box_wall_settings(true);
@@ -2555,11 +4489,11 @@ fn info_box_floor_plan_and_settings_buttons_open_wall_settings() {
 fn wall_tool_info_box_shows_creation_defaults_in_chinese() {
     let (ctx, mut app) = setup();
     app.language = UiLanguage::SimplifiedChinese;
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     app.sync_info_box_wall_tool();
     let state = app.info_box_wall_tool.as_ref().expect("wall tool defaults");
-    assert_eq!(state.draft.thickness, app.editor.thickness);
-    assert_eq!(state.draft.layer, app.editor.wall_layer);
+    assert_eq!(state.draft.thickness, app.host.document.editor.thickness);
+    assert_eq!(state.draft.layer, app.host.document.editor.wall_layer);
     assert!(!state.dirty);
     assert!(app.info_box_wall.is_none());
 
@@ -2599,7 +4533,7 @@ fn wall_tool_info_box_shows_creation_defaults_in_chinese() {
 #[test]
 fn wall_tool_info_box_defaults_apply_to_the_next_wall() {
     let (_ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     app.sync_info_box_wall_tool();
     {
         let state = app.info_box_wall_tool.as_mut().expect("wall tool defaults");
@@ -2618,17 +4552,24 @@ fn wall_tool_info_box_defaults_apply_to_the_next_wall() {
         state.dirty = true;
     }
     assert!(app.commit_info_box_wall_tool());
-    assert!(app.editor.undo.is_empty());
-    assert_eq!(app.editor.thickness, 0.36);
-    assert_eq!(app.editor.height, 4.2);
+    assert!(app.host.document.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.thickness, 0.36);
+    assert_eq!(app.host.document.editor.height, 4.2);
     assert_eq!(
-        app.editor.wall_layer.0,
+        app.host.document.editor.wall_layer.0,
         crate::layers::LayerDocument::legacy_layer_id("Structural")
     );
 
-    app.editor.click(Point::new(0., 0.), 0.);
-    app.editor.click(Point::new(4., 0.), 0.);
-    let wall = app.editor.project.elements.last().expect("new wall");
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(4., 0.), 0.);
+    let wall = app
+        .host
+        .document
+        .editor
+        .project
+        .elements
+        .last()
+        .expect("new wall");
     assert!(matches!(
         wall.shape,
         Shape::Wall {
@@ -2655,13 +4596,13 @@ fn wall_tool_info_box_defaults_apply_to_the_next_wall() {
     assert_eq!(settings.geometry.top_offset, 0.25);
     assert_eq!(settings.geometry.bottom_offset, -0.1);
     assert_eq!(settings.profile.name, "Brick 240");
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 
 #[test]
 fn wall_tool_info_box_geometry_method_drives_real_drawing_behavior() {
     let (_ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     app.sync_info_box_wall_tool();
     {
         let state = app.info_box_wall_tool.as_mut().expect("wall tool defaults");
@@ -2670,13 +4611,13 @@ fn wall_tool_info_box_geometry_method_drives_real_drawing_behavior() {
     }
     assert!(app.commit_info_box_wall_tool());
     for point in [Point::new(0., 0.), Point::new(4., 0.), Point::new(4., 3.)] {
-        app.editor.click(point, 0.);
+        app.host.document.editor.click(point, 0.);
     }
-    assert_eq!(app.editor.wall_points.len(), 3);
-    assert!(app.editor.project.elements.is_empty());
-    app.editor.finish_wall(None).unwrap();
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert_eq!(app.editor.selection_ids().len(), 1);
+    assert_eq!(app.host.document.editor.wall_points.len(), 3);
+    assert!(app.host.document.editor.project.elements.is_empty());
+    app.host.document.editor.finish_wall(None).unwrap();
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert_eq!(app.host.document.editor.selection_ids().len(), 1);
     app.sync_info_box_wall();
     assert!(
         app.info_box_wall.is_some(),
@@ -2687,118 +4628,181 @@ fn wall_tool_info_box_geometry_method_drives_real_drawing_behavior() {
 #[test]
 fn continuous_wall_double_click_finishes_the_chain() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Continuous;
     click(&ctx, &mut app, pos2(400., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(600., 300.));
     click(&ctx, &mut app, pos2(600., 300.));
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert!(app.editor.wall_points.is_empty());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert!(app.host.document.editor.wall_points.is_empty());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 
 #[test]
 fn continuous_wall_clicking_the_start_point_closes_the_chain() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Continuous;
     click(&ctx, &mut app, pos2(300., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(500., 200.));
     click(&ctx, &mut app, pos2(300., 300.));
-    assert_eq!(app.editor.project.elements.len(), 3);
-    assert!(app.editor.wall_points.is_empty());
-    assert!(app.editor.anchor.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 3);
+    assert!(app.host.document.editor.wall_points.is_empty());
+    assert!(app.host.document.editor.anchor.is_none());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 
 #[test]
 fn wall_start_click_is_magnetic_even_when_grid_snap_moves_the_pointer() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
-    app.editor.project.grid_settings.grid_snap_enabled = false;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Continuous;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .grid_snap_enabled = false;
     click(&ctx, &mut app, pos2(300., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(500., 200.));
-    app.editor.project.grid_settings.grid_snap_enabled = true;
-    app.editor.project.grid_settings.snap_spacing_x = 0.5;
-    app.editor.project.grid_settings.snap_spacing_y = 0.5;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .grid_snap_enabled = true;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .snap_spacing_x = 0.5;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .snap_spacing_y = 0.5;
     // 10.4 px away from the first node; grid snap would otherwise move this
     // click to a different world point and append a spurious node.
     click(&ctx, &mut app, pos2(310., 303.));
-    assert_eq!(app.editor.project.elements.len(), 3);
-    assert!(app.editor.wall_points.is_empty());
-    assert!(app.editor.anchor.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 3);
+    assert!(app.host.document.editor.wall_points.is_empty());
+    assert!(app.host.document.editor.anchor.is_none());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 
 #[test]
 fn continuous_wall_start_click_with_two_nodes_finishes_the_single_wall() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Continuous;
     click(&ctx, &mut app, pos2(300., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(300., 300.));
-    assert_eq!(app.editor.project.elements.len(), 1);
-    assert!(app.editor.wall_points.is_empty());
-    assert!(app.editor.anchor.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    assert!(app.host.document.editor.wall_points.is_empty());
+    assert!(app.host.document.editor.anchor.is_none());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 
 #[test]
 fn polygonal_wall_start_click_with_two_nodes_does_not_append_a_backtrack() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Polygonal;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Polygonal;
     click(&ctx, &mut app, pos2(300., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(300., 300.));
-    assert_eq!(app.editor.wall_points.len(), 2);
-    assert!(app.editor.project.elements.is_empty());
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.wall_points.len(), 2);
+    assert!(app.host.document.editor.project.elements.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
 }
 
 #[test]
 fn right_click_finishes_a_continuous_wall_draft() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Continuous;
     for point in [pos2(300., 300.), pos2(400., 300.), pos2(400., 200.)] {
         click(&ctx, &mut app, point);
     }
-    assert_eq!(app.editor.wall_points.len(), 3);
+    assert_eq!(app.host.document.editor.wall_points.len(), 3);
     secondary_click(&ctx, &mut app, pos2(500., 300.));
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert!(app.editor.wall_points.is_empty());
-    assert!(app.editor.anchor.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert!(app.host.document.editor.wall_points.is_empty());
+    assert!(app.host.document.editor.anchor.is_none());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 
 #[test]
 fn right_click_cancels_single_and_rectangular_drafts_without_an_undo_entry() {
     for method in [WallGeometryMethod::Single, WallGeometryMethod::Rectangular] {
         let (ctx, mut app) = setup();
-        app.editor.set_tool(Tool::Wall);
-        app.editor.wall_settings.geometry.geometry_method = method;
+        app.host.document.editor.set_tool(Tool::Wall);
+        app.host
+            .document
+            .editor
+            .wall_settings
+            .geometry
+            .geometry_method = method;
         click(&ctx, &mut app, pos2(300., 300.));
-        assert!(app.editor.anchor.is_some());
+        assert!(app.host.document.editor.anchor.is_some());
         secondary_click(&ctx, &mut app, pos2(400., 300.));
-        assert!(app.editor.project.elements.is_empty());
-        assert!(app.editor.anchor.is_none());
-        assert!(app.editor.wall_points.is_empty());
-        assert!(app.editor.undo.is_empty());
-        assert_eq!(app.editor.status, app.language.translate("Wall cancelled"));
+        assert!(app.host.document.editor.project.elements.is_empty());
+        assert!(app.host.document.editor.anchor.is_none());
+        assert!(app.host.document.editor.wall_points.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
+        assert_eq!(
+            app.host.document.editor.status,
+            app.language.translate("Wall cancelled")
+        );
     }
 }
 
 #[test]
 fn right_drag_still_pans_without_finishing_the_wall_draft() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Continuous;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Continuous;
     for point in [pos2(300., 300.), pos2(400., 300.), pos2(400., 200.)] {
         click(&ctx, &mut app, point);
     }
@@ -2827,28 +4831,33 @@ fn right_drag_still_pans_without_finishing_the_wall_draft() {
             modifiers: Modifiers::NONE,
         }],
     );
-    assert_eq!(app.editor.wall_points.len(), 3);
-    assert!(app.editor.project.elements.is_empty());
+    assert_eq!(app.host.document.editor.wall_points.len(), 3);
+    assert!(app.host.document.editor.project.elements.is_empty());
 }
 
 #[test]
 fn polygonal_wall_double_click_on_start_closes_once() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.wall_settings.geometry.geometry_method = WallGeometryMethod::Polygonal;
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
+        .wall_settings
+        .geometry
+        .geometry_method = WallGeometryMethod::Polygonal;
     click(&ctx, &mut app, pos2(300., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(500., 200.));
     click(&ctx, &mut app, pos2(300., 300.));
     click(&ctx, &mut app, pos2(300., 300.));
-    assert_eq!(app.editor.project.elements.len(), 3);
-    assert!(app.editor.wall_points.is_empty());
-    assert!(app.editor.anchor.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 3);
+    assert!(app.host.document.editor.wall_points.is_empty());
+    assert!(app.host.document.editor.anchor.is_none());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert!(
-        !app.editor.status.contains("needs"),
+        !app.host.document.editor.status.contains("needs"),
         "{}",
-        app.editor.status
+        app.host.document.editor.status
     );
 }
 
@@ -2856,7 +4865,7 @@ fn polygonal_wall_double_click_on_start_closes_once() {
 fn wall_tool_info_box_rejects_invalid_thickness_without_changing_defaults() {
     let (_ctx, mut app) = setup();
     app.language = UiLanguage::SimplifiedChinese;
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     app.sync_info_box_wall_tool();
     {
         let state = app.info_box_wall_tool.as_mut().expect("wall tool defaults");
@@ -2864,17 +4873,17 @@ fn wall_tool_info_box_rejects_invalid_thickness_without_changing_defaults() {
         state.dirty = true;
     }
     assert!(!app.commit_info_box_wall_tool());
-    assert_eq!(app.editor.thickness, 0.22);
+    assert_eq!(app.host.document.editor.thickness, 0.22);
     let state = app.info_box_wall_tool.as_ref().expect("wall tool defaults");
     assert!(state.dirty);
     assert!(state.error.contains("墙厚"));
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
 }
 
 #[test]
 fn command_t_commits_pending_wall_tool_defaults_before_settings() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     app.sync_info_box_wall_tool();
     {
         let state = app.info_box_wall_tool.as_mut().expect("wall tool defaults");
@@ -2885,21 +4894,21 @@ fn command_t_commits_pending_wall_tool_defaults_before_settings() {
     let dialog = app.wall_settings_dialog.as_ref().expect("wall settings");
     assert_eq!(dialog.mode, crate::wall_ui::WallSettingsMode::Default);
     assert_eq!(dialog.draft.height, 3.75);
-    assert_eq!(app.editor.height, 3.75);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.height, 3.75);
+    assert!(app.host.document.editor.undo.is_empty());
 }
 
 #[test]
 fn wall_tool_info_box_settings_buttons_open_default_dialog() {
     let (_ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     app.sync_info_box_wall_tool();
 
     app.open_info_box_wall_settings(true);
     let dialog = app.wall_settings_dialog.as_ref().expect("wall settings");
     assert_eq!(dialog.mode, crate::wall_ui::WallSettingsMode::Default);
     assert!(dialog.sections.floor_plan);
-    assert_eq!(dialog.draft.thickness, app.editor.thickness);
+    assert_eq!(dialog.draft.thickness, app.host.document.editor.thickness);
 
     app.wall_settings_dialog = None;
     app.open_info_box_wall_settings(false);
@@ -2933,7 +4942,7 @@ fn close_frame(app: &mut AtelierApp, ctx: &Context) -> eframe::egui::FullOutput 
 #[test]
 fn dirty_close_request_is_cancelled_and_opens_prompt() {
     let (ctx, mut app) = setup();
-    app.editor.project.add(
+    app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -2943,13 +4952,13 @@ fn dirty_close_request_is_cancelled_and_opens_prompt() {
             height: 3.,
         },
     );
-    let before = app.editor.project.clone();
-    app.editor.set_selection(vec![1]);
-    let selection = app.editor.selected_ids.clone();
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.set_selection(vec![1]);
+    let selection = app.host.document.editor.selected_ids.clone();
     let output = close_frame(&mut app, &ctx);
     assert!(app.close_prompt);
-    assert_eq!(app.editor.project, before);
-    assert_eq!(app.editor.selected_ids, selection);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.selected_ids, selection);
     assert!(
         output.viewport_output[&ViewportId::ROOT]
             .commands
@@ -2986,8 +4995,12 @@ fn save_project_clears_dirty_and_recovery_file() {
         std::process::id()
     ));
     app.path = project_path.display().to_string();
-    app.recovery_path = Some(recovery_path.clone());
-    app.editor.project.add(
+    app.recovery_slot = Some(
+        crate::recovery::RecoverySlot::claim_legacy(&recovery_path)
+            .unwrap()
+            .unwrap(),
+    );
+    app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -2997,13 +5010,13 @@ fn save_project_clears_dirty_and_recovery_file() {
             height: 3.,
         },
     );
-    assert!(app.editor.dirty());
-    crate::recovery::write(&recovery_path, &app.editor.project).unwrap();
+    assert!(app.host.document.editor.dirty());
+    crate::recovery::write(&recovery_path, &app.host.document.editor.project).unwrap();
     app.save_project().unwrap();
-    assert!(!app.editor.dirty());
+    assert!(!app.host.document.editor.dirty());
     assert!(!recovery_path.exists());
     let loaded = storage::load(&project_path).unwrap();
-    assert_eq!(loaded, app.editor.project);
+    assert_eq!(loaded, app.host.document.editor.project);
     let _ = std::fs::remove_file(project_path);
 }
 
@@ -3018,8 +5031,12 @@ fn closing_after_discard_does_not_rewrite_the_recovery_file() {
         "openarchi-discard-recovery-{}-{stamp}.openarchi.json",
         std::process::id()
     ));
-    app.recovery_path = Some(recovery_path.clone());
-    app.editor.project.add(
+    app.recovery_slot = Some(
+        crate::recovery::RecoverySlot::claim_legacy(&recovery_path)
+            .unwrap()
+            .unwrap(),
+    );
+    app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -3030,11 +5047,13 @@ fn closing_after_discard_does_not_rewrite_the_recovery_file() {
         },
     );
     app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
     assert!(recovery_path.exists());
 
     app.discard_recovery_file();
     app.allow_close = true;
     app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
     assert!(!recovery_path.exists());
     crate::recovery::clear(Some(&recovery_path));
 }
@@ -3050,10 +5069,14 @@ fn commit_refreshes_recovery_inside_the_throttle_window() {
         "openarchi-commit-recovery-{}-{stamp}.openarchi.json",
         std::process::id()
     ));
-    app.recovery_path = Some(recovery_path.clone());
+    app.recovery_slot = Some(
+        crate::recovery::RecoverySlot::claim_legacy(&recovery_path)
+            .unwrap()
+            .unwrap(),
+    );
 
-    let before = app.editor.project.clone();
-    app.editor.project.add(
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -3063,12 +5086,13 @@ fn commit_refreshes_recovery_inside_the_throttle_window() {
             height: 3.,
         },
     );
-    app.editor.commit(before);
+    app.host.document.editor.commit(before);
     app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
     let first = crate::recovery::read(&recovery_path).unwrap().unwrap();
 
-    let before = app.editor.project.clone();
-    app.editor.project.add(
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -3078,13 +5102,235 @@ fn commit_refreshes_recovery_inside_the_throttle_window() {
             height: 3.,
         },
     );
-    app.editor.commit(before);
+    app.host.document.editor.commit(before);
     app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
     let second = crate::recovery::read(&recovery_path).unwrap().unwrap();
 
     assert_eq!(second.elements.len(), first.elements.len() + 1);
-    assert_eq!(second, app.editor.project);
+    assert_eq!(second, app.host.document.editor.project);
     crate::recovery::clear(Some(&recovery_path));
+}
+
+#[test]
+fn recovery_navigation_does_not_write_while_dragging_and_recovers_final_view() {
+    let (ctx, mut app) = setup();
+    app.ai_workspace.enabled = true;
+    app.view = View::Plan;
+    app.choose_trace_reference(crate::trace::TraceReference::Story(1));
+    app.host.document.editor.project.name = "Unsaved work to protect".into();
+    let root = std::env::temp_dir().join(format!(
+        "oa-recovery-navigation-{}",
+        storage::new_document_identity()
+    ));
+    app.initialize_recovery(&root);
+    for _ in 0..3 {
+        layers_frame_output(&ctx, &mut app, vec![]);
+    }
+    app.finish_recovery_write(true);
+    let previous = app.last_recovery_save;
+    assert!(previous.is_some());
+    let snapshot = app.recovery_slot.as_ref().unwrap().snapshot().to_owned();
+    let bytes = std::fs::read(&snapshot).unwrap();
+    let elements = app.host.document.editor.project.elements.clone();
+    let history = app.host.document.editor.undo.len();
+    let start = app.workbench.panel_rects["view.canvas"].center();
+    layers_frame_output(
+        &ctx,
+        &mut app,
+        vec![
+            Event::PointerMoved(start),
+            Event::PointerButton {
+                pos: start,
+                button: PointerButton::Secondary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+    );
+    let old_center = app.plan_center;
+    for i in 1..=5 {
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![Event::PointerMoved(
+                start + vec2(i as f32 * 15., i as f32 * 8.),
+            )],
+        );
+        assert_eq!(
+            app.last_recovery_save, previous,
+            "continuous navigation must not trigger recovery IO"
+        );
+        assert_eq!(std::fs::read(&snapshot).unwrap(), bytes);
+    }
+    assert!(app.plan_center.distance(old_center) > 0.1);
+    layers_frame_output(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: start + vec2(75., 40.),
+            button: PointerButton::Secondary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    let final_center = app.plan_center;
+    app.finish_recovery_write(true);
+    let recovered = storage::load(&snapshot).unwrap();
+    assert_eq!(
+        recovered.trace.viewport.unwrap().center,
+        final_center,
+        "release must recover the final confirmed view"
+    );
+    assert_eq!(recovered.elements, elements);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+    let after = app.last_recovery_save;
+    layers_frame_output(&ctx, &mut app, vec![]);
+    assert_eq!(
+        app.last_recovery_save, after,
+        "idle frame must not rewrite identical recovery"
+    );
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recovery_wheel_waits_for_smooth_scroll_and_writes_only_latest_view() {
+    let (ctx, mut app) = setup();
+    app.ai_workspace.enabled = true;
+    app.view = View::Plan;
+    app.choose_trace_reference(crate::trace::TraceReference::Story(1));
+    let root = std::env::temp_dir().join(format!(
+        "oa-recovery-wheel-{}",
+        storage::new_document_identity()
+    ));
+    app.initialize_recovery(&root);
+    let mut time = 0.;
+    let mut frame = |app: &mut AtelierApp, events| {
+        time += 1. / 60.;
+        let mut o = ctx.run_ui(
+            RawInput {
+                time: Some(time),
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 900.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        o.textures_delta.clear();
+    };
+    for _ in 0..3 {
+        frame(&mut app, vec![]);
+    }
+    app.finish_recovery_write(true);
+    let before = app.last_recovery_save;
+    let scale = app.plan_scale;
+    let p = app.workbench.panel_rects["view.canvas"].center();
+    for _ in 0..3 {
+        frame(
+            &mut app,
+            vec![
+                Event::PointerMoved(p),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    phase: egui::TouchPhase::Move,
+                    delta: vec2(0., 60.),
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert_eq!(
+            app.last_recovery_save, before,
+            "wheel input must not schedule disk IO"
+        );
+    }
+    let mut writes = 0;
+    let mut stamp = before;
+    for _ in 0..120 {
+        frame(&mut app, vec![]);
+        if stamp != app.last_recovery_save {
+            writes += 1;
+            stamp = app.last_recovery_save;
+        }
+    }
+    assert!(!ctx.input(|i| i.is_scrolling()));
+    assert!(app.plan_scale > scale);
+    assert_eq!(
+        writes, 1,
+        "smooth tail must coalesce to one confirmed checkpoint"
+    );
+    app.finish_recovery_write(true);
+    let recovered = app.recovery_slot.as_ref().unwrap().read().unwrap().unwrap();
+    assert_eq!(recovered.trace.viewport.unwrap().scale, app.plan_scale);
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recovery_worker_failure_retries_without_a_frame_loop_and_keeps_latest_work() {
+    let (ctx, mut app) = setup();
+    app.host.document.editor.project.name = "Protected unsaved work".into();
+    let root = std::env::temp_dir().join(format!(
+        "oa-recovery-retry-{}",
+        storage::new_document_identity()
+    ));
+    app.initialize_recovery(&root);
+    let snapshot = app.recovery_slot.as_ref().unwrap().snapshot().to_owned();
+    std::fs::create_dir(&snapshot).unwrap(); // Synthetic destination fault, not a user file.
+    app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
+    assert!(!app.recovery_error.is_empty());
+    let attempted = app.last_recovery_save;
+    app.host.document.editor.project.name.push_str(" · latest");
+    for _ in 0..5 {
+        app.autosave_recovery(&ctx);
+        assert!(app.recovery_write.is_none());
+        assert_eq!(app.last_recovery_save, attempted);
+    }
+    std::fs::remove_dir(&snapshot).unwrap();
+    app.last_recovery_save = Some(Instant::now() - Duration::from_secs(2));
+    app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
+    assert!(app.recovery_error.is_empty());
+    assert_eq!(
+        storage::load(&snapshot).unwrap().name,
+        app.host.document.editor.project.name
+    );
+    assert!(app.host.document.editor.dirty());
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recovery_background_write_cannot_resurrect_after_save_or_project_replacement() {
+    let (ctx, mut app) = setup();
+    app.host.document.editor.project.name = "A unsaved".into();
+    let root = std::env::temp_dir().join(format!(
+        "oa-recovery-lifecycle-{}",
+        storage::new_document_identity()
+    ));
+    app.initialize_recovery(&root);
+    let snapshot = app.recovery_slot.as_ref().unwrap().snapshot().to_owned();
+    app.autosave_recovery(&ctx);
+    assert!(app.recovery_write.is_some());
+    app.save_project_to(root.join("saved.json").to_str().unwrap())
+        .unwrap();
+    assert!(app.recovery_write.is_none());
+    assert!(!snapshot.exists());
+    assert!(!app.host.document.editor.dirty());
+    app.host.document.editor.project.name = "A latest".into();
+    app.autosave_recovery(&ctx);
+    assert!(app.recovery_write.is_some());
+    app.host.document.editor = Editor::new(Project::default());
+    app.host.document.editor.project.name = "B".into();
+    app.discard_recovery_file();
+    assert!(!snapshot.exists());
+    assert!(app.recovery_write.is_none());
+    app.autosave_recovery(&ctx);
+    app.finish_recovery_write(true);
+    assert_eq!(storage::load(&snapshot).unwrap().name, "B");
+    drop(app);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]
@@ -3111,13 +5357,13 @@ fn recovered_project_remains_dirty_until_saved() {
 #[test]
 fn door_info_box_shows_and_edits_hosted_opening_fields() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(0., 0.), 0.);
-    app.editor.click(Point::new(6., 0.), 0.);
-    let wall_id = app.editor.project.elements[0].id;
-    app.editor.set_tool(Tool::Door);
-    app.editor.click(Point::new(3., 0.), 0.05);
-    let opening_id = app.editor.selection_ids()[0];
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(6., 0.), 0.);
+    let wall_id = app.host.document.editor.project.elements[0].id;
+    app.host.document.editor.set_tool(Tool::Door);
+    app.host.document.editor.click(Point::new(3., 0.), 0.05);
+    let opening_id = app.host.document.editor.selection_ids()[0];
 
     app.sync_info_box_opening();
     let state = app.info_box_opening.as_ref().expect("opening state");
@@ -3136,6 +5382,8 @@ fn door_info_box_shows_and_edits_hosted_opening_fields() {
     }
     assert!(app.commit_info_box_opening());
     let updated = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -3185,8 +5433,8 @@ fn door_info_box_shows_and_edits_hosted_opening_fields() {
 #[test]
 fn opening_tool_defaults_are_editable_and_localized() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Door);
-    app.editor.set_selection(Vec::new());
+    app.host.document.editor.set_tool(Tool::Door);
+    app.host.document.editor.set_selection(Vec::new());
     app.sync_info_box_opening_tool();
     let state = app.info_box_opening_tool.as_ref().expect("tool state");
     assert_eq!(state.kind, OpeningKind::Door);
@@ -3199,7 +5447,7 @@ fn opening_tool_defaults_are_editable_and_localized() {
         state.dirty = true;
     }
     assert!(app.commit_info_box_opening_tool());
-    assert!((app.editor.door_defaults.width - 1.0).abs() < 1e-4);
+    assert!((app.host.document.editor.door_defaults.width - 1.0).abs() < 1e-4);
 
     app.language = UiLanguage::SimplifiedChinese;
     let mut output = ctx.run_ui(
@@ -3222,10 +5470,10 @@ fn opening_tool_defaults_are_editable_and_localized() {
 
 fn transfer_test_wall(
     project: &mut Project,
-    start: (f32, f32),
-    end: (f32, f32),
-    thickness: f32,
-    height: f32,
+    start: (f64, f64),
+    end: (f64, f64),
+    thickness: f64,
+    height: f64,
     material: crate::model::Material,
 ) -> u64 {
     project.add(
@@ -3274,7 +5522,7 @@ fn modifier_click(ctx: &Context, app: &mut AtelierApp, pos: Pos2, modifiers: Mod
 fn option_c_picks_up_from_selection_and_sets_tool_defaults() {
     let (ctx, mut app) = setup();
     let source = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3282,51 +5530,58 @@ fn option_c_picks_up_from_selection_and_sets_tool_defaults() {
         crate::model::Material::Timber,
     );
     let target = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (10., 0.),
         (14., 0.),
         0.2,
         3.,
         crate::model::Material::Concrete,
     );
-    app.editor.mark_saved();
-    app.editor.set_selection(vec![source]);
+    app.host.document.editor.mark_saved();
+    app.host.document.editor.set_selection(vec![source]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
     assert!(
-        app.editor.status.contains("Picked up"),
+        app.host.document.editor.status.contains("Picked up"),
         "{}",
-        app.editor.status
+        app.host.document.editor.status
     );
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .pick_up_buffer
             .get(crate::transfer::TransferType::Wall)
             .unwrap()
             .thickness(),
         0.4
     );
-    assert_eq!(app.editor.thickness, 0.4);
-    assert_eq!(app.editor.height, 2.6);
-    assert_eq!(app.editor.material, crate::model::Material::Timber);
+    assert_eq!(app.host.document.editor.thickness, 0.4);
+    assert_eq!(app.host.document.editor.height, 2.6);
+    assert_eq!(
+        app.host.document.editor.material,
+        crate::model::Material::Timber
+    );
     // AC29 semantics: the pick-up arms the matching tool, ready to draw.
-    assert_eq!(app.editor.tool, Tool::Wall);
+    assert_eq!(app.host.document.editor.tool, Tool::Wall);
     // Picking up only changes tool defaults: no undo record and no dirty flag.
-    assert!(app.editor.undo.is_empty());
-    assert!(!app.editor.dirty());
+    assert!(app.host.document.editor.undo.is_empty());
+    assert!(!app.host.document.editor.dirty());
 
-    app.editor.set_selection(vec![target]);
+    app.host.document.editor.set_selection(vec![target]);
     plan_frame(
         &ctx,
         &mut app,
         vec![key(Key::C, Modifiers::ALT | Modifiers::COMMAND)],
     );
     assert!(
-        app.editor.status.contains("Injected"),
+        app.host.document.editor.status.contains("Injected"),
         "{}",
-        app.editor.status
+        app.host.document.editor.status
     );
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -3336,10 +5591,12 @@ fn option_c_picks_up_from_selection_and_sets_tool_defaults() {
         0.4
     );
     // The whole injection is one reversible change.
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -3354,7 +5611,7 @@ fn option_c_picks_up_from_selection_and_sets_tool_defaults() {
 fn cmd_option_c_without_selection_arms_one_shot_inject() {
     let (ctx, mut app) = setup();
     let source = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3362,7 +5619,7 @@ fn cmd_option_c_without_selection_arms_one_shot_inject() {
         crate::model::Material::Timber,
     );
     let target = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (5., 0.),
         (6., 0.),
         0.2,
@@ -3378,15 +5635,15 @@ fn cmd_option_c_without_selection_arms_one_shot_inject() {
         !app.inject_armed,
         "inject must refuse to arm before anything was picked up"
     );
-    app.editor.set_selection(vec![source]);
+    app.host.document.editor.set_selection(vec![source]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
-    app.editor.set_selection(Vec::new());
+    app.host.document.editor.set_selection(Vec::new());
     plan_frame(
         &ctx,
         &mut app,
         vec![key(Key::C, Modifiers::ALT | Modifiers::COMMAND)],
     );
-    assert!(app.inject_armed, "{}", app.editor.status);
+    assert!(app.inject_armed, "{}", app.host.document.editor.status);
     // The next plan click injects into the element under the cursor.
     let pos = app.screen(
         Rect::from_min_size(Pos2::ZERO, vec2(800., 600.)),
@@ -3395,7 +5652,9 @@ fn cmd_option_c_without_selection_arms_one_shot_inject() {
     modifier_click(&ctx, &mut app, pos, Modifiers::NONE);
     assert!(!app.inject_armed);
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -3419,14 +5678,14 @@ fn cmd_option_c_without_selection_arms_one_shot_inject() {
 fn option_click_gesture_picks_up_in_plan() {
     let (ctx, mut app) = setup();
     let source = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
         3.,
         crate::model::Material::Timber,
     );
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     // Option+click on the wall never starts a wall draft; it picks up.
     let pos = app.screen(
         Rect::from_min_size(Pos2::ZERO, vec2(800., 600.)),
@@ -3434,29 +5693,34 @@ fn option_click_gesture_picks_up_in_plan() {
     );
     modifier_click(&ctx, &mut app, pos, Modifiers::ALT);
     assert!(
-        app.editor.status.contains("Picked up"),
+        app.host.document.editor.status.contains("Picked up"),
         "{}",
-        app.editor.status
+        app.host.document.editor.status
     );
-    assert!(app.editor.wall_points.is_empty() && app.editor.anchor.is_none());
     assert!(
-        app.editor
+        app.host.document.editor.wall_points.is_empty()
+            && app.host.document.editor.anchor.is_none()
+    );
+    assert!(
+        app.host
+            .document
+            .editor
             .pick_up_buffer
             .get(crate::transfer::TransferType::Wall)
             .is_some()
     );
-    assert_eq!(app.editor.thickness, 0.4);
-    assert_eq!(app.editor.selected_ids.len(), 0);
+    assert_eq!(app.host.document.editor.thickness, 0.4);
+    assert_eq!(app.host.document.editor.selected_ids.len(), 0);
 
     // Option+Cmd+click on empty space reports the miss and changes nothing.
     let empty = app.screen(
         Rect::from_min_size(Pos2::ZERO, vec2(800., 600.)),
         Point::new(-4., -4.),
     );
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     modifier_click(&ctx, &mut app, empty, Modifiers::ALT | Modifiers::COMMAND);
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     let _ = source;
 }
 
@@ -3464,7 +5728,7 @@ fn option_click_gesture_picks_up_in_plan() {
 fn cmd_option_click_gesture_injects_into_target_element() {
     let (ctx, mut app) = setup();
     let source = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3472,14 +5736,14 @@ fn cmd_option_click_gesture_injects_into_target_element() {
         crate::model::Material::Timber,
     );
     let target = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (5., 0.),
         (7., 0.),
         0.2,
         2.5,
         crate::model::Material::Concrete,
     );
-    app.editor.mark_saved();
+    app.host.document.editor.mark_saved();
 
     // Option+click the source to pick up, then Option+Cmd+click the target
     // element to inject into it — the AC29 gesture pair.
@@ -3499,11 +5763,17 @@ fn cmd_option_click_gesture_injects_into_target_element() {
         Modifiers::ALT | Modifiers::COMMAND,
     );
     assert!(
-        app.editor.status.contains("Injected parameters into 1"),
+        app.host
+            .document
+            .editor
+            .status
+            .contains("Injected parameters into 1"),
         "{}",
-        app.editor.status
+        app.host.document.editor.status
     );
     let injected = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -3520,14 +5790,72 @@ fn cmd_option_click_gesture_injects_into_target_element() {
         }
         _ => unreachable!(),
     }
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     let _ = source;
+}
+
+#[test]
+fn transfer_entries_show_locked_error_without_success_or_mutation() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for selected_entry in [true, false] {
+            let (_ctx, mut app) = setup();
+            app.language = language;
+            let source = transfer_test_wall(
+                &mut app.host.document.editor.project,
+                (0., 0.),
+                (4., 0.),
+                0.4,
+                3.,
+                crate::model::Material::Timber,
+            );
+            let target = transfer_test_wall(
+                &mut app.host.document.editor.project,
+                (5., 0.),
+                (7., 0.),
+                0.2,
+                2.5,
+                crate::model::Material::Concrete,
+            );
+            let settings = app.host.document.editor.project.transfer_settings.clone();
+            app.host
+                .document
+                .editor
+                .pick_up_from(source, &settings)
+                .unwrap();
+            app.host
+                .document
+                .editor
+                .project
+                .edit_state
+                .locked
+                .insert(target);
+            app.host.document.editor.mark_saved();
+            app.host.document.editor.set_selection(vec![target]);
+            let before = app.host.document.editor.project.clone();
+            let selection = app.host.document.editor.selection_ids();
+            let revision = app.host.document.editor.revision;
+            if selected_entry {
+                app.inject_command();
+            } else {
+                app.execute_transfer(true, Some(target));
+            }
+            assert_eq!(
+                app.host.document.editor.status,
+                language.translate("Selection contains locked elements")
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.selection_ids(), selection);
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert!(!app.host.document.editor.dirty());
+            assert!(app.host.document.editor.undo.is_empty());
+        }
+    }
 }
 
 #[test]
 fn pick_up_activates_the_matching_tool() {
     let (ctx, mut app) = setup();
-    let slab_id = app.editor.project.add(
+    let slab_id = app.host.document.editor.project.add(
         0,
         crate::model::Material::Concrete,
         crate::model::Shape::Slab {
@@ -3536,41 +5864,41 @@ fn pick_up_activates_the_matching_tool() {
             thickness: 0.25,
         },
     );
-    app.editor.mark_saved();
-    app.editor.set_tool(Tool::Select);
+    app.host.document.editor.mark_saved();
+    app.host.document.editor.set_tool(Tool::Select);
 
     // Picking up slab parameters arms the Slab tool with them.
-    app.editor.set_selection(vec![slab_id]);
+    app.host.document.editor.set_selection(vec![slab_id]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
-    assert_eq!(app.editor.tool, Tool::Slab);
-    assert!(app.editor.status.contains("Picked up"));
-    assert_eq!(app.editor.thickness, 0.25);
+    assert_eq!(app.host.document.editor.tool, Tool::Slab);
+    assert!(app.host.document.editor.status.contains("Picked up"));
+    assert_eq!(app.host.document.editor.thickness, 0.25);
 
     // Picking up wall parameters re-arms the Wall tool.
     let wall = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (8., 0.),
         (12., 0.),
         0.3,
         2.7,
         crate::model::Material::Timber,
     );
-    app.editor.mark_saved();
-    app.editor.set_selection(vec![wall]);
+    app.host.document.editor.mark_saved();
+    app.host.document.editor.set_selection(vec![wall]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
-    assert_eq!(app.editor.tool, Tool::Wall);
-    assert_eq!(app.editor.thickness, 0.3);
-    assert_eq!(app.editor.height, 2.7);
+    assert_eq!(app.host.document.editor.tool, Tool::Wall);
+    assert_eq!(app.host.document.editor.thickness, 0.3);
+    assert_eq!(app.host.document.editor.height, 2.7);
     // Tool activation is view state, not model state.
-    assert!(app.editor.undo.is_empty());
-    assert!(!app.editor.dirty());
+    assert!(app.host.document.editor.undo.is_empty());
+    assert!(!app.host.document.editor.dirty());
 }
 
 #[test]
 fn alt_hover_shows_eyedropper_cursor_and_highlights_element() {
     let (ctx, mut app) = setup();
     let wall = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3634,7 +5962,7 @@ fn alt_hover_shows_eyedropper_cursor_and_highlights_element() {
 fn alt_hover_suppresses_snap_feedback_until_released() {
     let (ctx, mut app) = setup();
     let _wall = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3691,7 +6019,7 @@ fn alt_hover_suppresses_snap_feedback_until_released() {
 fn cmd_alt_hover_primes_syringe_only_when_buffer_holds_type() {
     let (ctx, mut app) = setup();
     let source = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3699,7 +6027,7 @@ fn cmd_alt_hover_primes_syringe_only_when_buffer_holds_type() {
         crate::model::Material::Timber,
     );
     let target = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (5., 0.),
         (7., 0.),
         0.2,
@@ -3733,7 +6061,7 @@ fn cmd_alt_hover_primes_syringe_only_when_buffer_holds_type() {
     assert_eq!(app.transfer_hover, None);
 
     // After picking up wall parameters the syringe primes over the target.
-    app.editor.set_selection(vec![source]);
+    app.host.document.editor.set_selection(vec![source]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
     plan_frame_output(
         &ctx,
@@ -3755,7 +6083,7 @@ fn cmd_alt_hover_primes_syringe_only_when_buffer_holds_type() {
 fn alt_hover_in_3d_shows_transfer_cursor_and_clears_without_modifier() {
     let (ctx, mut app) = setup();
     let _wall = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3800,7 +6128,7 @@ fn alt_hover_in_3d_shows_transfer_cursor_and_clears_without_modifier() {
 fn drawing_tool_shows_simple_crosshair_cursor() {
     let (ctx, mut app) = setup();
     let _wall = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3813,14 +6141,14 @@ fn drawing_tool_shows_simple_crosshair_cursor() {
     );
     // A drawing tool replaces the arrow with the AC29 square crosshair
     // (painted at the snap point); the OS cursor is hidden on the canvas.
-    app.editor.set_tool(Tool::Wall);
+    app.host.document.editor.set_tool(Tool::Wall);
     plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(over_canvas)]);
     let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(over_canvas)]);
     assert_eq!(output.platform_output.cursor_icon, CursorIcon::None);
     assert!(app.transfer_cursor.is_none());
 
     // Select keeps the arrow-and-marker hover feedback.
-    app.editor.set_tool(Tool::Select);
+    app.host.document.editor.set_tool(Tool::Select);
     let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(over_canvas)]);
     assert_eq!(output.platform_output.cursor_icon, CursorIcon::Default);
 }
@@ -3829,14 +6157,14 @@ fn drawing_tool_shows_simple_crosshair_cursor() {
 fn injection_rejects_cross_type_and_invalid_geometry() {
     let (ctx, mut app) = setup();
     let wall_id = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
         3.,
         crate::model::Material::Timber,
     );
-    let slab_id = app.editor.project.add(
+    let slab_id = app.host.document.editor.project.add(
         0,
         crate::model::Material::Concrete,
         crate::model::Shape::Slab {
@@ -3845,28 +6173,39 @@ fn injection_rejects_cross_type_and_invalid_geometry() {
             thickness: 0.25,
         },
     );
-    app.editor.set_selection(vec![wall_id]);
+    app.host.document.editor.set_selection(vec![wall_id]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
-    app.editor.set_selection(vec![slab_id]);
-    app.editor.set_tool(Tool::Select);
+    app.host.document.editor.set_selection(vec![slab_id]);
+    app.host.document.editor.set_tool(Tool::Select);
     plan_frame(
         &ctx,
         &mut app,
         vec![key(Key::C, Modifiers::ALT | Modifiers::COMMAND)],
     );
     // Injection never activates a tool — only pick-up does.
-    assert_eq!(app.editor.tool, Tool::Select);
+    assert_eq!(app.host.document.editor.tool, Tool::Select);
     // The type-keyed buffer has no slab entry, so the injection is refused
     // before any field changes (apply_transfer's same-type check is covered
     // by the unit tests in transfer.rs).
     assert!(
-        app.editor.status.contains("No picked-up parameters")
-            || app.editor.status.contains("所选构件类型没有已吸取的参数"),
+        app.host
+            .document
+            .editor
+            .status
+            .contains("No picked-up parameters")
+            || app
+                .host
+                .document
+                .editor
+                .status
+                .contains("所选构件类型没有已吸取的参数"),
         "{}",
-        app.editor.status
+        app.host.document.editor.status
     );
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -3875,19 +6214,19 @@ fn injection_rejects_cross_type_and_invalid_geometry() {
             .thickness(),
         0.25
     );
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
 
     // An injection that fails project validation must leave everything
     // untouched, including the undo history.
     let host = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (20., 0.),
         (26., 0.),
         0.2,
         2.,
         crate::model::Material::Plaster,
     );
-    let door_id = app.editor.project.add(
+    let door_id = app.host.document.editor.project.add(
         0,
         crate::model::Material::Timber,
         crate::model::Shape::Opening {
@@ -3899,17 +6238,17 @@ fn injection_rejects_cross_type_and_invalid_geometry() {
             offset: 3.,
         },
     );
-    app.editor.set_selection(vec![door_id]);
+    app.host.document.editor.set_selection(vec![door_id]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
     let tall_host = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (30., 0.),
         (36., 0.),
         0.2,
         2.,
         crate::model::Material::Plaster,
     );
-    let tall_door = app.editor.project.add(
+    let tall_door = app.host.document.editor.project.add(
         0,
         crate::model::Material::Timber,
         crate::model::Shape::Opening {
@@ -3924,17 +6263,23 @@ fn injection_rejects_cross_type_and_invalid_geometry() {
     // Pick up the taller door, then try to inject it into the door on the
     // shorter wall: sill 0 + height 2.4 exceeds the 2 m host, so the whole
     // injection must fail validation and stay completely reversible.
-    app.editor.set_selection(vec![tall_door]);
+    app.host.document.editor.set_selection(vec![tall_door]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
-    app.editor.set_selection(vec![door_id]);
+    app.host.document.editor.set_selection(vec![door_id]);
     plan_frame(
         &ctx,
         &mut app,
         vec![key(Key::C, Modifiers::ALT | Modifiers::COMMAND)],
     );
-    assert!(app.editor.undo.is_empty(), "{}", app.editor.status);
+    assert!(
+        app.host.document.editor.undo.is_empty(),
+        "{}",
+        app.host.document.editor.status
+    );
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -3949,7 +6294,7 @@ fn injection_rejects_cross_type_and_invalid_geometry() {
 fn transfer_settings_dialog_change_is_one_undo_record() {
     let (ctx, mut app) = setup();
     let wall_id = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (0., 0.),
         (4., 0.),
         0.4,
@@ -3957,29 +6302,35 @@ fn transfer_settings_dialog_change_is_one_undo_record() {
         crate::model::Material::Timber,
     );
     let target = transfer_test_wall(
-        &mut app.editor.project,
+        &mut app.host.document.editor.project,
         (10., 0.),
         (14., 0.),
         0.2,
         3.,
         crate::model::Material::Concrete,
     );
-    app.editor.set_selection(vec![wall_id]);
+    app.host.document.editor.set_selection(vec![wall_id]);
     plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
-    let mut settings = app.editor.project.transfer_settings.clone();
+    let mut settings = app.host.document.editor.project.transfer_settings.clone();
     settings.sets[0]
         .groups
         .remove(crate::transfer::GROUP_GEOMETRY);
-    app.editor.set_selection(vec![target]);
-    let set_before = app.editor.project.transfer_settings.clone();
-    app.editor.set_transfer_settings(settings);
-    assert_eq!(app.editor.undo.len(), 1, "dialog OK is one undo record");
+    app.host.document.editor.set_selection(vec![target]);
+    let set_before = app.host.document.editor.project.transfer_settings.clone();
+    app.host.document.editor.set_transfer_settings(settings);
+    assert_eq!(
+        app.host.document.editor.undo.len(),
+        1,
+        "dialog OK is one undo record"
+    );
     plan_frame(
         &ctx,
         &mut app,
         vec![key(Key::C, Modifiers::ALT | Modifiers::COMMAND)],
     );
     let target_element = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -3993,10 +6344,12 @@ fn transfer_settings_dialog_change_is_one_undo_record() {
         "material group stayed on"
     );
     // Two records: the settings change and the injection itself.
-    assert_eq!(app.editor.undo.len(), 2);
-    app.editor.undo();
+    assert_eq!(app.host.document.editor.undo.len(), 2);
+    app.host.document.editor.undo();
     assert_eq!(
-        app.editor
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
@@ -4006,12 +6359,155 @@ fn transfer_settings_dialog_change_is_one_undo_record() {
         crate::model::Material::Concrete,
         "undo reverts the injection"
     );
-    app.editor.undo();
+    app.host.document.editor.undo();
     assert_eq!(
-        app.editor.project.transfer_settings, set_before,
+        app.host.document.editor.project.transfer_settings, set_before,
         "undo restores the previous transfer settings"
     );
     let _ = ctx;
+}
+
+// Exercise the new collapsed manual entries through real pointer events.
+// Never dispatch a command or mutate product state on behalf of a test.
+fn reveal_manual_control(ctx: &Context, app: &mut AtelierApp, label: &str) {
+    if app.ai_workspace.enabled {
+        return;
+    }
+    let visible = |out: &egui::FullOutput, name: &str| {
+        out.shapes.iter().find_map(|s| {
+            text_center(std::slice::from_ref(s), name).filter(|p| s.clip_rect.contains(*p))
+        })
+    };
+    let out = layers_frame_output(ctx, app, vec![]);
+    let actionable = out.platform_output.accesskit_update.as_ref().map(|u| {
+        u.nodes.iter().any(|(_, n)| {
+            n.supports_action(egui::accesskit::Action::Click)
+                && (n.label() == Some(app.language.translate(label))
+                    || n.value() == Some(app.language.translate(label)))
+        })
+    });
+    if actionable.unwrap_or_else(|| visible(&out, app.language.translate(label)).is_some()) {
+        return;
+    }
+    let menu = if [
+        "Check current design",
+        "Show function diagram",
+        "Preview function diagram",
+        "Show exploded axon",
+        "Preview exploded axon",
+        "Show constraint figure",
+        "Preview constraint figure",
+        "Show location diagram",
+        "Preview location diagram",
+        "Show setback study",
+        "Preview setback study",
+        "Show linked figure",
+        "Preview linked figure",
+        "Show space quantity figure",
+        "Preview space quantity figure",
+    ]
+    .iter()
+    .any(|k| *k == label || app.language.translate(k) == label)
+    {
+        "Checks and diagrams"
+    } else if [
+        "Adjust generated wings",
+        "Compare options…",
+        "Select a source mass",
+        "Select linked space",
+        "Space name and use",
+        "Create editable space",
+        "Return to source mass",
+        "Assumed clear height",
+        "Preview space update",
+    ]
+    .iter()
+    .any(|k| *k == label || app.language.translate(k) == label)
+        || app
+            .host
+            .document
+            .editor
+            .project
+            .design_process
+            .tasks
+            .iter()
+            .any(|t| t.name == label)
+        || app
+            .host
+            .document
+            .editor
+            .project
+            .design_options
+            .options
+            .iter()
+            .any(|o| o.name == label)
+        || app
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .any(|e| format!("#{} · {}", e.id, e.name) == label)
+    {
+        "Current task"
+    } else if [
+        "Customize work environment…",
+        "Plugins and jobs…",
+        "Save workspace layout",
+        "Work environment needs attention",
+        "Discuss selected objects",
+        "Project conditions",
+    ]
+    .iter()
+    .any(|k| *k == label || app.language.translate(k) == label)
+        || label.starts_with("Related discussions")
+        || label.starts_with(app.language.translate("Related discussions"))
+        || crate::workbench::CommandRegistry::commands()
+            .iter()
+            .any(|c| c.label() == label)
+    {
+        "Tasks and settings"
+    } else {
+        return;
+    };
+    if app.menu_gated() {
+        return;
+    }
+    if let Some(at) = visible(&out, app.language.translate(menu)) {
+        if egui::Popup::is_any_open(ctx) {
+            layers_frame_output(ctx, app, vec![key(Key::Escape, Modifiers::NONE)]);
+        }
+        use egui::accesskit::{Action, ActionRequest, TreeId};
+        let menu_id = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .and_then(|u| {
+                u.nodes.iter().find(|(_, n)| {
+                    n.label() == Some(app.language.translate(menu))
+                        && n.supports_action(Action::Click)
+                })
+            })
+            .map(|(id, _)| *id);
+        if let Some(id) = menu_id {
+            layers_frame_output(
+                ctx,
+                app,
+                vec![Event::AccessKitActionRequest(ActionRequest {
+                    action: Action::Click,
+                    target_tree: TreeId::ROOT,
+                    target_node: id,
+                    data: None,
+                })],
+            );
+        } else {
+            layers_click(ctx, app, at);
+        }
+        for _ in 0..3 {
+            layers_frame_output(ctx, app, vec![]);
+        }
+    }
 }
 
 fn layers_frame_output(
@@ -4063,7 +6559,7 @@ fn layers_click(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
 #[test]
 fn cmd_l_opens_layer_settings_and_selection_previews_before_ok() {
     let (ctx, mut app) = setup();
-    let before = app.editor.project.layers.clone();
+    let before = app.host.document.editor.project.layers.clone();
 
     layers_frame_output(&ctx, &mut app, vec![key(Key::L, Modifiers::COMMAND)]);
     assert!(app.layer_settings.is_some(), "Cmd+L opens the dialog");
@@ -4086,7 +6582,7 @@ fn cmd_l_opens_layer_settings_and_selection_previews_before_ok() {
     let state = app.layer_settings.as_ref().unwrap();
     assert!(!state.draft.is_visible(electrical));
     assert_eq!(
-        app.editor.project.layers, before,
+        app.host.document.editor.project.layers, before,
         "project unchanged before OK"
     );
 
@@ -4095,20 +6591,20 @@ fn cmd_l_opens_layer_settings_and_selection_previews_before_ok() {
     let cancel = text_center(&output.shapes, "Cancel").expect("Cancel button");
     layers_click(&ctx, &mut app, cancel);
     assert!(app.layer_settings.is_none());
-    assert_eq!(app.editor.project.layers, before);
+    assert_eq!(app.host.document.editor.project.layers, before);
 }
 
 #[test]
 fn layer_settings_ok_applies_combination_and_undo_restores() {
     let (ctx, mut app) = setup();
-    let before = app.editor.project.layers.clone();
-    app.editor.project.elements = vec![quick_option_element(
+    let before = app.host.document.editor.project.layers.clone();
+    app.host.document.editor.project.elements = vec![quick_option_element(
         crate::layers::ElementLayer(crate::layers::LayerDocument::legacy_layer_id("Electrical")),
         None,
     )];
-    app.editor.project.next_id = 2;
-    app.editor.project.validate().unwrap();
-    let undo_len = app.editor.undo.len();
+    app.host.document.editor.project.next_id = 2;
+    app.host.document.editor.project.validate().unwrap();
+    let undo_len = app.host.document.editor.undo.len();
 
     layers_frame_output(&ctx, &mut app, vec![key(Key::L, Modifiers::COMMAND)]);
     let output = layers_frame_output(&ctx, &mut app, vec![]);
@@ -4120,30 +6616,52 @@ fn layer_settings_ok_applies_combination_and_undo_restores() {
 
     let electrical = crate::layers::LayerDocument::legacy_layer_id("Electrical");
     assert!(app.layer_settings.is_none(), "OK closes the dialog");
-    assert!(!app.editor.project.layers.is_visible(electrical));
-    assert_eq!(app.editor.project.layers.active_combination, Some(1));
     assert!(
-        !app.editor
+        !app.host
+            .document
+            .editor
+            .project
+            .layers
+            .is_visible(electrical)
+    );
+    assert_eq!(
+        app.host.document.editor.project.layers.active_combination,
+        Some(1)
+    );
+    assert!(
+        !app.host
+            .document
+            .editor
             .project
             .plan_options
-            .element_visible(&app.editor.project.elements[0], &app.editor.project.layers),
+            .element_visible(
+                &app.host.document.editor.project.elements[0],
+                &app.host.document.editor.project.layers
+            ),
         "hidden layer elements disappear from the plan"
     );
     assert_eq!(
-        app.editor.undo.len(),
+        app.host.document.editor.undo.len(),
         undo_len + 1,
         "one reversible command"
     );
 
-    app.editor.undo();
-    assert_eq!(app.editor.project.layers, before);
-    assert!(app.editor.project.layers.is_visible(electrical));
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project.layers, before);
+    assert!(
+        app.host
+            .document
+            .editor
+            .project
+            .layers
+            .is_visible(electrical)
+    );
 }
 
 #[test]
 fn layer_settings_new_layer_creates_and_esc_cancels() {
     let (ctx, mut app) = setup();
-    let before = app.editor.project.layers.clone();
+    let before = app.host.document.editor.project.layers.clone();
 
     layers_frame_output(&ctx, &mut app, vec![key(Key::L, Modifiers::COMMAND)]);
     let output = layers_frame_output(&ctx, &mut app, vec![]);
@@ -4162,44 +6680,51 @@ fn layer_settings_new_layer_creates_and_esc_cancels() {
     // Escape cancels like AC29.
     layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert!(app.layer_settings.is_none());
-    assert_eq!(app.editor.project.layers, before);
+    assert_eq!(app.host.document.editor.project.layers, before);
 }
 
 #[test]
 fn locked_layer_blocks_delete_edit_and_placement() {
     let (_ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(0., 0.), 0.);
-    app.editor.click(Point::new(4., 0.), 0.);
-    let id = app.editor.project.elements[0].id;
-    assert_eq!(app.editor.project.elements.len(), 1);
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(4., 0.), 0.);
+    let id = app.host.document.editor.project.elements[0].id;
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
 
     // Lock the wall's layer.
-    let mut layers = app.editor.project.layers.clone();
+    let mut layers = app.host.document.editor.project.layers.clone();
     layers.layer_mut(ARCHICAD_LAYER).unwrap().status.locked = true;
-    app.editor.set_layer_document(layers, &[]);
+    app.host.document.editor.set_layer_document(layers, &[]);
 
-    app.editor.set_selection(vec![id]);
-    app.editor.delete();
+    app.host.document.editor.set_selection(vec![id]);
+    app.host.document.editor.delete();
     assert_eq!(
-        app.editor.project.elements.len(),
+        app.host.document.editor.project.elements.len(),
         1,
         "elements on locked layers cannot be deleted"
     );
-    assert!(app.editor.status.contains("locked"));
+    assert!(app.host.document.editor.status.contains("locked"));
 
     // New walls cannot be placed on the locked layer either.
-    app.editor.click(Point::new(10., 0.), 0.);
-    app.editor.click(Point::new(14., 0.), 0.);
+    app.host.document.editor.click(Point::new(10., 0.), 0.);
+    app.host.document.editor.click(Point::new(14., 0.), 0.);
     assert_eq!(
-        app.editor.project.elements.len(),
+        app.host.document.editor.project.elements.len(),
         1,
         "placement on a locked layer is rejected"
     );
 
     // Undo restores the unlocked layer document.
-    app.editor.undo();
-    assert!(!app.editor.project.layers.is_locked(ARCHICAD_LAYER));
+    app.host.document.editor.undo();
+    assert!(
+        !app.host
+            .document
+            .editor
+            .project
+            .layers
+            .is_locked(ARCHICAD_LAYER)
+    );
 }
 #[test]
 fn document_title_uses_file_name_and_untitled_before_first_save() {
@@ -4245,7 +6770,7 @@ fn file_display_name_strips_openarchi_json_suffixes() {
 #[test]
 fn edit_menu_numeric_apply_cancel_and_bilingual_labels() {
     let (ctx, mut app) = setup();
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -4255,8 +6780,8 @@ fn edit_menu_numeric_apply_cancel_and_bilingual_labels() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
     app.dispatch_edit("Multiply…");
     layers_frame_output(&ctx, &mut app, vec![]);
     let output = layers_frame_output(&ctx, &mut app, vec![]);
@@ -4264,7 +6789,7 @@ fn edit_menu_numeric_apply_cancel_and_bilingual_labels() {
     let cancel = text_center(&output.shapes, "Cancel").unwrap();
     layers_click(&ctx, &mut app, cancel);
     assert!(app.edit_dialog.is_none());
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     app.language = UiLanguage::SimplifiedChinese;
     app.dispatch_edit("Multiply…");
     layers_frame_output(&ctx, &mut app, vec![]);
@@ -4273,8 +6798,10 @@ fn edit_menu_numeric_apply_cancel_and_bilingual_labels() {
     let ok = text_center(&output.shapes, "确定").unwrap();
     layers_click(&ctx, &mut app, ok);
     assert!(app.edit_dialog.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     let Shape::Wall { start, .. } = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -4286,8 +6813,8 @@ fn edit_menu_numeric_apply_cancel_and_bilingual_labels() {
         panic!()
     };
     assert_eq!(start.x, 0.);
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn edit_menu_catalog_has_translations_and_never_opens_unsupported_preview() {
@@ -4317,7 +6844,7 @@ fn edit_menu_catalog_has_translations_and_never_opens_unsupported_preview() {
 #[test]
 fn edit_menu_escape_and_language_switch_preserve_model_and_history() {
     let (ctx, mut app) = setup();
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -4327,11 +6854,11 @@ fn edit_menu_escape_and_language_switch_preserve_model_and_history() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     app.dispatch_edit("Rotate");
-    let before = app.editor.project.clone();
-    let ids = app.editor.selection_ids();
-    let undo = app.editor.undo.len();
+    let before = app.host.document.editor.project.clone();
+    let ids = app.host.document.editor.selection_ids();
+    let undo = app.host.document.editor.undo.len();
     for language in [
         UiLanguage::English,
         UiLanguage::SimplifiedChinese,
@@ -4339,13 +6866,13 @@ fn edit_menu_escape_and_language_switch_preserve_model_and_history() {
     ] {
         app.language = language;
         layers_frame_output(&ctx, &mut app, vec![]);
-        assert_eq!(app.editor.project, before);
-        assert_eq!(app.editor.selection_ids(), ids);
-        assert_eq!(app.editor.undo.len(), undo);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.selection_ids(), ids);
+        assert_eq!(app.host.document.editor.undo.len(), undo);
     }
     layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert!(app.edit_dialog.is_none());
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 }
 
 fn edit_shortcut_frame(ctx: &Context, app: &mut AtelierApp, k: Key, m: Modifiers) {
@@ -4365,7 +6892,7 @@ fn edit_shortcut_frame(ctx: &Context, app: &mut AtelierApp, k: Key, m: Modifiers
     );
 }
 fn shortcut_test_wall(app: &mut AtelierApp) -> u64 {
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Wall {
@@ -4375,15 +6902,13 @@ fn shortcut_test_wall(app: &mut AtelierApp) -> u64 {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     id
 }
 #[test]
 fn edit_shortcuts_match_installed_ac29_standard_configuration() {
-    let evidence: serde_json::Value = serde_json::from_str(include_str!(
-        "../../docs/features/edit-menu/standard-shortcuts-29.json"
-    ))
-    .unwrap();
+    let evidence: serde_json::Value =
+        serde_json::from_str(include_str!("../../tests/fixtures/shortcuts.json")).unwrap();
     for row in evidence["bindings"].as_array().unwrap() {
         assert!(
             edit_shortcuts::EDIT_SHORTCUTS
@@ -4411,9 +6936,15 @@ fn edit_shortcuts_all_bindings_dispatch_like_the_menu() {
         let (_, mut menu) = setup();
         for app in [&mut keyboard, &mut menu] {
             shortcut_test_wall(app);
-            app.editor.copy_selection();
-            app.editor.edit(crate::editing::EditCommand::Lock).unwrap();
-            app.editor
+            app.host.document.editor.copy_selection();
+            app.host
+                .document
+                .editor
+                .edit(crate::editing::EditCommand::Lock)
+                .unwrap();
+            app.host
+                .document
+                .editor
                 .edit(crate::editing::EditCommand::Unlock)
                 .unwrap();
         }
@@ -4426,25 +6957,25 @@ fn edit_shortcuts_all_bindings_dispatch_like_the_menu() {
         edit_shortcut_frame(&ctx, &mut keyboard, binding.key, mods);
         menu.dispatch_edit(binding.command);
         assert_eq!(
-            keyboard.editor.project, menu.editor.project,
+            keyboard.host.document.editor.project, menu.host.document.editor.project,
             "{}",
             binding.command
         );
         assert_eq!(
-            keyboard.editor.selection_ids(),
-            menu.editor.selection_ids(),
+            keyboard.host.document.editor.selection_ids(),
+            menu.host.document.editor.selection_ids(),
             "{}",
             binding.command
         );
         assert_eq!(
-            keyboard.editor.undo.len(),
-            menu.editor.undo.len(),
+            keyboard.host.document.editor.undo.len(),
+            menu.host.document.editor.undo.len(),
             "{}",
             binding.command
         );
         assert_eq!(
-            keyboard.editor.redo.len(),
-            menu.editor.redo.len(),
+            keyboard.host.document.editor.redo.len(),
+            menu.host.document.editor.redo.len(),
             "{}",
             binding.command
         );
@@ -4467,24 +6998,24 @@ fn edit_shortcuts_drag_is_pointer_driven_without_dialog_and_cancel_is_clean() {
         let (ctx, mut app) = setup();
         app.language = language;
         shortcut_test_wall(&mut app);
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
         edit_shortcut_frame(&ctx, &mut app, Key::D, Modifiers::COMMAND);
         assert!(app.edit_dialog.is_none());
         assert!(app.pointer_drag.is_some());
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 300.))]);
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         edit_shortcut_frame(&ctx, &mut app, Key::Escape, Modifiers::NONE);
         assert!(app.pointer_drag.is_none());
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
     }
 }
 #[test]
 fn edit_shortcuts_pointer_drag_commits_at_click_and_undo_restores() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
     app.dispatch_edit("Drag");
     click(&ctx, &mut app, pos2(400., 300.));
@@ -4492,21 +7023,21 @@ fn edit_shortcuts_pointer_drag_commits_at_click_and_undo_restores() {
     click(&ctx, &mut app, pos2(500., 300.));
     assert!(app.pointer_drag.is_none());
     assert!(app.edit_dialog.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
-    assert_eq!(app.editor.project.elements.len(), 1);
-    let Shape::Wall { start, .. } = app.editor.project.elements[0].shape else {
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    let Shape::Wall { start, .. } = app.host.document.editor.project.elements[0].shape else {
         panic!()
     };
     assert!((start.x - 2.).abs() < 0.001);
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
 }
 
 #[test]
 fn edit_shortcuts_exact_modifiers_unavailable_commands_and_repeat_are_safe() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     edit_shortcut_frame(&ctx, &mut app, Key::T, Modifiers::COMMAND | Modifiers::ALT);
     assert!(app.wall_settings_dialog.is_none());
     assert!(app.element_settings.is_none());
@@ -4517,9 +7048,9 @@ fn edit_shortcuts_exact_modifiers_unavailable_commands_and_repeat_are_safe() {
         Modifiers::COMMAND | Modifiers::SHIFT,
     );
     assert!(app.edit_dialog.is_none());
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     layers_frame_output(&ctx, &mut app, vec![key(Key::R, Modifiers::COMMAND)]);
-    let rotated = app.editor.project.clone();
+    let rotated = app.host.document.editor.project.clone();
     let repeated = Event::Key {
         key: Key::R,
         physical_key: None,
@@ -4528,9 +7059,9 @@ fn edit_shortcuts_exact_modifiers_unavailable_commands_and_repeat_are_safe() {
         modifiers: Modifiers::COMMAND,
     };
     layers_frame_output(&ctx, &mut app, vec![repeated]);
-    assert_eq!(app.editor.project, rotated);
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.set_selection(vec![]);
+    assert_eq!(app.host.document.editor.project, rotated);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.set_selection(vec![]);
     edit_shortcut_frame(&ctx, &mut app, Key::D, Modifiers::COMMAND);
     assert!(app.edit_dialog.is_none());
 }
@@ -4538,7 +7069,7 @@ fn edit_shortcuts_exact_modifiers_unavailable_commands_and_repeat_are_safe() {
 fn edit_shortcuts_select_all_respects_visibility_story_and_marquee() {
     let (ctx, mut app) = setup();
     let id = shortcut_test_wall(&mut app);
-    let other = app.editor.project.add(
+    let other = app.host.document.editor.project.add(
         1,
         Material::Plaster,
         Shape::Wall {
@@ -4548,13 +7079,13 @@ fn edit_shortcuts_select_all_respects_visibility_story_and_marquee() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![]);
+    app.host.document.editor.set_selection(vec![]);
     edit_shortcut_frame(&ctx, &mut app, Key::A, Modifiers::COMMAND);
-    assert_eq!(app.editor.selection_ids(), vec![id]);
-    assert!(!app.editor.selection_ids().contains(&other));
-    assert!(app.editor.undo.is_empty());
-    app.editor.set_tool(Tool::Marquee);
-    app.editor.marquee = MarqueeArea::new(
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+    assert!(!app.host.document.editor.selection_ids().contains(&other));
+    assert!(app.host.document.editor.undo.is_empty());
+    app.host.document.editor.set_tool(Tool::Marquee);
+    app.host.document.editor.marquee = MarqueeArea::new(
         vec![
             Point::new(10., 10.),
             Point::new(12., 10.),
@@ -4565,16 +7096,16 @@ fn edit_shortcuts_select_all_respects_visibility_story_and_marquee() {
         0,
     );
     edit_shortcut_frame(&ctx, &mut app, Key::A, Modifiers::COMMAND);
-    assert!(app.editor.selection_ids().is_empty());
+    assert!(app.host.document.editor.selection_ids().is_empty());
 }
 #[test]
 fn edit_shortcuts_do_not_edit_behind_modals_or_focused_text() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     app.command_dialog = Some("Test".into());
     edit_shortcut_frame(&ctx, &mut app, Key::R, Modifiers::COMMAND);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     app.command_dialog = None;
     let mut text = String::from("Editable");
     let field = Id::new("shortcut_focus_test");
@@ -4593,8 +7124,8 @@ fn edit_shortcuts_do_not_edit_behind_modals_or_focused_text() {
         },
     );
     assert!(app.edit_dialog.is_none());
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
 }
 #[test]
 fn edit_shortcuts_bilingual_menu_hints_use_the_same_binding() {
@@ -4621,7 +7152,7 @@ fn edit_shortcuts_handle_winit_clipboard_events_and_inject_modifiers() {
         &mut app,
         vec![Event::ModifiersChanged(Modifiers::COMMAND), Event::Copy],
     );
-    assert_eq!(app.editor.clipboard.len(), 1);
+    assert_eq!(app.host.document.editor.clipboard.len(), 1);
     assert!(
         output
             .platform_output
@@ -4637,12 +7168,12 @@ fn edit_shortcuts_handle_winit_clipboard_events_and_inject_modifiers() {
             Event::Paste("OpenArchi elements".into()),
         ],
     );
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.set_selection(vec![id]);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.set_selection(vec![id]);
     app.pick_up_command();
-    let clipboard = app.editor.clipboard.clone();
-    app.editor.set_selection(vec![]);
+    let clipboard = app.host.document.editor.clipboard.clone();
+    app.host.document.editor.set_selection(vec![]);
     layers_frame_output(
         &ctx,
         &mut app,
@@ -4652,14 +7183,14 @@ fn edit_shortcuts_handle_winit_clipboard_events_and_inject_modifiers() {
         ],
     );
     assert!(app.inject_armed);
-    assert_eq!(app.editor.clipboard, clipboard);
+    assert_eq!(app.host.document.editor.clipboard, clipboard);
 }
 
 #[test]
 fn pointer_drag_option_copy_latches_and_multiple_clicks_preserve_original() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    let original = app.editor.project.clone();
+    let original = app.host.document.editor.project.clone();
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
     app.dispatch_edit("Drag");
     click(&ctx, &mut app, pos2(400., 300.));
@@ -4676,14 +7207,20 @@ fn pointer_drag_option_copy_latches_and_multiple_clicks_preserve_original() {
         &mut app,
         vec![Event::ModifiersChanged(Modifiers::NONE)],
     );
-    assert_eq!(app.editor.project, original);
+    assert_eq!(app.host.document.editor.project, original);
     click(&ctx, &mut app, pos2(500., 300.));
     assert!(app.pointer_drag.is_none());
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert_eq!(app.editor.project.elements[0], original.elements[0]);
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
-    app.editor.set_selection(vec![original.elements[0].id]);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert_eq!(
+        app.host.document.editor.project.elements[0],
+        original.elements[0]
+    );
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
+    app.host
+        .document
+        .editor
+        .set_selection(vec![original.elements[0].id]);
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
     app.dispatch_edit("Drag");
     click(&ctx, &mut app, pos2(400., 300.));
@@ -4703,82 +7240,89 @@ fn pointer_drag_option_copy_latches_and_multiple_clicks_preserve_original() {
     click(&ctx, &mut app, pos2(500., 300.));
     click(&ctx, &mut app, pos2(600., 300.));
     assert!(app.pointer_drag.is_some());
-    assert_eq!(app.editor.project.elements.len(), 3);
-    assert_eq!(app.editor.undo.len(), 2);
-    let saved = serde_json::to_string(&app.editor.project).unwrap();
+    assert_eq!(app.host.document.editor.project.elements.len(), 3);
+    assert_eq!(app.host.document.editor.undo.len(), 2);
+    let saved = serde_json::to_string(&app.host.document.editor.project).unwrap();
     assert_eq!(
         serde_json::from_str::<Project>(&saved).unwrap(),
-        app.editor.project
+        app.host.document.editor.project
     );
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert!(app.pointer_drag.is_none());
-    assert_eq!(app.editor.project.elements.len(), 3);
-    assert_eq!(app.editor.selection_ids().len(), 3);
+    assert_eq!(app.host.document.editor.project.elements.len(), 3);
+    assert_eq!(app.host.document.editor.selection_ids().len(), 3);
     assert_eq!(
-        UiLanguage::SimplifiedChinese.translate(&app.editor.status),
+        UiLanguage::SimplifiedChinese.translate(&app.host.document.editor.status),
         "就绪"
     );
-    app.editor.undo();
-    assert_eq!(app.editor.selection_ids().len(), 2);
-    app.editor.undo();
-    assert_eq!(app.editor.selection_ids().len(), 1);
-    assert_eq!(app.editor.project, original);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.selection_ids().len(), 2);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.selection_ids().len(), 1);
+    assert_eq!(app.host.document.editor.project, original);
 }
 
 #[test]
 fn pointer_drag_locked_selection_does_not_commit() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    app.editor.edit(crate::editing::EditCommand::Lock).unwrap();
-    let original = app.editor.project.clone();
-    let history = app.editor.undo.len();
+    app.host
+        .document
+        .editor
+        .edit(crate::editing::EditCommand::Lock)
+        .unwrap();
+    let original = app.host.document.editor.project.clone();
+    let history = app.host.document.editor.undo.len();
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
     app.dispatch_edit("Drag");
     click(&ctx, &mut app, pos2(400., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
-    assert_eq!(app.editor.project, original);
-    assert_eq!(app.editor.undo.len(), history);
+    assert_eq!(app.host.document.editor.project, original);
+    assert_eq!(app.host.document.editor.undo.len(), history);
 }
 
 #[test]
 fn pointer_drag_3d_uses_current_story_plane_without_dialog() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    let original = app.editor.project.clone();
+    let original = app.host.document.editor.project.clone();
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
     app.dispatch_edit("Drag");
     click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 300.))]);
-    assert_eq!(app.editor.project, original);
+    assert_eq!(app.host.document.editor.project, original);
     assert!(app.edit_dialog.is_none());
     click_model(&ctx, &mut app, pos2(500., 300.), PointerButton::Primary);
     assert!(app.pointer_drag.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
-    assert_ne!(app.editor.project, original);
-    app.editor.undo();
-    assert_eq!(app.editor.project, original);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    assert_ne!(app.host.document.editor.project, original);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, original);
 }
 
 #[test]
 fn pointer_drag_reference_point_is_first_click_not_previous_mouse_position() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(200., 200.))]);
     app.dispatch_edit("Drag");
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(450., 350.))]);
-    assert_eq!(app.editor.status, "Enter Drag Reference Point");
+    assert_eq!(
+        app.host.document.editor.status,
+        "Enter Drag Reference Point"
+    );
     click(&ctx, &mut app, pos2(450., 350.));
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
-    assert_eq!(app.editor.status, "Enter Drag-to Point");
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.status, "Enter Drag-to Point");
     click(&ctx, &mut app, pos2(500., 350.));
-    let Shape::Wall { start, .. } = app.editor.project.elements[0].shape else {
+    let Shape::Wall { start, .. } = app.host.document.editor.project.elements[0].shape else {
         panic!()
     };
     assert!((start.x - 1.).abs() < 0.001);
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
 }
 
 #[test]
@@ -4798,10 +7342,10 @@ fn pointer_drag_copy_chords_toggle_out_and_control_alone_does_not_copy() {
         ] {
             plan_frame(&ctx, &mut app, vec![Event::ModifiersChanged(modifiers)]);
         }
-        assert_eq!(app.editor.status, "Enter Drag-to Point");
+        assert_eq!(app.host.document.editor.status, "Enter Drag-to Point");
         click(&ctx, &mut app, pos2(500., 300.));
-        assert_eq!(app.editor.project.elements.len(), 1);
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
     }
 }
 
@@ -4838,9 +7382,12 @@ fn pointer_drag_quick_option_tap_in_one_frame_is_not_lost() {
             Event::ModifiersChanged(Modifiers::NONE),
         ],
     );
-    assert_eq!(app.editor.status, "Enter Drag-to Point · Drag a Copy");
+    assert_eq!(
+        app.host.document.editor.status,
+        "Enter Drag-to Point · Drag a Copy"
+    );
     click(&ctx, &mut app, pos2(500., 300.));
-    assert_eq!(app.editor.project.elements.len(), 2);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
 }
 
 fn begin_direct_drag(ctx: &Context, app: &mut AtelierApp, start: Pos2, end: Pos2) {
@@ -4875,36 +7422,44 @@ fn direct_drag_held_option_then_command_uses_copy_session_without_eyedropper() {
         let (ctx, mut app) = setup();
         let id = shortcut_test_wall(&mut app);
         if !selected {
-            app.editor.set_selection(vec![]);
+            app.host.document.editor.set_selection(vec![]);
         }
-        if let Shape::Wall { thickness, .. } = &mut app.editor.project.elements[0].shape {
+        if let Shape::Wall { thickness, .. } =
+            &mut app.host.document.editor.project.elements[0].shape
+        {
             *thickness = 1.;
         }
-        let original = app.editor.project.clone();
+        let original = app.host.document.editor.project.clone();
         begin_direct_drag(&ctx, &mut app, pos2(500., 320.), pos2(550., 370.));
         assert!(app.pointer_drag.is_some());
         assert!(app.edit_dialog.is_none());
-        assert_eq!(app.editor.selection_ids(), vec![id]);
-        assert_eq!(app.editor.status, "Enter Drag-to Point");
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert_eq!(app.host.document.editor.status, "Enter Drag-to Point");
         plan_frame(
             &ctx,
             &mut app,
             vec![Event::ModifiersChanged(Modifiers::ALT)],
         );
-        assert!(app.editor.status.ends_with("Drag a Copy"));
+        assert!(app.host.document.editor.status.ends_with("Drag a Copy"));
         assert!(app.transfer_cursor.is_none());
         plan_frame(
             &ctx,
             &mut app,
             vec![Event::ModifiersChanged(Modifiers::ALT | Modifiers::COMMAND)],
         );
-        assert!(app.editor.status.ends_with("Drag Multiple Copies"));
+        assert!(
+            app.host
+                .document
+                .editor
+                .status
+                .ends_with("Drag Multiple Copies")
+        );
         assert!(app.transfer_cursor.is_none());
-        assert_eq!(app.editor.project, original);
+        assert_eq!(app.host.document.editor.project, original);
         release_direct_drag(&ctx, &mut app, pos2(550., 370.));
         assert!(app.pointer_drag.is_some());
-        assert_eq!(app.editor.project, original);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.host.document.editor.undo.is_empty());
         plan_frame(
             &ctx,
             &mut app,
@@ -4914,11 +7469,17 @@ fn direct_drag_held_option_then_command_uses_copy_session_without_eyedropper() {
         click(&ctx, &mut app, pos2(700., 320.));
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.pointer_drag.is_none());
-        assert_eq!(app.editor.project.elements.len(), 3);
-        assert_eq!(app.editor.selection_ids().len(), 3);
-        assert_eq!(app.editor.project.elements[0], original.elements[0]);
-        assert_eq!(app.editor.undo.len(), 2);
-        for (element, x) in app.editor.project.elements[1..].iter().zip([2., 4.]) {
+        assert_eq!(app.host.document.editor.project.elements.len(), 3);
+        assert_eq!(app.host.document.editor.selection_ids().len(), 3);
+        assert_eq!(
+            app.host.document.editor.project.elements[0],
+            original.elements[0]
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 2);
+        for (element, x) in app.host.document.editor.project.elements[1..]
+            .iter()
+            .zip([2., 4.])
+        {
             match element.shape {
                 Shape::Wall {
                     start: a, end: b, ..
@@ -4929,13 +7490,15 @@ fn direct_drag_held_option_then_command_uses_copy_session_without_eyedropper() {
                 _ => panic!("wall"),
             }
         }
-        let restored: Project =
-            serde_json::from_str(&serde_json::to_string(&app.editor.project).unwrap()).unwrap();
-        assert_eq!(restored, app.editor.project);
-        app.editor.undo();
-        assert_eq!(app.editor.project.elements.len(), 2);
-        app.editor.undo();
-        assert_eq!(app.editor.project, original);
+        let restored: Project = serde_json::from_str(
+            &serde_json::to_string(&app.host.document.editor.project).unwrap(),
+        )
+        .unwrap();
+        assert_eq!(restored, app.host.document.editor.project);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project.elements.len(), 2);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, original);
     }
 }
 #[test]
@@ -4943,10 +7506,12 @@ fn direct_drag_move_copy_cancel_and_locked_commit() {
     for copy in [false, true] {
         let (ctx, mut app) = setup();
         shortcut_test_wall(&mut app);
-        if let Shape::Wall { thickness, .. } = &mut app.editor.project.elements[0].shape {
+        if let Shape::Wall { thickness, .. } =
+            &mut app.host.document.editor.project.elements[0].shape
+        {
             *thickness = 1.;
         }
-        let original = app.editor.project.clone();
+        let original = app.host.document.editor.project.clone();
         begin_direct_drag(&ctx, &mut app, pos2(500., 320.), pos2(550., 370.));
         if copy {
             plan_frame(
@@ -4958,8 +7523,8 @@ fn direct_drag_move_copy_cancel_and_locked_commit() {
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         release_direct_drag(&ctx, &mut app, pos2(550., 370.));
         assert!(app.pointer_drag.is_none());
-        assert_eq!(app.editor.project, original);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.host.document.editor.undo.is_empty());
         begin_direct_drag(&ctx, &mut app, pos2(500., 320.), pos2(550., 370.));
         if copy {
             plan_frame(
@@ -4976,24 +7541,31 @@ fn direct_drag_move_copy_cancel_and_locked_commit() {
         );
         click(&ctx, &mut app, pos2(600., 320.));
         assert!(app.pointer_drag.is_none());
-        assert_eq!(app.editor.project.elements.len(), if copy { 2 } else { 1 });
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, original);
+        assert_eq!(
+            app.host.document.editor.project.elements.len(),
+            if copy { 2 } else { 1 }
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, original);
     }
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    app.editor.edit(crate::editing::EditCommand::Lock).unwrap();
-    if let Shape::Wall { thickness, .. } = &mut app.editor.project.elements[0].shape {
+    app.host
+        .document
+        .editor
+        .edit(crate::editing::EditCommand::Lock)
+        .unwrap();
+    if let Shape::Wall { thickness, .. } = &mut app.host.document.editor.project.elements[0].shape {
         *thickness = 1.;
     }
-    let original = app.editor.project.clone();
-    let history = app.editor.undo.len();
+    let original = app.host.document.editor.project.clone();
+    let history = app.host.document.editor.undo.len();
     begin_direct_drag(&ctx, &mut app, pos2(500., 320.), pos2(550., 370.));
     release_direct_drag(&ctx, &mut app, pos2(550., 370.));
     click(&ctx, &mut app, pos2(600., 320.));
-    assert_eq!(app.editor.project, original);
-    assert_eq!(app.editor.undo.len(), history);
+    assert_eq!(app.host.document.editor.project, original);
+    assert_eq!(app.host.document.editor.undo.len(), history);
 }
 
 #[test]
@@ -5001,7 +7573,7 @@ fn cmd_drag_object_reference_press_then_motion_is_not_lost() {
     for mode in 0..3 {
         let (ctx, mut app) = setup();
         let id = shortcut_test_wall(&mut app);
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         // Exercise the real workspace, including the selection Info Box and palettes.
         layers_frame_output(&ctx, &mut app, vec![]);
         layers_frame_output(&ctx, &mut app, vec![key(Key::D, Modifiers::COMMAND)]);
@@ -5019,7 +7591,7 @@ fn cmd_drag_object_reference_press_then_motion_is_not_lost() {
         );
         layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(785., 538.))]);
         assert_eq!(
-            app.editor.status, "Enter Drag-to Point",
+            app.host.document.editor.status, "Enter Drag-to Point",
             "reference press must survive motion"
         );
         assert!(app.wall_edit.is_none() && app.wall_insert.is_none());
@@ -5051,38 +7623,41 @@ fn cmd_drag_object_reference_press_then_motion_is_not_lost() {
             ],
         );
         assert_eq!(
-            app.editor.project, before,
+            app.host.document.editor.project, before,
             "reference release cannot commit"
         );
-        assert!(app.editor.undo.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
         assert!(app.transfer_cursor.is_none());
         // Place on the original wall's endpoint, not on empty canvas.
         layers_click(&ctx, &mut app, pos2(835., 538.));
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
         if mode == 2 {
             layers_click(&ctx, &mut app, pos2(635., 538.));
             layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-            assert_eq!(app.editor.project.elements.len(), 3);
-            assert_eq!(app.editor.selection_ids().len(), 3);
-            app.editor.undo();
+            assert_eq!(app.host.document.editor.project.elements.len(), 3);
+            assert_eq!(app.host.document.editor.selection_ids().len(), 3);
+            app.host.document.editor.undo();
         } else {
             assert!(app.pointer_drag.is_none());
             assert_eq!(
-                app.editor.project.elements.len(),
+                app.host.document.editor.project.elements.len(),
                 if mode == 0 { 1 } else { 2 }
             );
         }
-        let moved = &app.editor.project.elements[if mode == 0 { 0 } else { 1 }];
+        let moved = &app.host.document.editor.project.elements[if mode == 0 { 0 } else { 1 }];
         assert!(
             matches!(moved.shape, Shape::Wall {start,end,..} if start==Point::new(2.,0.) && end==Point::new(6.,0.))
         );
         if mode > 0 {
-            assert_eq!(app.editor.project.elements[0], before.elements[0]);
+            assert_eq!(
+                app.host.document.editor.project.elements[0],
+                before.elements[0]
+            );
         }
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
         assert_eq!(
-            app.editor.selection_ids(),
+            app.host.document.editor.selection_ids(),
             if mode == 1 { vec![] } else { vec![id] }
         );
     }
@@ -5098,7 +7673,7 @@ fn cmd_drag_reference_accepts_any_canvas_point_and_consumes_jitter_release() {
     ] {
         let (ctx, mut app) = setup();
         let id = shortcut_test_wall(&mut app);
-        let other = app.editor.project.add(
+        let other = app.host.document.editor.project.add(
             0,
             Material::Concrete,
             Shape::Wall {
@@ -5108,7 +7683,7 @@ fn cmd_drag_reference_accepts_any_canvas_point_and_consumes_jitter_release() {
                 height: 3.,
             },
         );
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         plan_frame(&ctx, &mut app, vec![key(Key::D, Modifiers::COMMAND)]);
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(start)]);
         plan_frame(
@@ -5121,7 +7696,7 @@ fn cmd_drag_reference_accepts_any_canvas_point_and_consumes_jitter_release() {
                 modifiers: Modifiers::NONE,
             }],
         );
-        assert_eq!(app.editor.status, "Enter Drag-to Point");
+        assert_eq!(app.host.document.editor.status, "Enter Drag-to Point");
         let jitter = start + vec2(1., 0.);
         plan_frame(
             &ctx,
@@ -5137,11 +7712,11 @@ fn cmd_drag_reference_accepts_any_canvas_point_and_consumes_jitter_release() {
             ],
         );
         assert_eq!(
-            app.editor.project, before,
+            app.host.document.editor.project, before,
             "a one-pixel release must not commit"
         );
-        assert_eq!(app.editor.selection_ids(), vec![id]);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert!(app.host.document.editor.undo.is_empty());
         assert!(app.wall_edit.is_none() && app.wall_insert.is_none());
         click(&ctx, &mut app, start + vec2(50., 0.));
         assert!(app.pointer_drag.is_none());
@@ -5153,18 +7728,18 @@ fn cmd_drag_reference_accepts_any_canvas_point_and_consumes_jitter_release() {
             wall_reference_line(&app, other),
             (Point::new(0., -2.), Point::new(4., -2.))
         );
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
     }
 }
 
 #[test]
 fn orbit_crosses_horizon_with_rotation_cursor_and_preserves_model() {
-    for button in [PointerButton::Primary, PointerButton::Middle] {
+    for button in [PointerButton::Middle] {
         let (ctx, mut app) = setup();
         shortcut_test_wall(&mut app);
-        let project = app.editor.project.clone();
-        let selection = app.editor.selection_ids();
+        let project = app.host.document.editor.project.clone();
+        let selection = app.host.document.editor.selection_ids();
         app.camera.pitch = 0.05;
         let modifiers = if button == PointerButton::Middle {
             Modifiers::SHIFT
@@ -5230,9 +7805,58 @@ fn orbit_crosses_horizon_with_rotation_cursor_and_preserves_model() {
             ],
         );
         assert_ne!(released.platform_output.cursor_icon, CursorIcon::None);
-        assert_eq!(app.editor.project, project);
-        assert_eq!(app.editor.selection_ids(), selection);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, project);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert!(app.host.document.editor.undo.is_empty());
+    }
+}
+
+#[test]
+fn model_left_drag_selects_on_release_and_never_orbits() {
+    for reverse in [false, true] {
+        let (ctx, mut app) = setup();
+        shortcut_test_wall(&mut app);
+        app.host.document.editor.set_selection(vec![]);
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        let camera = (app.camera.yaw, app.camera.pitch, app.camera.target);
+        let (a, b) = if reverse {
+            (pos2(790., 590.), pos2(10., 10.))
+        } else {
+            (pos2(10., 10.), pos2(790., 590.))
+        };
+        model_frame(&ctx, &mut app, vec![Event::PointerMoved(a)]);
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![Event::PointerButton {
+                pos: a,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        model_frame(&ctx, &mut app, vec![Event::PointerMoved(b)]);
+        assert!(app.canvas_selection_box.is_some());
+        assert!(app.host.document.editor.selection_ids().is_empty());
+        model_frame(
+            &ctx,
+            &mut app,
+            vec![Event::PointerButton {
+                pos: b,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        assert!(app.canvas_selection_box.is_none());
+        assert!(!app.host.document.editor.selection_ids().is_empty());
+        assert_eq!(
+            (app.camera.yaw, app.camera.pitch, app.camera.target),
+            camera
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
     }
 }
 
@@ -5253,7 +7877,7 @@ fn drag_tracker_distance_angle_enters_all_copy_modes_and_undo() {
         let (ctx, mut app) = setup();
         app.language = lang;
         let id = shortcut_test_wall(&mut app);
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         app.dispatch_edit("Drag");
         click(&ctx, &mut app, pos2(400., 300.));
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 300.))]);
@@ -5273,8 +7897,8 @@ fn drag_tracker_distance_angle_enters_all_copy_modes_and_undo() {
                 vec![Event::ModifiersChanged(Modifiers::ALT | Modifiers::COMMAND)],
             );
         }
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         assert!(app.transfer_cursor.is_none());
         let output = plan_frame_output(
             &ctx,
@@ -5302,38 +7926,54 @@ fn drag_tracker_distance_angle_enters_all_copy_modes_and_undo() {
                 }))
         );
         plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-        let element = &app.editor.project.elements[if mode == 0 { 0 } else { 1 }];
+        let element = &app.host.document.editor.project.elements[if mode == 0 { 0 } else { 1 }];
         assert!(
             matches!(element.shape,Shape::Wall {start,..} if start.distance(Point::new(0.,5.))<1e-5)
         );
         if mode > 0 {
-            assert_eq!(app.editor.project.elements[0], before.elements[0]);
+            assert_eq!(
+                app.host.document.editor.project.elements[0],
+                before.elements[0]
+            );
         }
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
         if mode == 2 {
             drag_tracker_type(&ctx, &mut app, Key::D, "3");
             drag_tracker_type(&ctx, &mut app, Key::A, "-90");
             plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-            assert_eq!(app.editor.project.elements.len(), 3);
+            assert_eq!(app.host.document.editor.project.elements.len(), 3);
             assert!(
-                matches!(app.editor.project.elements[2].shape,Shape::Wall {start,..} if start.distance(Point::new(0.,-3.))<1e-5)
+                matches!(app.host.document.editor.project.elements[2].shape,Shape::Wall {start,..} if start.distance(Point::new(0.,-3.))<1e-5)
             );
             plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-            assert_eq!(app.editor.selection_ids().len(), 3);
-            app.editor.undo();
+            assert_eq!(app.host.document.editor.selection_ids().len(), 3);
+            app.host.document.editor.undo();
         }
         assert!(app.pointer_drag.is_none());
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.project.elements.iter().any(|e| e.id == id));
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .elements
+                .iter()
+                .any(|e| e.id == id)
+        );
     }
 }
 #[test]
 fn drag_tracker_units_tab_invalid_and_escape() {
     let (ctx, mut app) = setup();
     shortcut_test_wall(&mut app);
-    app.editor.project.plan_options.dimension_style = DimensionStyle::PlainMillimeter;
-    let before = app.editor.project.clone();
+    app.host
+        .document
+        .editor
+        .project
+        .plan_options
+        .dimension_style = DimensionStyle::PlainMillimeter;
+    let before = app.host.document.editor.project.clone();
     app.dispatch_edit("Drag");
     click(&ctx, &mut app, pos2(400., 300.));
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 300.))]);
@@ -5346,13 +7986,15 @@ fn drag_tracker_units_tab_invalid_and_escape() {
     plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
     assert_eq!(wall_reference_line(&app, 1).0, Point::new(2.5, 0.));
     let roundtrip: Project =
-        serde_json::from_str(&serde_json::to_string(&app.editor.project).unwrap()).unwrap();
-    assert_eq!(roundtrip, app.editor.project);
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
+        serde_json::from_str(&serde_json::to_string(&app.host.document.editor.project).unwrap())
+            .unwrap();
+    assert_eq!(roundtrip, app.host.document.editor.project);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
     app.dispatch_edit("Drag");
     click(&ctx, &mut app, pos2(400., 300.));
-    for value in ["-1", "NaN", "1e99", "bad"] {
+    // Signed distance is now a legal reverse vector; malformed/non-finite inputs remain invalid.
+    for value in ["--1", "NaN", "1e99", "bad"] {
         drag_tracker_type(&ctx, &mut app, Key::D, "1");
         plan_frame(
             &ctx,
@@ -5360,8 +8002,8 @@ fn drag_tracker_units_tab_invalid_and_escape() {
             vec![key(Key::A, Modifiers::COMMAND), Event::Paste(value.into())],
         );
         plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         assert!(app.pointer_drag.is_some());
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(
@@ -5384,7 +8026,7 @@ fn drag_tracker_error_labels_and_3d_numeric_placement() {
         model_frame(
             &ctx,
             &mut app,
-            vec![key(Key::D, Modifiers::NONE), Event::Text("-2".into())],
+            vec![key(Key::D, Modifiers::NONE), Event::Text("--2".into())],
         );
         let output = model_frame_output(&ctx, &mut app, vec![]);
         let mut labels = vec![];
@@ -5395,7 +8037,7 @@ fn drag_tracker_error_labels_and_3d_numeric_placement() {
                 .any(|t| t == language.translate("Enter a valid number"))
         );
         model_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-        assert!(app.editor.undo.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
         model_frame(
             &ctx,
             &mut app,
@@ -5409,15 +8051,15 @@ fn drag_tracker_error_labels_and_3d_numeric_placement() {
         model_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
         assert!(app.pointer_drag.is_none());
         assert_eq!(wall_reference_line(&app, 1).0, Point::new(2., 0.));
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
     }
 }
 
 #[test]
 fn active_wall_method_switch_retains_nodes_through_info_box_clicks() {
     let (ctx, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
     for (label, method) in [
         ("Continuous", WallGeometryMethod::Continuous),
         ("Single", WallGeometryMethod::Single),
@@ -5426,16 +8068,24 @@ fn active_wall_method_switch_retains_nodes_through_info_box_clicks() {
         let output = layers_frame_output(&ctx, &mut app, vec![]);
         let button = text_center(&output.shapes, label).expect("method button");
         layers_click(&ctx, &mut app, button);
-        assert_eq!(app.editor.wall_settings.geometry.geometry_method, method);
-        assert!(app.editor.wall_draft_active());
-        assert!(app.editor.project.elements.is_empty());
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .wall_settings
+                .geometry
+                .geometry_method,
+            method
+        );
+        assert!(app.host.document.editor.wall_draft_active());
+        assert!(app.host.document.editor.project.elements.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
         if method == WallGeometryMethod::Continuous {
-            app.editor.click(Point::new(4., 0.), 0.);
+            app.host.document.editor.click(Point::new(4., 0.), 0.);
         }
     }
     assert_eq!(
-        app.editor.wall_points,
+        app.host.document.editor.wall_points,
         vec![Point::new(0., 0.), Point::new(4., 0.)]
     );
     let expected = vec![
@@ -5443,8 +8093,10 @@ fn active_wall_method_switch_retains_nodes_through_info_box_clicks() {
         (Point::new(4., 0.), Point::new(4., 3.)),
     ];
     assert_eq!(app.wall_preview_segments(Point::new(4., 3.), 0.), expected);
-    app.editor.click(Point::new(4., 3.), 0.);
+    app.host.document.editor.click(Point::new(4., 3.), 0.);
     let actual: Vec<_> = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -5455,43 +8107,55 @@ fn active_wall_method_switch_retains_nodes_through_info_box_clicks() {
         })
         .collect();
     assert_eq!(actual, expected);
-    assert_eq!(app.editor.project.elements.len(), 2);
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
-    assert!(app.editor.project.elements.is_empty());
-    app.editor.redo();
-    assert_eq!(app.editor.project.elements.len(), 2);
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
+    assert!(app.host.document.editor.project.elements.is_empty());
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
 }
 
 #[test]
 fn active_wall_method_switch_rectangle_and_cancel_preserve_transaction_boundary() {
     let (_, mut app) = setup();
-    app.editor.set_tool(Tool::Wall);
-    app.editor
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host
+        .document
+        .editor
         .set_wall_geometry_method(WallGeometryMethod::Continuous);
-    app.editor.click(Point::new(0., 0.), 0.);
-    app.editor.click(Point::new(4., 0.), 0.);
-    app.editor
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(4., 0.), 0.);
+    app.host
+        .document
+        .editor
         .set_wall_geometry_method(WallGeometryMethod::Rectangular);
-    app.editor.finish_wall(Some(Point::new(7., 3.))).unwrap();
-    assert_eq!(app.editor.project.elements.len(), 5);
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(1., 1.), 0.);
-    app.editor
+    app.host
+        .document
+        .editor
+        .finish_wall(Some(Point::new(7., 3.)))
+        .unwrap();
+    assert_eq!(app.host.document.editor.project.elements.len(), 5);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(1., 1.), 0.);
+    app.host
+        .document
+        .editor
         .set_wall_geometry_method(WallGeometryMethod::Continuous);
-    app.editor.click(Point::new(5., 1.), 0.);
-    app.editor
+    app.host.document.editor.click(Point::new(5., 1.), 0.);
+    app.host
+        .document
+        .editor
         .set_wall_geometry_method(WallGeometryMethod::Single);
-    app.editor.cancel_wall_draft();
-    assert!(!app.editor.wall_draft_active());
-    assert!(app.editor.project.elements.is_empty());
-    assert!(app.editor.undo.is_empty());
+    app.host.document.editor.cancel_wall_draft();
+    assert!(!app.host.document.editor.wall_draft_active());
+    assert!(app.host.document.editor.project.elements.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
 }
 
-fn reshape_test_line(app: &mut AtelierApp, a: (f32, f32), b: (f32, f32)) -> u64 {
-    app.editor.project.add(
+fn reshape_test_line(app: &mut AtelierApp, a: (f64, f64), b: (f64, f64)) -> u64 {
+    app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Polyline {
@@ -5509,7 +8173,7 @@ fn reshape_toolbar_click_trim_preview_cancel_commit_both_languages() {
         reshape_test_line(&mut app, (-4., 0.), (4., 0.));
         reshape_test_line(&mut app, (-1., -2.), (-1., 2.));
         reshape_test_line(&mut app, (1., -2.), (1., 2.));
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         layers_frame_output(&ctx, &mut app, vec![]);
         layers_frame_output(&ctx, &mut app, vec![]);
         let rect = ctx
@@ -5517,22 +8181,22 @@ fn reshape_toolbar_click_trim_preview_cancel_commit_both_languages() {
             .expect("toolbar button rect");
         layers_click(&ctx, &mut app, rect.center());
         assert_eq!(app.reshape_session.as_ref().unwrap().name, "Trim");
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.reshape_session.is_none());
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         app.dispatch_edit("Trim");
         click(&ctx, &mut app, pos2(400., 300.));
         assert_eq!(app.reshape_session.as_ref().unwrap().name, "Trim");
-        assert_eq!(app.editor.project.elements.len(), 4);
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
-        app.editor.redo();
-        assert_eq!(app.editor.project.elements.len(), 4);
+        assert_eq!(app.host.document.editor.project.elements.len(), 4);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project.elements.len(), 4);
         assert_ne!(
             app.language
                 .translate("Click the segment to trim · Escape cancels"),
@@ -5545,16 +8209,17 @@ fn reshape_adjust_real_pointer_boundary_and_no_premature_commit() {
     let (ctx, mut app) = setup();
     app.view = View::Plan;
     let id = reshape_test_line(&mut app, (-3., 0.), (-1., 0.));
-    app.editor.set_selection(vec![id]);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
     app.dispatch_edit("Adjust");
     click(&ctx, &mut app, pos2(500., 350.));
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     click(&ctx, &mut app, pos2(500., 250.));
     assert!(app.reshape_session.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
-    let path = crate::reshape::straight_path(&app.editor.project.elements[0]).unwrap();
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    let path =
+        crate::reshape::straight_path(&app.host.document.editor.project.elements[0]).unwrap();
     assert_eq!(path[1], Point::new(2., 0.));
 }
 #[test]
@@ -5562,32 +8227,32 @@ fn reshape_resize_dialog_graphical_three_clicks_and_cancel() {
     let (ctx, mut app) = setup();
     app.view = View::Plan;
     let id = reshape_test_line(&mut app, (0., 0.), (2., 0.));
-    app.editor.set_selection(vec![id]);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
     app.dispatch_edit("Resize…");
     layers_frame_output(&ctx, &mut app, vec![]);
     let output = layers_frame_output(&ctx, &mut app, vec![]);
     let ok = text_center(&output.shapes, "OK").unwrap();
     layers_click(&ctx, &mut app, ok);
     assert!(!app.reshape_session.as_ref().unwrap().dialog);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     click(&ctx, &mut app, pos2(400., 300.));
     click(&ctx, &mut app, pos2(500., 300.));
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     click(&ctx, &mut app, pos2(600., 300.));
     assert!(app.reshape_session.is_none());
     assert_eq!(
-        crate::reshape::straight_path(&app.editor.project.elements[0]).unwrap()[1],
+        crate::reshape::straight_path(&app.host.document.editor.project.elements[0]).unwrap()[1],
         Point::new(4., 0.)
     );
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 #[test]
 fn reshape_magic_wand_space_click_creates_without_selecting_source() {
     let (ctx, mut app) = setup();
     app.view = View::Plan;
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Slab {
@@ -5596,8 +8261,8 @@ fn reshape_magic_wand_space_click_creates_without_selecting_source() {
             thickness: 0.2,
         },
     );
-    app.editor.set_tool(Tool::Wall);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_tool(Tool::Wall);
+    let before = app.host.document.editor.project.clone();
     plan_frame(
         &ctx,
         &mut app,
@@ -5606,11 +8271,11 @@ fn reshape_magic_wand_space_click_creates_without_selecting_source() {
             Event::PointerMoved(pos2(400., 300.)),
         ],
     );
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     click(&ctx, &mut app, pos2(400., 300.));
-    assert_eq!(app.editor.project.elements.len(), 5);
-    assert_eq!(app.editor.project.elements[0].id, id);
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 5);
+    assert_eq!(app.host.document.editor.project.elements[0].id, id);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
 }
 #[test]
 fn reshape_eligibility_and_localization_do_not_mutate_project() {
@@ -5621,20 +8286,26 @@ fn reshape_eligibility_and_localization_do_not_mutate_project() {
     assert!(!app.edit_command_enabled("Magic Wand"));
     assert!(!app.edit_command_enabled("Trim Elements to Roof/Shell"));
     let id = reshape_test_line(&mut app, (0., 0.), (2., 0.));
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     assert!(app.edit_command_enabled("Adjust"));
     assert!(!app.edit_command_enabled("Intersect"));
-    app.editor.project.edit_state.locked.insert(id);
+    app.host
+        .document
+        .editor
+        .project
+        .edit_state
+        .locked
+        .insert(id);
     assert!(!app.edit_command_enabled("Adjust"));
-    app.editor.project.edit_state.locked.clear();
-    let before = app.editor.project.clone();
-    let selection = app.editor.selection_ids();
+    app.host.document.editor.project.edit_state.locked.clear();
+    let before = app.host.document.editor.project.clone();
+    let selection = app.host.document.editor.selection_ids();
     for language in [UiLanguage::SimplifiedChinese, UiLanguage::English] {
         app.language = language;
         layers_frame_output(&ctx, &mut app, vec![]);
-        assert_eq!(app.editor.project, before);
-        assert_eq!(app.editor.selection_ids(), selection);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert!(app.host.document.editor.undo.is_empty());
     }
 }
 
@@ -5665,12 +8336,12 @@ fn trim_cmd_hold_release_preserves_tool_draft_selection_and_history() {
         let id = reshape_test_line(&mut app, (-4., 0.), (4., 0.));
         reshape_test_line(&mut app, (-1., -2.), (-1., 2.));
         reshape_test_line(&mut app, (1., -2.), (1., 2.));
-        app.editor.set_selection(vec![id]);
-        app.editor.set_tool(Tool::Wall);
-        app.editor.click(Point::new(5., 5.), 0.);
-        let before = app.editor.project.clone();
-        let selection = app.editor.selection_ids();
-        let status = app.editor.status.clone();
+        app.host.document.editor.set_selection(vec![id]);
+        app.host.document.editor.set_tool(Tool::Wall);
+        app.host.document.editor.click(Point::new(5., 5.), 0.);
+        let before = app.host.document.editor.project.clone();
+        let selection = app.host.document.editor.selection_ids();
+        let status = app.host.document.editor.status.clone();
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
         let cursor = trim_cmd_frame(
             &ctx,
@@ -5682,17 +8353,17 @@ fn trim_cmd_hold_release_preserves_tool_draft_selection_and_history() {
         assert_eq!(cursor, CursorIcon::None);
         assert!(app.trim_modifier_active(&ctx));
         assert!(app.reshape_session.is_none());
-        assert_eq!(app.editor.project, before);
-        assert_eq!(app.editor.selection_ids(), selection);
-        assert!(app.editor.undo.is_empty());
-        assert_eq!(app.editor.anchor, Some(Point::new(5., 5.)));
-        assert_eq!(app.editor.tool, Tool::Wall);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.anchor, Some(Point::new(5., 5.)));
+        assert_eq!(app.host.document.editor.tool, Tool::Wall);
         trim_cmd_frame(&ctx, &mut app, pos2(400., 300.), Modifiers::NONE, None);
         assert!(!app.trim_modifier_active(&ctx));
         assert!(app.reshape_session.is_none());
-        assert_eq!(app.editor.project, before);
-        assert_eq!(app.editor.status, status);
-        assert_eq!(app.editor.anchor, Some(Point::new(5., 5.)));
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.status, status);
+        assert_eq!(app.host.document.editor.anchor, Some(Point::new(5., 5.)));
         let tip = app.reshape_tip("Trim");
         assert!(tip.contains("Cmd"));
         if lang == UiLanguage::SimplifiedChinese {
@@ -5709,7 +8380,7 @@ fn trim_cmd_click_commits_once_and_can_repeat_while_held() {
     reshape_test_line(&mut app, (-4., 0.), (4., 0.));
     reshape_test_line(&mut app, (-1., -2.), (-1., 2.));
     reshape_test_line(&mut app, (1., -2.), (1., 2.));
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let pos = pos2(400., 300.);
     trim_cmd_frame(
         &ctx,
@@ -5725,8 +8396,8 @@ fn trim_cmd_click_commits_once_and_can_repeat_while_held() {
         (Modifiers::MAC_CMD | Modifiers::COMMAND),
         Some(true),
     );
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     trim_cmd_frame(
         &ctx,
         &mut app,
@@ -5734,16 +8405,16 @@ fn trim_cmd_click_commits_once_and_can_repeat_while_held() {
         (Modifiers::MAC_CMD | Modifiers::COMMAND),
         Some(false),
     );
-    assert_eq!(app.editor.undo.len(), 1);
-    assert_eq!(app.editor.project.elements.len(), 4);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements.len(), 4);
     assert!(!app.trim_shortcut_gesture);
     assert!(app.reshape_session.is_none());
     assert!(app.pointer_drag.is_none());
-    let after = app.editor.project.clone();
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
-    app.editor.redo();
-    assert_eq!(app.editor.project, after);
+    let after = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, after);
     // Same physical hold, second independent click; no latched menu command needed.
     let pos = pos2(350., 250.);
     trim_cmd_frame(
@@ -5760,7 +8431,7 @@ fn trim_cmd_click_commits_once_and_can_repeat_while_held() {
         (Modifiers::MAC_CMD | Modifiers::COMMAND),
         Some(false),
     );
-    assert_eq!(app.editor.undo.len(), 2);
+    assert_eq!(app.host.document.editor.undo.len(), 2);
 }
 #[test]
 fn trim_cmd_released_before_mouse_up_does_not_draw_or_select() {
@@ -5768,9 +8439,9 @@ fn trim_cmd_released_before_mouse_up_does_not_draw_or_select() {
     app.view = View::Plan;
     reshape_test_line(&mut app, (-4., 0.), (4., 0.));
     reshape_test_line(&mut app, (-1., -2.), (-1., 2.));
-    app.editor.set_tool(Tool::Wall);
-    app.editor.click(Point::new(5., 5.), 0.);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_tool(Tool::Wall);
+    app.host.document.editor.click(Point::new(5., 5.), 0.);
+    let before = app.host.document.editor.project.clone();
     let pos = pos2(400., 300.);
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
     trim_cmd_frame(
@@ -5784,9 +8455,9 @@ fn trim_cmd_released_before_mouse_up_does_not_draw_or_select() {
     trim_cmd_frame(&ctx, &mut app, pos, Modifiers::NONE, None);
     trim_cmd_frame(&ctx, &mut app, pos, Modifiers::NONE, Some(false));
     assert!(!app.trim_shortcut_gesture);
-    assert!(app.editor.undo.is_empty());
-    assert_eq!(app.editor.project, before);
-    assert_eq!(app.editor.anchor, Some(Point::new(5., 5.)));
+    assert!(app.host.document.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.anchor, Some(Point::new(5., 5.)));
     trim_cmd_frame(&ctx, &mut app, pos, Modifiers::NONE, None);
     assert!(!app.trim_modifier_active(&ctx));
 }
@@ -5817,7 +8488,7 @@ fn trim_cmd_does_not_latch_outside_canvas_or_steal_modifier_chords() {
     ] {
         trim_cmd_frame(&ctx, &mut app, pos2(400., 300.), modifiers, None);
         assert!(!app.trim_modifier_active(&ctx));
-        assert!(app.editor.undo.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
     }
     trim_cmd_frame(&ctx, &mut app, pos2(400., 300.), Modifiers::NONE, None);
     app.dispatch_edit("Trim");
@@ -5837,8 +8508,14 @@ fn trim_cmd_locked_target_is_atomic() {
     app.view = View::Plan;
     let id = reshape_test_line(&mut app, (-4., 0.), (4., 0.));
     reshape_test_line(&mut app, (-1., -2.), (-1., 2.));
-    app.editor.project.edit_state.locked.insert(id);
-    let before = app.editor.project.clone();
+    app.host
+        .document
+        .editor
+        .project
+        .edit_state
+        .locked
+        .insert(id);
+    let before = app.host.document.editor.project.clone();
     let pos = pos2(400., 300.);
     trim_cmd_frame(
         &ctx,
@@ -5854,8 +8531,8 @@ fn trim_cmd_locked_target_is_atomic() {
         (Modifiers::MAC_CMD | Modifiers::COMMAND),
         Some(false),
     );
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     assert!(app.reshape_session.is_none());
 }
 
@@ -5868,7 +8545,7 @@ fn trim_cmd_and_explicit_mode_repeat_nearest_intervals_until_escape() {
         for x in [-2., 0., 2.] {
             reshape_test_line(&mut app, (x, -2.), (x, 2.));
         }
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(250., 300.))]);
         if explicit {
             app.dispatch_edit("Trim");
@@ -5882,10 +8559,12 @@ fn trim_cmd_and_explicit_mode_repeat_nearest_intervals_until_escape() {
             let pos = pos2(x, 300.);
             trim_cmd_frame(&ctx, &mut app, pos, mods, Some(true));
             trim_cmd_frame(&ctx, &mut app, pos, mods, Some(false));
-            assert_eq!(app.editor.undo.len(), step + 1);
+            assert_eq!(app.host.document.editor.undo.len(), step + 1);
             assert_eq!(app.reshape_session.is_some(), explicit);
             if step < 3 {
                 let wall = app
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -5894,10 +8573,18 @@ fn trim_cmd_and_explicit_mode_repeat_nearest_intervals_until_escape() {
                     .unwrap();
                 assert_eq!(
                     crate::reshape::straight_path(wall).unwrap(),
-                    vec![Point::new(-2. + step as f32 * 2., 0.), Point::new(4., 0.)]
+                    vec![Point::new(-2. + step as f64 * 2., 0.), Point::new(4., 0.)]
                 );
             } else {
-                assert!(!app.editor.project.elements.iter().any(|e| e.id == id));
+                assert!(
+                    !app.host
+                        .document
+                        .editor
+                        .project
+                        .elements
+                        .iter()
+                        .any(|e| e.id == id)
+                );
             }
         }
         trim_cmd_frame(&ctx, &mut app, pos2(550., 300.), Modifiers::NONE, None);
@@ -5905,15 +8592,15 @@ fn trim_cmd_and_explicit_mode_repeat_nearest_intervals_until_escape() {
             plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         }
         assert!(app.reshape_session.is_none());
-        let after = app.editor.project.clone();
+        let after = app.host.document.editor.project.clone();
         for _ in 0..4 {
-            app.editor.undo();
+            app.host.document.editor.undo();
         }
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         for _ in 0..4 {
-            app.editor.redo();
+            app.host.document.editor.redo();
         }
-        assert_eq!(app.editor.project, after);
+        assert_eq!(app.host.document.editor.project, after);
     }
 }
 
@@ -5923,7 +8610,7 @@ fn trim_cmd_hold_does_not_steal_undo_shortcut() {
     app.view = View::Plan;
     reshape_test_line(&mut app, (-4., 0.), (4., 0.));
     reshape_test_line(&mut app, (-1., -2.), (-1., 2.));
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let pos = pos2(400., 300.);
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
     trim_cmd_frame(
@@ -5940,13 +8627,13 @@ fn trim_cmd_hold_does_not_steal_undo_shortcut() {
         (Modifiers::MAC_CMD | Modifiers::COMMAND),
         Some(false),
     );
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     plan_frame(
         &ctx,
         &mut app,
         vec![key(Key::Z, (Modifiers::MAC_CMD | Modifiers::COMMAND))],
     );
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     assert!(app.trim_modifier_active(&ctx));
 }
 
@@ -5956,7 +8643,7 @@ fn wall_node_rotated_plan_palette_preview_commit_cancel_both_languages() {
         let (ctx, mut app) = setup();
         app.language = language;
         app.view = View::Plan;
-        let id = app.editor.project.add(
+        let id = app.host.document.editor.project.add(
             0,
             Material::Concrete,
             Shape::Wall {
@@ -5966,10 +8653,15 @@ fn wall_node_rotated_plan_palette_preview_commit_cancel_both_languages() {
                 height: 3.,
             },
         );
-        app.editor.project.plan_options.orientation_degrees = 27.;
-        app.editor.set_selection(vec![id]);
+        app.host
+            .document
+            .editor
+            .project
+            .plan_options
+            .orientation_degrees = 27.;
+        app.host.document.editor.set_selection(vec![id]);
         let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         let midpoint = app.screen(viewport, Point::default());
         click(&ctx, &mut app, midpoint);
         assert!(app.wall_insert.is_some());
@@ -5982,15 +8674,15 @@ fn wall_node_rotated_plan_palette_preview_commit_cancel_both_languages() {
         let node = Point::new(-2., 2.);
         let target = app.screen(viewport, node);
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(target)]);
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         let out = plan_frame_output(&ctx, &mut app, vec![]);
         let mut labels = Vec::new();
         collect_text(&out.shapes, &mut labels);
         assert!(labels.iter().any(|s| s == language.translate("Distance")));
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         click(&ctx, &mut app, midpoint);
         plan_frame(&ctx, &mut app, vec![]);
         let button = ctx
@@ -5999,8 +8691,10 @@ fn wall_node_rotated_plan_palette_preview_commit_cancel_both_languages() {
         click(&ctx, &mut app, button.center());
         click(&ctx, &mut app, target);
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
         let paths: Vec<_> = app
+            .host
+            .document
             .editor
             .project
             .elements
@@ -6012,11 +8706,11 @@ fn wall_node_rotated_plan_palette_preview_commit_cancel_both_languages() {
         assert_eq!(paths[1][1], Point::new(3., 2.));
         assert!(paths[0][1].distance(node) < 0.001);
         assert_eq!(paths[0][1], paths[1][0]);
-        let after = app.editor.project.clone();
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
-        app.editor.redo();
-        assert_eq!(app.editor.project, after);
+        let after = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
     }
 }
 fn wall_model_click(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
@@ -6046,7 +8740,7 @@ fn wall_model_click(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
 fn wall_node_model_orbit_then_middle_click_and_place_keeps_camera_fixed() {
     let (ctx, mut app) = setup();
     app.view = View::Model;
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -6056,8 +8750,8 @@ fn wall_node_model_orbit_then_middle_click_and_place_keeps_camera_fixed() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
-    app.camera.target = glam::Vec3::new(0., 0., 1.5);
+    app.host.document.editor.set_selection(vec![id]);
+    app.camera.target = glam::DVec3::new(0., 0., 1.5);
     app.camera.span = 12.;
     let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
     // A real orbit gesture precedes edge hit-testing.
@@ -6067,21 +8761,31 @@ fn wall_node_model_orbit_then_middle_click_and_place_keeps_camera_fixed() {
         &mut app,
         vec![Event::PointerButton {
             pos: pos2(200., 200.),
-            button: PointerButton::Primary,
+            button: PointerButton::Middle,
             pressed: true,
-            modifiers: Modifiers::NONE,
+            modifiers: Modifiers::SHIFT,
         }],
     );
-    model_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(230., 215.))]);
     model_frame(
         &ctx,
         &mut app,
-        vec![Event::PointerButton {
-            pos: pos2(230., 215.),
-            button: PointerButton::Primary,
-            pressed: false,
-            modifiers: Modifiers::NONE,
-        }],
+        vec![
+            Event::ModifiersChanged(Modifiers::SHIFT),
+            Event::PointerMoved(pos2(230., 215.)),
+        ],
+    );
+    model_frame(
+        &ctx,
+        &mut app,
+        vec![
+            Event::PointerButton {
+                pos: pos2(230., 215.),
+                button: PointerButton::Middle,
+                pressed: false,
+                modifiers: Modifiers::SHIFT,
+            },
+            Event::ModifiersChanged(Modifiers::NONE),
+        ],
     );
     let camera = (app.camera.yaw, app.camera.pitch);
     let midpoint = app
@@ -6090,7 +8794,7 @@ fn wall_node_model_orbit_then_middle_click_and_place_keeps_camera_fixed() {
     wall_model_click(&ctx, &mut app, midpoint);
     assert!(app.wall_insert.is_some());
     assert_eq!(
-        app.editor.project.elements.len(),
+        app.host.document.editor.project.elements.len(),
         1,
         "initiating click must not commit"
     );
@@ -6100,15 +8804,17 @@ fn wall_node_model_orbit_then_middle_click_and_place_keeps_camera_fixed() {
         .unwrap();
     wall_model_click(&ctx, &mut app, button.center());
     assert!(app.wall_insert.is_some());
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let node = Point::new(-1., -2.);
     let target = app.wall_project_point(viewport, node, 3.).unwrap();
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(target)]);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     wall_model_click(&ctx, &mut app, target);
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert_eq!((app.camera.yaw, app.camera.pitch), camera);
     let paths: Vec<_> = app
+        .host
+        .document
         .editor
         .project
         .elements
@@ -6133,7 +8839,7 @@ fn wall_pet_ten_icons_switch_without_commit_in_both_languages() {
         let (ctx, mut app) = setup();
         app.language = language;
         app.view = View::Plan;
-        let id = app.editor.project.add(
+        let id = app.host.document.editor.project.add(
             0,
             Material::Concrete,
             Shape::Wall {
@@ -6143,8 +8849,8 @@ fn wall_pet_ten_icons_switch_without_commit_in_both_languages() {
                 height: 3.,
             },
         );
-        app.editor.set_selection(vec![id]);
-        let before = app.editor.project.clone();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
         let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
         click(&ctx, &mut app, app_screen_point(viewport));
         plan_frame(&ctx, &mut app, vec![]);
@@ -6154,8 +8860,8 @@ fn wall_pet_ten_icons_switch_without_commit_in_both_languages() {
                 .unwrap();
             click(&ctx, &mut app, rect.center());
             assert_eq!(app.wall_insert.as_ref().unwrap().command, command);
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
             plan_frame(&ctx, &mut app, vec![]);
         }
         plan_frame(&ctx, &mut app, vec![key(Key::P, Modifiers::NONE)]);
@@ -6165,7 +8871,7 @@ fn wall_pet_ten_icons_switch_without_commit_in_both_languages() {
         );
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
     }
     fn app_screen_point(viewport: Rect) -> Pos2 {
         viewport.center()
@@ -6188,7 +8894,7 @@ fn wall_pet_graphical_steps_commit_once_and_undo_exactly() {
     ] {
         let (ctx, mut app) = setup();
         app.view = View::Plan;
-        let id = app.editor.project.add(
+        let id = app.host.document.editor.project.add(
             0,
             Material::Concrete,
             Shape::Wall {
@@ -6198,8 +8904,8 @@ fn wall_pet_graphical_steps_commit_once_and_undo_exactly() {
                 height: 3.,
             },
         );
-        app.editor.set_selection(vec![id]);
-        let before = app.editor.project.clone();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
         let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
         click(&ctx, &mut app, viewport.center());
         plan_frame(&ctx, &mut app, vec![]);
@@ -6224,20 +8930,23 @@ fn wall_pet_graphical_steps_commit_once_and_undo_exactly() {
             }
             click(&ctx, &mut app, target);
             if i + 1 < points.len() {
-                assert_eq!(app.editor.project, before, "{command:?} staged");
-                assert!(app.editor.undo.is_empty());
+                assert_eq!(
+                    app.host.document.editor.project, before,
+                    "{command:?} staged"
+                );
+                assert!(app.host.document.editor.undo.is_empty());
             }
         }
         assert!(
             app.wall_insert.is_none(),
             "{command:?}: {}",
-            app.editor.status
+            app.host.document.editor.status
         );
-        assert_eq!(app.editor.undo.len(), 1, "{command:?}");
-        assert_ne!(app.editor.project, before);
-        app.editor.project.validate().unwrap();
-        app.editor.undo();
-        assert_eq!(app.editor.project, before, "{command:?} undo");
+        assert_eq!(app.host.document.editor.undo.len(), 1, "{command:?}");
+        assert_ne!(app.host.document.editor.project, before);
+        app.host.document.editor.project.validate().unwrap();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before, "{command:?} undo");
     }
 }
 
@@ -6248,10 +8957,15 @@ fn wall_pet_default_pencil_hover_is_visual_and_click_locks_command() {
         let (ctx, mut app) = setup();
         app.language = language;
         let id = add_wall_for_editing(&mut app);
-        app.editor.set_selection(vec![id]);
-        app.editor.project.plan_options.orientation_degrees = 31.;
+        app.host.document.editor.set_selection(vec![id]);
+        app.host
+            .document
+            .editor
+            .project
+            .plan_options
+            .orientation_degrees = 31.;
         let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         let baseline = app.screen(viewport, Point::new(2., 0.));
         click(&ctx, &mut app, baseline);
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
@@ -6273,8 +8987,8 @@ fn wall_pet_default_pencil_hover_is_visual_and_click_locks_command() {
         let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(outside)]);
         assert_eq!(output.platform_output.cursor_icon, CursorIcon::None);
         assert_eq!(cursor(), Some(CursorFeedback::HollowPencil));
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         let on_line = app.screen(viewport, Point::new(1., 0.));
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(on_line)]);
         assert_eq!(
@@ -6308,8 +9022,8 @@ fn wall_pet_default_pencil_hover_is_visual_and_click_locks_command() {
             );
             click(&ctx, &mut app, rect.center());
             assert_eq!(app.wall_insert.as_ref().unwrap().command, command);
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
         }
         let rect = ctx
             .data(|d| d.get_temp::<Rect>(Id::new(("wall_pet", C::Curve as u8))))
@@ -6321,12 +9035,12 @@ fn wall_pet_default_pencil_hover_is_visual_and_click_locks_command() {
         assert_eq!(cursor(), Some(CursorFeedback::HollowPencil));
         click(&ctx, &mut app, target);
         assert!(matches!(
-            app.editor.project.elements[0].wall_contour,
+            app.host.document.editor.project.elements[0].wall_contour,
             Some(crate::model::WallContour::Arc { .. })
         ));
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
     }
 }
 
@@ -6335,8 +9049,8 @@ fn wall_pet_hovering_active_rotation_preserves_accepted_points() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(500., 300.));
     plan_frame(&ctx, &mut app, vec![]);
     let rotate = ctx
@@ -6355,11 +9069,11 @@ fn wall_pet_hovering_active_rotation_preserves_accepted_points() {
         for _ in 0..3 {
             plan_frame(&ctx, &mut app, vec![]);
         }
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         click(&ctx, &mut app, point);
     }
     assert!(app.wall_insert.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     let (a, b) = wall_reference_line(&app, id);
     assert!(a.distance(Point::default()) < 1e-4);
     assert!(b.distance(Point::new(0., 4.)) < 1e-4);
@@ -6370,8 +9084,8 @@ fn wall_pet_curved_original_path_and_projected_model_pencils() {
     use crate::model::WallContour;
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
-    app.editor.project.elements[0].wall_contour = Some(WallContour::Arc {
+    app.host.document.editor.set_selection(vec![id]);
+    app.host.document.editor.project.elements[0].wall_contour = Some(WallContour::Arc {
         arc: geometry::arc_segment_through(
             Point::new(0., 0.),
             Point::new(4., 0.),
@@ -6400,7 +9114,7 @@ fn wall_pet_curved_original_path_and_projected_model_pencils() {
     assert_eq!(cursor(), Some(CursorFeedback::HollowPencil));
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     app.view = View::Model;
-    app.camera.target = glam::Vec3::new(2., 1., 1.5);
+    app.camera.target = glam::DVec3::new(2., 1., 1.5);
     app.camera.span = 12.;
     let edge = app
         .wall_project_point(viewport, Point::new(2., 2.), 3.)
@@ -6408,7 +9122,7 @@ fn wall_pet_curved_original_path_and_projected_model_pencils() {
     wall_model_click(&ctx, &mut app, edge);
     model_frame(&ctx, &mut app, vec![]);
     assert!(app.wall_insert.is_some());
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
     assert_eq!(
         cursor(),
         Some(CursorFeedback::SolidPencil),
@@ -6423,7 +9137,7 @@ fn wall_pet_curved_original_path_and_projected_model_pencils() {
         vec![Event::PointerMoved(edge - vec2(50., 80.))],
     );
     assert_eq!(cursor(), Some(CursorFeedback::HollowPencil));
-    assert!(app.editor.undo.is_empty());
+    assert!(app.host.document.editor.undo.is_empty());
 }
 
 #[test]
@@ -6432,8 +9146,8 @@ fn wall_pet_compact_tracker_numeric_enter_and_drag_release() {
         let (ctx, mut app) = setup();
         app.language = language;
         let id = add_wall_for_editing(&mut app);
-        app.editor.set_selection(vec![id]);
-        let original = app.editor.project.clone();
+        app.host.document.editor.set_selection(vec![id]);
+        let original = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(450., 180.))]);
         let out = plan_frame_output(&ctx, &mut app, vec![]);
@@ -6470,7 +9184,7 @@ fn wall_pet_compact_tracker_numeric_enter_and_drag_release() {
         plan_frame(&ctx, &mut app, vec![]);
         assert!(ctx.egui_wants_keyboard_input());
         assert_eq!(
-            app.editor.project, original,
+            app.host.document.editor.project, original,
             "field release must not commit"
         );
         plan_frame(
@@ -6503,19 +9217,26 @@ fn wall_pet_compact_tracker_numeric_enter_and_drag_release() {
                 key(Key::Enter, Modifiers::NONE),
             ],
         );
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        assert_eq!(app.editor.undo.len(), 1);
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
         let end = wall_reference_line(&app, id).1;
         assert!(end.distance(Point::new(2., 2.)) < 0.001, "{end:?}");
-        app.editor.undo();
-        assert_eq!(app.editor.project, original);
-        app.editor.set_selection(vec![id]);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, original);
+        app.host.document.editor.set_selection(vec![id]);
         click(&ctx, &mut app, pos2(500., 300.));
         begin_direct_drag(&ctx, &mut app, pos2(500., 300.), pos2(450., 180.));
-        assert_eq!(app.editor.project, original, "held preview is private");
+        assert_eq!(
+            app.host.document.editor.project, original,
+            "held preview is private"
+        );
         release_direct_drag(&ctx, &mut app, pos2(450., 180.));
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
         assert!(
             wall_reference_line(&app, id)
                 .1
@@ -6529,7 +9250,7 @@ fn wall_pet_compact_tracker_numeric_enter_and_drag_release() {
 fn wall_pet_model_drag_release_and_palette_release_do_not_orbit_or_miscommit() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app) = setup();
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -6539,11 +9260,11 @@ fn wall_pet_model_drag_release_and_palette_release_do_not_orbit_or_miscommit() {
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![id]);
-    app.camera.target = glam::Vec3::new(0., 0., 1.5);
+    app.host.document.editor.set_selection(vec![id]);
+    app.camera.target = glam::DVec3::new(0., 0., 1.5);
     app.camera.span = 12.;
     let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
-    let original = app.editor.project.clone();
+    let original = app.host.document.editor.project.clone();
     let camera = (app.camera.yaw, app.camera.pitch);
     let start = app
         .wall_project_point(viewport, Point::default(), 3.)
@@ -6562,7 +9283,7 @@ fn wall_pet_model_drag_release_and_palette_release_do_not_orbit_or_miscommit() {
         }],
     );
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
-    assert_eq!(app.editor.project, original);
+    assert_eq!(app.host.document.editor.project, original);
     model_frame(
         &ctx,
         &mut app,
@@ -6574,11 +9295,11 @@ fn wall_pet_model_drag_release_and_palette_release_do_not_orbit_or_miscommit() {
         }],
     );
     assert!(app.wall_insert.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert!(wall_reference_line(&app, id).1.distance(node) < 0.002);
     assert_eq!((app.camera.yaw, app.camera.pitch), camera);
-    app.editor.undo();
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.undo();
+    app.host.document.editor.set_selection(vec![id]);
     wall_model_click(&ctx, &mut app, start);
     model_frame(&ctx, &mut app, vec![]);
     model_frame(
@@ -6608,15 +9329,15 @@ fn wall_pet_model_drag_release_and_palette_release_do_not_orbit_or_miscommit() {
         }],
     );
     assert!(app.wall_insert.is_some());
-    assert_eq!(app.editor.project, original);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, original);
+    assert!(app.host.document.editor.undo.is_empty());
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
     wall_model_click(&ctx, &mut app, icon);
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
-    assert_eq!(app.editor.project, original);
+    assert_eq!(app.host.document.editor.project, original);
 }
 
 fn junction_fixture(app: &mut AtelierApp, count: usize) -> Vec<u64> {
@@ -6629,7 +9350,7 @@ fn junction_fixture(app: &mut AtelierApp, count: usize) -> Vec<u64> {
     .into_iter()
     .take(count)
     .map(|end| {
-        app.editor.project.add(
+        app.host.document.editor.project.add(
             0,
             Material::Concrete,
             Shape::Wall {
@@ -6649,21 +9370,30 @@ fn wall_junction_plan_drag_all_selected_ends_and_cancel_in_both_languages() {
             let (ctx, mut app) = setup();
             app.language = language;
             let ids = junction_fixture(&mut app, count);
-            app.editor.set_selection(ids.clone());
-            app.editor.project.plan_options.orientation_degrees = 29.;
-            let before = app.editor.project.clone();
+            app.host.document.editor.set_selection(ids.clone());
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .orientation_degrees = 29.;
+            let before = app.host.document.editor.project.clone();
             let r = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
             let start = app.screen(r, Point::default());
             let point = Point::new(-1., 2.);
             let end = app.screen(r, point);
             begin_direct_drag(&ctx, &mut app, start, end);
-            assert_eq!(app.editor.project, before);
+            assert_eq!(app.host.document.editor.project, before);
             assert!(app.wall_insert.is_some());
-            assert!(app.editor.undo.is_empty());
+            assert!(app.host.document.editor.undo.is_empty());
             release_direct_drag(&ctx, &mut app, end);
-            assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-            assert_eq!(app.editor.undo.len(), 1);
-            assert_eq!(app.editor.project.elements.len(), count);
+            assert!(
+                app.wall_insert.is_none(),
+                "{}",
+                app.host.document.editor.status
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            assert_eq!(app.host.document.editor.project.elements.len(), count);
             for (i, id) in ids.iter().enumerate() {
                 let (a, b) = wall_reference_line(&app, *id);
                 assert!(a.distance(point) < 1e-5);
@@ -6674,16 +9404,16 @@ fn wall_junction_plan_drag_all_selected_ends_and_cancel_in_both_languages() {
                         .1
                 );
             }
-            app.editor.undo();
-            assert_eq!(app.editor.project, before);
-            app.editor.set_selection(ids.clone());
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.set_selection(ids.clone());
             click(&ctx, &mut app, start);
             assert!(app.wall_insert.is_some());
-            assert_eq!(app.editor.status, "Move node");
+            assert_eq!(app.host.document.editor.status, "Move node");
             plan_frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
             plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
         }
     }
 }
@@ -6692,11 +9422,11 @@ fn wall_junction_t_crossing_click_enter_preserves_unselected_and_unrelated_selec
     let (ctx, mut app) = setup();
     let ids = junction_fixture(&mut app, 3);
     // Join the two horizontal halves into one through-wall for a real T intersection.
-    if let Shape::Wall { start, .. } = &mut app.editor.project.elements[1].shape {
+    if let Shape::Wall { start, .. } = &mut app.host.document.editor.project.elements[1].shape {
         *start = Point::new(-4., 0.);
     }
-    let unselected = app.editor.project.elements[0].clone();
-    let extra = app.editor.project.add(
+    let unselected = app.host.document.editor.project.elements[0].clone();
+    let extra = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Wall {
@@ -6706,17 +9436,20 @@ fn wall_junction_t_crossing_click_enter_preserves_unselected_and_unrelated_selec
             height: 3.,
         },
     );
-    app.editor.set_selection(vec![ids[1], ids[2], extra]);
-    let before = app.editor.project.clone();
+    app.host
+        .document
+        .editor
+        .set_selection(vec![ids[1], ids[2], extra]);
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(400., 300.));
     assert!(app.wall_insert.is_some());
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(350., 200.))]);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-    assert_eq!(app.editor.project.elements.len(), 5);
-    assert_eq!(app.editor.undo.len(), 1);
-    assert_eq!(app.editor.project.elements[0], unselected);
-    assert!(app.editor.selection_ids().contains(&extra));
+    assert_eq!(app.host.document.editor.project.elements.len(), 5);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.project.elements[0], unselected);
+    assert!(app.host.document.editor.selection_ids().contains(&extra));
     assert_eq!(
         wall_reference_line(&app, ids[1]),
         (Point::new(-4., 0.), Point::new(-1., 2.))
@@ -6725,24 +9458,24 @@ fn wall_junction_t_crossing_click_enter_preserves_unselected_and_unrelated_selec
         wall_reference_line(&app, ids[2]),
         (Point::new(-1., 2.), Point::new(0., 4.))
     );
-    let after = app.editor.project.clone();
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
-    app.editor.redo();
-    assert_eq!(app.editor.project, after);
+    let after = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, after);
 }
 #[test]
 fn wall_junction_model_drag_moves_every_shared_endpoint_without_orbit() {
     let (ctx, mut app) = setup();
     let ids = junction_fixture(&mut app, 3);
-    app.editor.set_selection(ids.clone());
-    app.camera.target = glam::Vec3::new(0., 0., 1.5);
+    app.host.document.editor.set_selection(ids.clone());
+    app.camera.target = glam::DVec3::new(0., 0., 1.5);
     app.camera.span = 12.;
     let r = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
     let point = Point::new(-1., 2.);
     let start = app.wall_project_point(r, Point::default(), 3.).unwrap();
     let end = app.wall_project_point(r, point, 3.).unwrap();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let camera = (app.camera.yaw, app.camera.pitch);
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(start)]);
     model_frame(
@@ -6756,7 +9489,7 @@ fn wall_junction_model_drag_moves_every_shared_endpoint_without_orbit() {
         }],
     );
     model_frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     model_frame(
         &ctx,
         &mut app,
@@ -6768,7 +9501,7 @@ fn wall_junction_model_drag_moves_every_shared_endpoint_without_orbit() {
         }],
     );
     assert!(app.wall_insert.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert_eq!((app.camera.yaw, app.camera.pitch), camera);
     for id in ids {
         assert!(wall_reference_line(&app, id).0.distance(point) < 0.002);
@@ -6779,13 +9512,13 @@ fn wall_junction_model_drag_moves_every_shared_endpoint_without_orbit() {
 fn wall_junction_model_requires_shared_elevation_and_uses_all_edge_levels() {
     let (_, mut app) = setup();
     let ids = junction_fixture(&mut app, 3);
-    app.editor.set_selection(ids.clone());
-    for e in &mut app.editor.project.elements[1..] {
+    app.host.document.editor.set_selection(ids.clone());
+    for e in &mut app.host.document.editor.project.elements[1..] {
         if let Shape::Wall { height, .. } = &mut e.shape {
             *height = 5.;
         }
     }
-    app.camera.target = glam::Vec3::new(0., 0., 2.);
+    app.camera.target = glam::DVec3::new(0., 0., 2.);
     app.camera.span = 12.;
     let r = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
     let top3 = app.wall_project_point(r, Point::default(), 3.).unwrap();
@@ -6803,7 +9536,7 @@ fn wall_pet_three_visual_states_and_stationary_keyboard_cycle() {
         let (ctx, mut app) = setup();
         app.language = language;
         let id = add_wall_for_editing(&mut app);
-        app.editor.set_selection(vec![id]);
+        app.host.document.editor.set_selection(vec![id]);
         click(&ctx, &mut app, pos2(500., 300.));
         plan_frame(&ctx, &mut app, vec![]);
         let rect = |command: C| {
@@ -6848,7 +9581,7 @@ fn wall_pet_three_visual_states_and_stationary_keyboard_cycle() {
         }
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(300., 150.))]);
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
-        assert!(app.editor.undo.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
     }
 }
 
@@ -6857,8 +9590,8 @@ fn wall_pet_held_drag_hover_cannot_replace_locked_insert_command() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app) = setup();
     let id = add_wall_for_editing(&mut app);
-    app.editor.set_selection(vec![id]);
-    let before = app.editor.project.clone();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(500., 300.));
     plan_frame(&ctx, &mut app, vec![]);
     begin_direct_drag(&ctx, &mut app, pos2(500., 300.), pos2(400., 200.));
@@ -6867,20 +9600,26 @@ fn wall_pet_held_drag_hover_cannot_replace_locked_insert_command() {
         .unwrap();
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(rect.center())]);
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     release_direct_drag(&ctx, &mut app, pos2(500., 200.));
-    assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-    assert_eq!(app.editor.project.elements.len(), 2);
     assert!(
-        app.editor
+        app.wall_insert.is_none(),
+        "{}",
+        app.host.document.editor.status
+    );
+    assert_eq!(app.host.document.editor.project.elements.len(), 2);
+    assert!(
+        app.host
+            .document
+            .editor
             .project
             .elements
             .iter()
             .all(|wall| wall.wall_contour.is_none())
     );
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
 }
 
 #[test]
@@ -6915,7 +9654,7 @@ fn wall_polygon_painter_preserves_concave_cap_without_filling_its_notch() {
         .collect();
     assert_eq!(meshes.len(), 1);
     let mesh = meshes[0];
-    let area: f32 = mesh
+    let area: f64 = mesh
         .indices
         .chunks_exact(3)
         .map(|indices| {
@@ -6924,6 +9663,7 @@ fn wall_polygon_painter_preserves_concave_cap_without_filling_its_notch() {
             let c = mesh.vertices[indices[2] as usize].pos;
             ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs() * 0.5
         })
+        .map(f64::from)
         .sum();
     assert!(
         (area - 12.).abs() < 1e-5,
@@ -6942,7 +9682,7 @@ fn wall_polygon_painter_preserves_concave_cap_without_filling_its_notch() {
 
 fn polyline_pet_fixture() -> (Context, AtelierApp, u64) {
     let (ctx, mut app) = setup();
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Polyline {
@@ -6950,7 +9690,7 @@ fn polyline_pet_fixture() -> (Context, AtelierApp, u64) {
             arcs: vec![],
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     (ctx, app, id)
 }
 fn polyline_pet_command(
@@ -6969,7 +9709,7 @@ fn polyline_pet_command(
             .as_ref()
             .expect(&format!(
                 "session disappeared while choosing {command:?}, button {button:?}, status {}",
-                app.editor.status
+                app.host.document.editor.status
             ))
             .command,
         command
@@ -6979,49 +9719,57 @@ fn polyline_pet_command(
 fn polyline_pet_node_click_and_drag_uses_wall_session_and_one_transaction() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app, _) = polyline_pet_fixture();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(500., 300.));
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::MoveNode);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     drag(&ctx, &mut app, pos2(500., 300.), pos2(550., 250.));
-    assert!(app.wall_insert.is_none(), "{}", app.editor.status);
     assert!(
-        matches!(&app.editor.project.elements[0].shape,Shape::Polyline {points,..} if points==&vec![Point::new(0.,0.),Point::new(3.,1.),Point::new(2.,2.)])
+        app.wall_insert.is_none(),
+        "{}",
+        app.host.document.editor.status
     );
-    assert_eq!(app.editor.undo.len(), 1);
-    let after = app.editor.project.clone();
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
-    app.editor.redo();
-    assert_eq!(app.editor.project, after);
+    assert!(
+        matches!(&app.host.document.editor.project.elements[0].shape,Shape::Polyline {points,..} if points==&vec![Point::new(0.,0.),Point::new(3.,1.),Point::new(2.,2.)])
+    );
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    let after = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, after);
 }
 #[test]
 fn polyline_pet_direct_node_drag_edits_node_instead_of_whole_selection() {
     let (ctx, mut app, _) = polyline_pet_fixture();
     drag(&ctx, &mut app, pos2(500., 300.), pos2(550., 250.));
     assert!(app.pointer_drag.is_none());
-    assert_eq!(app.editor.undo.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
     assert!(
-        matches!(&app.editor.project.elements[0].shape,Shape::Polyline{points,..} if points[0]==Point::default() && points[1]==Point::new(3.,1.) && points[2]==Point::new(2.,2.))
+        matches!(&app.host.document.editor.project.elements[0].shape,Shape::Polyline{points,..} if points[0]==Point::default() && points[1]==Point::new(3.,1.) && points[2]==Point::new(2.,2.))
     );
 }
 #[test]
 fn polyline_pet_edge_click_is_non_mutating_and_off_edge_insert_follows_wall() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app, _) = polyline_pet_fixture();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(450., 300.));
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
     click(&ctx, &mut app, pos2(450., 250.));
-    assert!(app.wall_insert.is_none(), "{}", app.editor.status);
     assert!(
-        matches!(&app.editor.project.elements[0].shape,Shape::Polyline{points,..} if points==&vec![Point::default(),Point::new(1.,1.),Point::new(2.,0.),Point::new(2.,2.)])
+        app.wall_insert.is_none(),
+        "{}",
+        app.host.document.editor.status
     );
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
-    assert_eq!(app.editor.project, before);
+    assert!(
+        matches!(&app.host.document.editor.project.elements[0].shape,Shape::Polyline{points,..} if points==&vec![Point::default(),Point::new(1.,1.),Point::new(2.,0.),Point::new(2.,2.)])
+    );
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, before);
 }
 #[test]
 fn polyline_pet_all_icons_localized_cycle_and_cancel_without_model_change() {
@@ -7029,7 +9777,7 @@ fn polyline_pet_all_icons_localized_cycle_and_cancel_without_model_change() {
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, _) = polyline_pet_fixture();
         app.language = language;
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         for command in [
             C::MoveNode,
@@ -7044,8 +9792,8 @@ fn polyline_pet_all_icons_localized_cycle_and_cancel_without_model_change() {
             C::Multiply,
         ] {
             polyline_pet_command(&ctx, &mut app, command);
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
             let label = command.label();
             assert!(!language.translate(label).is_empty());
         }
@@ -7053,7 +9801,7 @@ fn polyline_pet_all_icons_localized_cycle_and_cancel_without_model_change() {
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::MoveNode);
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
     }
 }
 #[test]
@@ -7061,14 +9809,14 @@ fn polyline_pet_staged_rotate_and_mirror_use_same_transform_as_walls() {
     use super::wall_node_ui::WallPetCommand as C;
     for command in [C::Rotate, C::Mirror] {
         let (ctx, mut app, _) = polyline_pet_fixture();
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(450., 300.));
         polyline_pet_command(&ctx, &mut app, command);
         click(&ctx, &mut app, pos2(400., 300.));
-        assert!(app.editor.undo.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
         if command == C::Rotate {
             click(&ctx, &mut app, pos2(500., 300.));
-            assert!(app.editor.undo.is_empty());
+            assert!(app.host.document.editor.undo.is_empty());
         }
         click(
             &ctx,
@@ -7082,14 +9830,14 @@ fn polyline_pet_staged_rotate_and_mirror_use_same_transform_as_walls() {
         assert!(
             app.wall_insert.is_none(),
             "{command:?}: {}",
-            app.editor.status
+            app.host.document.editor.status
         );
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
         assert!(
-            matches!(&app.editor.project.elements[0].shape,Shape::Polyline{points,..} if points[1].distance(Point::new(0.,2.))<1e-4)
+            matches!(&app.host.document.editor.project.elements[0].shape,Shape::Polyline{points,..} if points[1].distance(Point::new(0.,2.))<1e-4)
         );
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
     }
 }
 #[test]
@@ -7097,18 +9845,22 @@ fn polyline_pet_drag_and_multiply_transform_selected_elements_once() {
     use super::wall_node_ui::WallPetCommand as C;
     for command in [C::Drag, C::Multiply] {
         let (ctx, mut app, _) = polyline_pet_fixture();
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(450., 300.));
         polyline_pet_command(&ctx, &mut app, command);
         click(&ctx, &mut app, pos2(450., 200.));
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
         assert_eq!(
-            app.editor.project.elements.len(),
+            app.host.document.editor.project.elements.len(),
             if command == C::Multiply { 4 } else { 1 }
         );
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
     }
 }
 #[test]
@@ -7125,23 +9877,28 @@ fn polyline_pet_curve_repeated_offset_and_json_roundtrip_use_current_geometry() 
     );
     polyline_pet_command(&ctx, &mut app, C::Curve);
     click(&ctx, &mut app, pos2(450., 250.));
-    let curved = app.editor.project.clone();
+    let curved = app.host.document.editor.project.clone();
     for step in 0..2 {
-        let anchor = Point::new(1., 1. + step as f32 * 0.2);
+        let anchor = Point::new(1., 1. + step as f64 * 0.2);
         app.start_polyline_pet(id, None, Some(0), pos2(600., 400.), anchor, false);
         polyline_pet_command(&ctx, &mut app, C::OffsetPolyline);
-        click(&ctx, &mut app, pos2(450., 240. - step as f32 * 10.));
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
+        click(&ctx, &mut app, pos2(450., 240. - step as f64 * 10.));
         assert!(
-            matches!(&app.editor.project.elements[0].shape,Shape::Polyline{points,arcs} if points.len()==3 && arcs[0].is_some())
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert!(
+            matches!(&app.host.document.editor.project.elements[0].shape,Shape::Polyline{points,arcs} if points.len()==3 && arcs[0].is_some())
         );
     }
     let loaded: Project =
-        serde_json::from_slice(&serde_json::to_vec(&app.editor.project).unwrap()).unwrap();
-    assert_eq!(loaded, app.editor.project);
-    app.editor.undo();
-    app.editor.undo();
-    assert_eq!(app.editor.project, curved);
+        serde_json::from_slice(&serde_json::to_vec(&app.host.document.editor.project).unwrap())
+            .unwrap();
+    assert_eq!(loaded, app.host.document.editor.project);
+    app.host.document.editor.undo();
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, curved);
 }
 
 #[test]
@@ -7149,7 +9906,7 @@ fn polyline_pet_numeric_tracker_locks_pointer_and_enter_commits() {
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, _) = polyline_pet_fixture();
         app.language = language;
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(600., 300.))]);
         plan_frame(&ctx, &mut app, vec![]);
@@ -7174,12 +9931,16 @@ fn polyline_pet_numeric_tracker_locks_pointer_and_enter_commits() {
             vec![key(Key::A, Modifiers::COMMAND), Event::Text("0".into())],
         );
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(350., 150.))]);
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        assert_eq!(app.editor.undo.len(), 1);
         assert!(
-            matches!(&app.editor.project.elements[0].shape,Shape::Polyline{points,..} if points[1].distance(Point::new(5.,0.))<1e-4)
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert!(
+            matches!(&app.host.document.editor.project.elements[0].shape,Shape::Polyline{points,..} if points[1].distance(Point::new(5.,0.))<1e-4)
         );
     }
 }
@@ -7187,7 +9948,7 @@ fn polyline_pet_numeric_tracker_locks_pointer_and_enter_commits() {
 fn polyline_pet_hover_cannot_activate_and_invalid_cancel_keeps_history() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app, _) = polyline_pet_fixture();
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(500., 300.));
     plan_frame(&ctx, &mut app, vec![]);
     let icon = ctx
@@ -7201,25 +9962,25 @@ fn polyline_pet_hover_cannot_activate_and_invalid_cancel_keeps_history() {
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
     plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(350., 150.))]);
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     click(&ctx, &mut app, pos2(400., 300.));
     polyline_pet_command(&ctx, &mut app, C::Fillet);
     plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
     assert!(app.wall_insert.is_some());
-    assert_eq!(app.editor.project, before);
-    assert!(app.editor.undo.is_empty());
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
     plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
     assert!(app.wall_insert.is_none());
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
 }
 
 #[test]
 fn polyline_pet_overlapping_node_wins_over_other_edges_and_hidden_stories() {
     let (_ctx, mut app, id) = polyline_pet_fixture();
-    let edge = app.editor.project.add(
+    let edge = app.host.document.editor.project.add(
         0,
         Material::Plaster,
         Shape::Polyline {
@@ -7227,7 +9988,7 @@ fn polyline_pet_overlapping_node_wins_over_other_edges_and_hidden_stories() {
             arcs: vec![],
         },
     );
-    let remote = app.editor.project.add(
+    let remote = app.host.document.editor.project.add(
         1,
         Material::Plaster,
         Shape::Polyline {
@@ -7235,7 +9996,10 @@ fn polyline_pet_overlapping_node_wins_over_other_edges_and_hidden_stories() {
             arcs: vec![],
         },
     );
-    app.editor.set_selection(vec![id, edge, remote]);
+    app.host
+        .document
+        .editor
+        .set_selection(vec![id, edge, remote]);
     assert_eq!(
         app.selected_polyline_hit(Point::new(2., 0.01), 0.2),
         Some((id, Some(1), None))
@@ -7254,7 +10018,7 @@ fn wall_and_polyline_pet_require_left_click_and_remain_locked_after_crossing_ico
             let (ctx, mut app) = setup();
             app.language = language;
             let (id, entry) = if polyline {
-                let id = app.editor.project.add(
+                let id = app.host.document.editor.project.add(
                     0,
                     Material::Plaster,
                     Shape::Polyline {
@@ -7266,8 +10030,8 @@ fn wall_and_polyline_pet_require_left_click_and_remain_locked_after_crossing_ico
             } else {
                 (add_wall_for_editing(&mut app), pos2(500., 300.))
             };
-            app.editor.set_selection(vec![id]);
-            let before = app.editor.project.clone();
+            app.host.document.editor.set_selection(vec![id]);
+            let before = app.host.document.editor.project.clone();
             click(&ctx, &mut app, entry);
             plan_frame(&ctx, &mut app, vec![]);
             assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
@@ -7320,8 +10084,8 @@ fn wall_and_polyline_pet_require_left_click_and_remain_locked_after_crossing_ico
                     "polyline={polyline}, hovered={command:?}"
                 );
             }
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
             // Release outside an icon after pressing it is not an icon click.
             let rotate = icon(C::Rotate);
             plan_frame(
@@ -7340,10 +10104,10 @@ fn wall_and_polyline_pet_require_left_click_and_remain_locked_after_crossing_ico
             plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(300., 150.))]);
             release_direct_drag(&ctx, &mut app, pos2(300., 150.));
             assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
-            assert_eq!(app.editor.project, before);
+            assert_eq!(app.host.document.editor.project, before);
             plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
             assert!(app.wall_insert.is_none());
-            assert_eq!(app.editor.project, before);
+            assert_eq!(app.host.document.editor.project, before);
         }
     }
 }
@@ -7369,8 +10133,8 @@ fn wall_endpoint_palette_switch_roundtrip_keeps_endpoint_drag_and_undo() {
             let (ctx, mut app) = setup();
             app.language = language;
             let id = add_wall_for_editing(&mut app);
-            app.editor.set_selection(vec![id]);
-            let before = app.editor.project.clone();
+            app.host.document.editor.set_selection(vec![id]);
+            let before = app.host.document.editor.project.clone();
             click(&ctx, &mut app, at);
             plan_frame(&ctx, &mut app, vec![]);
             let icon = |command: C| {
@@ -7384,21 +10148,21 @@ fn wall_endpoint_palette_switch_roundtrip_keeps_endpoint_drag_and_undo() {
             plan_frame(&ctx, &mut app, vec![Event::PointerMoved(icon(C::Rotate))]);
             plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(300., 150.))]);
             assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
             click(&ctx, &mut app, icon(C::InsertNode));
             assert!(app.wall_insert.is_none());
             assert_eq!(app.wall_edit.as_ref().unwrap().node, Some(node));
-            assert_eq!(app.editor.project, before);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
             drag(&ctx, &mut app, at, target);
             assert_eq!(wall_reference_line(&app, id), expected);
-            assert_eq!(app.editor.undo.len(), 1);
-            let after = app.editor.project.clone();
-            app.editor.undo();
-            assert_eq!(app.editor.project, before);
-            app.editor.redo();
-            assert_eq!(app.editor.project, after);
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
         }
     }
 }
@@ -7409,7 +10173,7 @@ fn slab_edge_pet_insert_hover_cancel_commit_and_undo_both_languages() {
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app) = setup();
         app.language = language;
-        let id = app.editor.project.add(
+        let id = app.host.document.editor.project.add(
             0,
             Material::Concrete,
             Shape::Slab {
@@ -7418,13 +10182,13 @@ fn slab_edge_pet_insert_hover_cancel_commit_and_undo_both_languages() {
                 thickness: 0.3,
             },
         );
-        app.editor.set_selection(vec![id]);
-        let before = app.editor.project.clone();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
         // Actual plan edge entry: bottom world edge is y=300 in this viewport.
         click(&ctx, &mut app, pos2(500., 300.));
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         plan_frame(&ctx, &mut app, vec![]);
         plan_frame(&ctx, &mut app, vec![]);
         let drag = ctx
@@ -7433,38 +10197,42 @@ fn slab_edge_pet_insert_hover_cancel_commit_and_undo_both_languages() {
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(drag.center())]);
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 250.))]);
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
-        assert_eq!(app.editor.project, before);
+        assert_eq!(app.host.document.editor.project, before);
         click(&ctx, &mut app, pos2(500., 250.));
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        assert_eq!(app.editor.project.elements[0].area(), 10.);
-        assert_eq!(app.editor.undo.len(), 1);
-        let after = app.editor.project.clone();
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
-        app.editor.redo();
-        assert_eq!(app.editor.project, after);
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert_eq!(app.host.document.editor.project.elements[0].area(), 10.);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let after = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
         // Open again and cancel; no second history entry or model change.
         plan_frame(&ctx, &mut app, vec![]);
         plan_frame(&ctx, &mut app, vec![]);
-        app.editor.set_selection(vec![id]);
+        app.host.document.editor.set_selection(vec![id]);
         click(&ctx, &mut app, pos2(400., 225.));
         assert!(
             app.wall_insert.is_some(),
             "{} {:?}",
-            app.editor.status,
-            app.editor.selection_ids()
+            app.host.document.editor.status,
+            app.host.document.editor.selection_ids()
         );
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.project, after);
-        assert_eq!(app.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.project, after);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
     }
 }
 
 fn slab_full_pet_fixture(language: UiLanguage) -> (Context, AtelierApp, u64) {
     let (ctx, mut app) = setup();
     app.language = language;
-    let id = app.editor.project.add(
+    let id = app.host.document.editor.project.add(
         0,
         Material::Concrete,
         Shape::Slab {
@@ -7473,7 +10241,7 @@ fn slab_full_pet_fixture(language: UiLanguage) -> (Context, AtelierApp, u64) {
             thickness: 0.3,
         },
     );
-    app.editor.set_selection(vec![id]);
+    app.host.document.editor.set_selection(vec![id]);
     (ctx, app, id)
 }
 
@@ -7482,16 +10250,16 @@ fn slab_full_pet_actual_curve_entry_preview_commit_undo_and_json_both_languages(
     use super::wall_node_ui::WallPetCommand as C;
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, id) = slab_full_pet_fixture(language);
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
         polyline_pet_command(&ctx, &mut app, C::Curve);
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 350.))]);
         assert_eq!(
-            app.editor.project, before,
+            app.host.document.editor.project, before,
             "a candidate must not alter the model"
         );
-        assert!(app.editor.undo.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
         let rotate = ctx
             .data(|d| d.get_temp::<Rect>(Id::new(("wall_pet", C::Rotate as u8))))
             .unwrap();
@@ -7519,12 +10287,16 @@ fn slab_full_pet_actual_curve_entry_preview_commit_undo_and_json_both_languages(
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(300., 150.))]);
         release_direct_drag(&ctx, &mut app, pos2(300., 150.));
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::Curve);
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         click(&ctx, &mut app, pos2(500., 350.));
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        assert_eq!(app.editor.undo.len(), 1);
-        let element = &app.editor.project.elements[0];
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let element = &app.host.document.editor.project.elements[0];
         assert_eq!(element.id, id);
         assert_eq!(element.thickness(), 0.3);
         let contour = element
@@ -7545,7 +10317,7 @@ fn slab_full_pet_actual_curve_entry_preview_commit_undo_and_json_both_languages(
             "{}",
             element.area()
         );
-        let triangle_area: f32 = crate::slab_geometry::triangles(element)
+        let triangle_area: f64 = crate::slab_geometry::triangles(element)
             .iter()
             .map(|t| crate::slab_geometry::area(t))
             .sum();
@@ -7556,9 +10328,9 @@ fn slab_full_pet_actual_curve_entry_preview_commit_undo_and_json_both_languages(
         );
         let camera = geometry::Camera {
             yaw: 0.,
-            pitch: std::f32::consts::FRAC_PI_2 - 0.001,
+            pitch: std::f64::consts::FRAC_PI_2 - 0.001,
             span: 10.,
-            target: glam::Vec3::new(2., 1.5, 0.),
+            target: glam::DVec3::new(2., 1.5, 0.),
         };
         for (point, expected) in [
             (Point::new(2., -0.7), Some(id)),
@@ -7566,21 +10338,26 @@ fn slab_full_pet_actual_curve_entry_preview_commit_undo_and_json_both_languages(
         ] {
             let ndc = camera
                 .matrix(1.)
-                .project_point3(glam::Vec3::new(point.x, point.y, 0.));
+                .project_point3(glam::DVec3::new(point.x, point.y, 0.));
             assert_eq!(
-                camera.pick(&app.editor.project, [ndc.x, ndc.y], 1., Some(0)),
+                camera.pick(
+                    &app.host.document.editor.project,
+                    [ndc.x, ndc.y],
+                    1.,
+                    Some(0)
+                ),
                 expected
             );
         }
-        let edited = app.editor.project.clone();
+        let edited = app.host.document.editor.project.clone();
         let loaded: Project =
             serde_json::from_str(&serde_json::to_string(&edited).unwrap()).unwrap();
         loaded.validate().unwrap();
         assert_eq!(loaded, edited);
-        app.editor.undo();
-        assert_eq!(app.editor.project, before);
-        app.editor.redo();
-        assert_eq!(app.editor.project, edited);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, edited);
     }
 }
 
@@ -7589,7 +10366,7 @@ fn slab_full_pet_all_thirteen_commands_have_real_click_activation_and_cancel() {
     use super::wall_node_ui::WallPetCommand as C;
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, _) = slab_full_pet_fixture(language);
-        let original = app.editor.project.clone();
+        let original = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         for command in [
             C::Curve,
@@ -7607,10 +10384,10 @@ fn slab_full_pet_all_thirteen_commands_have_real_click_activation_and_cancel() {
         ] {
             polyline_pet_command(&ctx, &mut app, command);
             assert_eq!(
-                app.editor.project, original,
+                app.host.document.editor.project, original,
                 "switching {command:?} must not commit"
             );
-            assert!(app.editor.undo.is_empty());
+            assert!(app.host.document.editor.undo.is_empty());
             let label = command.label();
             assert!(!language.translate(label).is_empty());
             if language == UiLanguage::SimplifiedChinese {
@@ -7624,10 +10401,10 @@ fn slab_full_pet_all_thirteen_commands_have_real_click_activation_and_cancel() {
             assert_eq!(app.wall_insert.as_ref().unwrap().command, command);
         }
         polyline_pet_command(&ctx, &mut app, C::CustomEdge);
-        assert_eq!(app.editor.project, original);
+        assert_eq!(app.host.document.editor.project, original);
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-        assert_eq!(app.editor.project, original);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.host.document.editor.undo.is_empty());
     }
 }
 
@@ -7636,7 +10413,7 @@ fn slab_full_pet_polygon_subtract_waits_for_enter_and_hole_node_remains_editable
     use super::wall_node_ui::WallPetCommand as C;
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, id) = slab_full_pet_fixture(language);
-        let original = app.editor.project.clone();
+        let original = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         polyline_pet_command(&ctx, &mut app, C::SubtractPolygon);
         for point in [
@@ -7646,21 +10423,30 @@ fn slab_full_pet_polygon_subtract_waits_for_enter_and_hole_node_remains_editable
             pos2(450., 190.),
         ] {
             click(&ctx, &mut app, point);
-            assert_eq!(app.editor.project, original);
+            assert_eq!(app.host.document.editor.project, original);
             assert!(
-                app.editor.undo.is_empty(),
+                app.host.document.editor.undo.is_empty(),
                 "polygon vertices are draft input"
             );
         }
         plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        assert_eq!(app.editor.undo.len(), 1);
-        let slab = &app.editor.project.elements[0];
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let slab = &app.host.document.editor.project.elements[0];
         let contour = slab.slab_contour.as_ref().unwrap();
         assert_eq!(contour.holes.len(), 1);
         assert!((slab.area() - 9.2).abs() < 1e-4, "{}", slab.area());
         assert_eq!(
-            geometry::hit_plan(&app.editor.project, 0, Point::new(2., 1.5), 0.01),
+            geometry::hit_plan(
+                &app.host.document.editor.project,
+                0,
+                Point::new(2., 1.5),
+                0.01
+            ),
             None
         );
         let hole_node = contour.holes[0].points[0];
@@ -7669,7 +10455,7 @@ fn slab_full_pet_polygon_subtract_waits_for_enter_and_hole_node_remains_editable
             app.selected_polyline_hit(hole_node, 0.05),
             Some((id, Some(flat_node), None))
         );
-        let edited = app.editor.project.clone();
+        let edited = app.host.document.editor.project.clone();
         plan_frame(&ctx, &mut app, vec![]);
         plan_frame(&ctx, &mut app, vec![]);
         click(
@@ -7679,12 +10465,12 @@ fn slab_full_pet_polygon_subtract_waits_for_enter_and_hole_node_remains_editable
         );
         assert_eq!(app.wall_insert.as_ref().unwrap().command, C::MoveNode);
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
-        assert_eq!(app.editor.project, edited);
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, original);
-        app.editor.redo();
-        assert_eq!(app.editor.project, edited);
+        assert_eq!(app.host.document.editor.project, edited);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, original);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, edited);
         let loaded: Project =
             serde_json::from_str(&serde_json::to_string(&edited).unwrap()).unwrap();
         loaded.validate().unwrap();
@@ -7697,18 +10483,18 @@ fn slab_full_pet_polygon_cancel_discards_every_accepted_vertex() {
     use super::wall_node_ui::WallPetCommand as C;
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, _) = slab_full_pet_fixture(language);
-        let original = app.editor.project.clone();
+        let original = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         polyline_pet_command(&ctx, &mut app, C::AddPolygon);
         for point in [pos2(550., 250.), pos2(650., 250.), pos2(650., 200.)] {
             click(&ctx, &mut app, point);
-            assert_eq!(app.editor.project, original);
-            assert!(app.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.project, original);
+            assert!(app.host.document.editor.undo.is_empty());
         }
         plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
         assert!(app.wall_insert.is_none());
-        assert_eq!(app.editor.project, original);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.host.document.editor.undo.is_empty());
     }
 }
 
@@ -7717,30 +10503,34 @@ fn slab_full_pet_single_edge_and_all_edges_offset_keep_polygon_connections() {
     use super::wall_node_ui::WallPetCommand as C;
     for (command, expected_area) in [(C::OffsetEdge, 14.), (C::OffsetAll, 20.)] {
         let (ctx, mut app, _) = slab_full_pet_fixture(UiLanguage::English);
-        let original = app.editor.project.clone();
+        let original = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         polyline_pet_command(&ctx, &mut app, command);
         plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 325.))]);
-        assert_eq!(app.editor.project, original);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.host.document.editor.undo.is_empty());
         click(&ctx, &mut app, pos2(500., 325.));
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        let contour = app.editor.project.elements[0]
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        let contour = app.host.document.editor.project.elements[0]
             .slab_contour
             .as_ref()
             .unwrap();
         assert_eq!(contour.points.len(), 4);
-        assert!((app.editor.project.elements[0].area() - expected_area).abs() < 1e-4);
+        assert!((app.host.document.editor.project.elements[0].area() - expected_area).abs() < 1e-4);
         if command == C::OffsetEdge {
             assert_eq!(contour.points[0], Point::new(0., -0.5));
             assert_eq!(contour.points[1], Point::new(4., -0.5));
             assert_eq!(contour.points[2], Point::new(4., 3.));
             assert_eq!(contour.points[3], Point::new(0., 3.));
         }
-        app.editor.project.validate().unwrap();
-        assert_eq!(app.editor.undo.len(), 1);
-        app.editor.undo();
-        assert_eq!(app.editor.project, original);
+        app.host.document.editor.project.validate().unwrap();
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, original);
     }
 }
 
@@ -7748,12 +10538,16 @@ fn slab_full_pet_single_edge_and_all_edges_offset_keep_polygon_connections() {
 fn slab_full_pet_node_entry_moves_only_hit_node_and_preserves_one_undo() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app, _) = slab_full_pet_fixture(UiLanguage::English);
-    let original = app.editor.project.clone();
+    let original = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(400., 300.));
     assert_eq!(app.wall_insert.as_ref().unwrap().command, C::MoveNode);
     click(&ctx, &mut app, pos2(350., 325.));
-    assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-    let contour = app.editor.project.elements[0]
+    assert!(
+        app.wall_insert.is_none(),
+        "{}",
+        app.host.document.editor.status
+    );
+    let contour = app.host.document.editor.project.elements[0]
         .slab_contour
         .as_ref()
         .unwrap();
@@ -7766,23 +10560,87 @@ fn slab_full_pet_node_entry_moves_only_hit_node_and_preserves_one_undo() {
             Point::new(0., 3.)
         ]
     );
-    assert!((app.editor.project.elements[0].area() - 14.5).abs() < 1e-4);
-    assert_eq!(app.editor.undo.len(), 1);
-    app.editor.undo();
-    assert_eq!(app.editor.project, original);
+    assert!((app.host.document.editor.project.elements[0].area() - 14.5).abs() < 1e-4);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    app.host.document.editor.undo();
+    assert_eq!(app.host.document.editor.project, original);
+}
+
+#[test]
+fn slab_node_numeric_tracker_commit_cancel_and_history_both_languages() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for cancel in [false, true] {
+            let (ctx, mut app, _) = slab_full_pet_fixture(language);
+            let before = app.host.document.editor.project.clone();
+            click(&ctx, &mut app, pos2(400., 300.));
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(350., 300.))]);
+            plan_frame(&ctx, &mut app, vec![]);
+            let distance = ctx
+                .data(|d| d.get_temp::<Rect>(Id::new("wall_pet_distance")))
+                .unwrap();
+            click(&ctx, &mut app, distance.center());
+            plan_frame(&ctx, &mut app, vec![]);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("1".into())],
+            );
+            let angle = ctx
+                .data(|d| d.get_temp::<Rect>(Id::new("wall_pet_angle")))
+                .unwrap();
+            click(&ctx, &mut app, angle.center());
+            plan_frame(&ctx, &mut app, vec![]);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("180".into())],
+            );
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(600., 150.))]);
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![key(
+                    if cancel { Key::Escape } else { Key::Enter },
+                    Modifiers::NONE,
+                )],
+            );
+            assert!(
+                app.wall_insert.is_none(),
+                "{}",
+                app.host.document.editor.status
+            );
+            if cancel {
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+            } else {
+                let contour = app.host.document.editor.project.elements[0]
+                    .slab_contour
+                    .as_ref()
+                    .unwrap();
+                assert!(contour.points[0].distance(Point::new(-1., 0.)) < 1e-4);
+                assert_eq!(
+                    &contour.points[1..],
+                    &[Point::new(4., 0.), Point::new(4., 3.), Point::new(0., 3.)]
+                );
+                slab_pet_assert_transaction(&mut app, &before);
+            }
+        }
+    }
 }
 
 fn slab_pet_assert_transaction(app: &mut AtelierApp, before: &Project) {
-    assert_eq!(app.editor.undo.len(), 1);
-    let after = app.editor.project.clone();
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    let after = app.host.document.editor.project.clone();
     assert_ne!(&after, before);
     after.validate().unwrap();
     let reopened: Project = serde_json::from_str(&serde_json::to_string(&after).unwrap()).unwrap();
     assert_eq!(reopened, after);
-    app.editor.undo();
-    assert_eq!(&app.editor.project, before);
-    app.editor.redo();
-    assert_eq!(app.editor.project, after);
+    app.host.document.editor.undo();
+    assert_eq!(&app.host.document.editor.project, before);
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, after);
 }
 
 #[test]
@@ -7790,15 +10648,15 @@ fn slab_full_pet_transforms_commit_actual_contours_once_and_roundtrip() {
     use super::wall_node_ui::WallPetCommand as C;
     for command in [C::Drag, C::Rotate, C::Mirror, C::Multiply] {
         let (ctx, mut app, _) = slab_full_pet_fixture(UiLanguage::English);
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(&ctx, &mut app, pos2(500., 300.));
         polyline_pet_command(&ctx, &mut app, command);
         if matches!(command, C::Rotate | C::Mirror) {
             click(&ctx, &mut app, pos2(400., 300.));
-            assert_eq!(app.editor.project, before);
+            assert_eq!(app.host.document.editor.project, before);
             if command == C::Rotate {
                 click(&ctx, &mut app, pos2(500., 300.));
-                assert_eq!(app.editor.project, before);
+                assert_eq!(app.host.document.editor.project, before);
             }
         }
         click(
@@ -7813,10 +10671,10 @@ fn slab_full_pet_transforms_commit_actual_contours_once_and_roundtrip() {
         assert!(
             app.wall_insert.is_none(),
             "{command:?}: {}",
-            app.editor.status
+            app.host.document.editor.status
         );
         assert_eq!(
-            app.editor.project.elements.len(),
+            app.host.document.editor.project.elements.len(),
             if command == C::Multiply { 4 } else { 1 }
         );
         let expected = match command {
@@ -7824,7 +10682,8 @@ fn slab_full_pet_transforms_commit_actual_contours_once_and_roundtrip() {
             C::Mirror => Point::new(0., 4.),
             _ => Point::new(2., 2.),
         };
-        let moved = &app.editor.project.elements[if command == C::Multiply { 1 } else { 0 }];
+        let moved =
+            &app.host.document.editor.project.elements[if command == C::Multiply { 1 } else { 0 }];
         let points = crate::slab_geometry::contour(moved).points;
         assert!(
             points.iter().any(|p| p.distance(expected) < 1e-4),
@@ -7841,7 +10700,7 @@ fn slab_full_pet_tangent_and_corner_commands_commit_exact_geometry() {
     use super::wall_node_ui::WallPetCommand as C;
     for command in [C::Tangent, C::Fillet, C::Chamfer] {
         let (ctx, mut app, _) = slab_full_pet_fixture(UiLanguage::English);
-        let before = app.editor.project.clone();
+        let before = app.host.document.editor.project.clone();
         click(
             &ctx,
             &mut app,
@@ -7856,9 +10715,9 @@ fn slab_full_pet_tangent_and_corner_commands_commit_exact_geometry() {
         assert!(
             app.wall_insert.is_none(),
             "{command:?}: {}",
-            app.editor.status
+            app.host.document.editor.status
         );
-        let slab = &app.editor.project.elements[0];
+        let slab = &app.host.document.editor.project.elements[0];
         let contour = slab.slab_contour.as_ref().unwrap();
         if command == C::Tangent {
             assert_eq!(contour.points.len(), 4);
@@ -7881,7 +10740,7 @@ fn slab_full_pet_tangent_and_corner_commands_commit_exact_geometry() {
 fn slab_full_pet_elevate_numeric_field_changes_shared_top_elevation() {
     use super::wall_node_ui::WallPetCommand as C;
     let (ctx, mut app, _) = slab_full_pet_fixture(UiLanguage::English);
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     click(&ctx, &mut app, pos2(500., 300.));
     polyline_pet_command(&ctx, &mut app, C::Elevate);
     plan_frame(&ctx, &mut app, vec![]);
@@ -7900,10 +10759,14 @@ fn slab_full_pet_elevate_numeric_field_changes_shared_top_elevation() {
         &mut app,
         vec![key(Key::A, Modifiers::COMMAND), Event::Text("2".into())],
     );
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
-    assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-    let slab = &app.editor.project.elements[0];
+    assert!(
+        app.wall_insert.is_none(),
+        "{}",
+        app.host.document.editor.status
+    );
+    let slab = &app.host.document.editor.project.elements[0];
     assert_eq!(slab.slab_contour.as_ref().unwrap().elevation, 2.);
     assert_eq!(slab.area(), 12.);
     slab_pet_assert_transaction(&mut app, &before);
@@ -7916,7 +10779,7 @@ fn slab_full_pet_custom_surface_and_scope_apply_real_controls_both_languages() {
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         for scope in [S::Clicked, S::Ring, S::All] {
             let (ctx, mut app, _) = slab_full_pet_fixture(language);
-            let before = app.editor.project.clone();
+            let before = app.host.document.editor.project.clone();
             click(&ctx, &mut app, pos2(500., 300.));
             polyline_pet_command(&ctx, &mut app, C::CustomEdge);
             let surface = ctx
@@ -7935,13 +10798,17 @@ fn slab_full_pet_custom_surface_and_scope_apply_real_controls_both_languages() {
                 .data(|d| d.get_temp::<Rect>(Id::new(("slab_edge_scope", scope as u8))))
                 .unwrap();
             click(&ctx, &mut app, scope_rect.center());
-            assert_eq!(app.editor.project, before);
+            assert_eq!(app.host.document.editor.project, before);
             let apply = ctx
                 .data(|d| d.get_temp::<Rect>(Id::new("slab_edge_apply")))
                 .unwrap();
             click(&ctx, &mut app, apply.center());
-            assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-            let c = crate::slab_geometry::contour(&app.editor.project.elements[0]);
+            assert!(
+                app.wall_insert.is_none(),
+                "{}",
+                app.host.document.editor.status
+            );
+            let c = crate::slab_geometry::contour(&app.host.document.editor.project.elements[0]);
             assert_eq!(
                 c.edge_settings
                     .iter()
@@ -7963,7 +10830,7 @@ fn slab_full_pet_custom_surface_and_scope_apply_real_controls_both_languages() {
 fn slab_full_pet_boolean_split_candidate_keeps_identity_and_allocates_unique_ids() {
     use crate::slab_geometry::SlabChange;
     let (_, mut app, id) = slab_full_pet_fixture(UiLanguage::English);
-    let before = app.editor.project.clone();
+    let before = app.host.document.editor.project.clone();
     let command = crate::reshape::ReshapeCommand::SlabEdit {
         id,
         index: 0,
@@ -7977,15 +10844,15 @@ fn slab_full_pet_boolean_split_candidate_keeps_identity_and_allocates_unique_ids
         ]),
     };
     let (candidate, ids) = crate::reshape::candidate(&before, &command).unwrap();
-    assert_eq!(app.editor.project, before);
+    assert_eq!(app.host.document.editor.project, before);
     assert_eq!(ids.len(), 2);
     assert_eq!(ids[0], id);
     assert_ne!(ids[0], ids[1]);
     assert_eq!(candidate.elements.len(), 2);
-    assert!((candidate.elements.iter().map(|e| e.area()).sum::<f32>() - 9.).abs() < 1e-4);
+    assert!((candidate.elements.iter().map(|e| e.area()).sum::<f64>() - 9.).abs() < 1e-4);
     candidate.validate().unwrap();
-    app.editor.reshape(command).unwrap();
-    assert_eq!(app.editor.project, candidate);
+    app.host.document.editor.reshape(command).unwrap();
+    assert_eq!(app.host.document.editor.project, candidate);
     slab_pet_assert_transaction(&mut app, &before);
 }
 
@@ -7995,7 +10862,7 @@ fn slab_full_pet_custom_angle_numeric_apply_and_undo_both_languages() {
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         for angle in [45., 135.] {
             let (ctx, mut app, _) = slab_full_pet_fixture(language);
-            let before = app.editor.project.clone();
+            let before = app.host.document.editor.project.clone();
             click(&ctx, &mut app, pos2(500., 300.));
             polyline_pet_command(&ctx, &mut app, C::CustomEdge);
             let field = ctx
@@ -8011,16 +10878,20 @@ fn slab_full_pet_custom_angle_numeric_apply_and_undo_both_languages() {
                     Event::Text(format!("{angle}")),
                 ],
             );
-            assert_eq!(app.editor.project, before);
+            assert_eq!(app.host.document.editor.project, before);
             let apply = ctx
                 .data(|d| d.get_temp::<Rect>(Id::new("slab_edge_apply")))
                 .unwrap();
             click(&ctx, &mut app, apply.center());
-            assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-            let c = crate::slab_geometry::contour(&app.editor.project.elements[0]);
+            assert!(
+                app.wall_insert.is_none(),
+                "{}",
+                app.host.document.editor.status
+            );
+            let c = crate::slab_geometry::contour(&app.host.document.editor.project.elements[0]);
             assert!((c.edge_settings[0].angle_degrees - angle).abs() < 1e-4);
             assert!(c.edge_settings[1..].iter().all(|s| s.angle_degrees == 90.));
-            assert_eq!(app.editor.project.elements[0].area(), 12.);
+            assert_eq!(app.host.document.editor.project.elements[0].area(), 12.);
             slab_pet_assert_transaction(&mut app, &before);
         }
     }
@@ -8032,16 +10903,19 @@ fn slab_full_pet_insert_arc_node_activates_only_on_release_and_preserves_arc() {
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         let (ctx, mut app, _) = slab_full_pet_fixture(language);
         let contours = crate::slab_geometry::changed(
-            &app.editor.project.elements[0],
+            &app.host.document.editor.project.elements[0],
             0,
             &crate::slab_geometry::SlabChange::Curve,
             Point::new(2., 0.),
             Point::new(2., -1.),
         )
         .unwrap();
-        crate::slab_geometry::sync(&mut app.editor.project.elements[0], contours[0].clone())
-            .unwrap();
-        let before = app.editor.project.clone();
+        crate::slab_geometry::sync(
+            &mut app.host.document.editor.project.elements[0],
+            contours[0].clone(),
+        )
+        .unwrap();
+        let before = app.host.document.editor.project.clone();
         let area = before.elements[0].area();
         click(&ctx, &mut app, pos2(500., 350.));
         plan_frame(&ctx, &mut app, vec![]);
@@ -8061,14 +10935,18 @@ fn slab_full_pet_insert_arc_node_activates_only_on_release_and_preserves_arc() {
                 },
             ],
         );
-        assert_eq!(app.editor.project, before);
-        assert!(app.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
         release_direct_drag(&ctx, &mut app, icon.center());
-        assert!(app.wall_insert.is_none(), "{}", app.editor.status);
-        let c = crate::slab_geometry::contour(&app.editor.project.elements[0]);
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        let c = crate::slab_geometry::contour(&app.host.document.editor.project.elements[0]);
         assert_eq!(c.points.len(), 5);
         assert_eq!(c.arcs.iter().filter(|a| a.is_some()).count(), 2);
-        assert!((app.editor.project.elements[0].area() - area).abs() < 1e-4);
+        assert!((app.host.document.editor.project.elements[0].area() - area).abs() < 1e-4);
         assert!(
             c.points
                 .iter()
@@ -8077,3 +10955,14431 @@ fn slab_full_pet_insert_arc_node_activates_only_on_release_and_preserves_arc() {
         slab_pet_assert_transaction(&mut app, &before);
     }
 }
+
+#[test]
+fn external_menu_places_repeated_images_on_floor_without_creating_worksheets_and_delete_undo() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let root = std::env::temp_dir().join(format!(
+            "oa-floor-placement-{}-{language:?}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let image = root.join("floor.png");
+        image::RgbaImage::from_pixel(100, 60, image::Rgba([120, 160, 200, 255]))
+            .save(&image)
+            .unwrap();
+        app.drawings_ui.path = image.display().to_string();
+        app.drawings_ui.cache_override = Some(root.join("cache"));
+        let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        for at in [Point::new(-2., 1.), Point::new(1., 1.)] {
+            #[cfg(target_os = "macos")]
+            app.perform_menu_action(
+                super::native_menu::MenuAction::Command("Place External Drawing…"),
+                &ctx,
+            );
+            #[cfg(not(target_os = "macos"))]
+            app.open_command_preview("Place External Drawing…".into());
+            assert!(app.command_dialog.is_none());
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let button = app.drawings_ui.rects["Place drawing"].center();
+            layers_click(&ctx, &mut app, button);
+            assert!(
+                app.drawings_ui.pending.is_some(),
+                "{}",
+                app.drawings_ui.error
+            );
+            let before = app.host.document.editor.project.clone();
+            let pos = app.screen(viewport, at);
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .plan_options
+                    .active_worksheet,
+                None
+            );
+        }
+        let doc = &app.host.document.editor.project.drawings;
+        assert_eq!(doc.pages.len(), 2);
+        assert!(doc.worksheets.is_empty());
+        assert_eq!(doc.pages[0].sha256, doc.pages[1].sha256);
+        assert_ne!(doc.pages[0].id, doc.pages[1].id);
+        assert_eq!(
+            doc.pages[0].placement.as_ref().unwrap().origin,
+            Point::new(-2., 1.)
+        );
+        let accepted = app.host.document.editor.project.clone();
+        app.host.document.editor.set_tool(Tool::Select);
+        let pos = app.screen(viewport, Point::new(-1.5, 0.7));
+        click(&ctx, &mut app, pos);
+        assert!(app.drawings_ui.canvas_selected);
+        app.dispatch_edit("Delete");
+        assert_eq!(app.host.document.editor.project.drawings.pages.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, accepted);
+        let mut cropped = app.host.document.editor.project.drawings.clone();
+        cropped.pages[0].placement.as_mut().unwrap().frame = Some([0., 0., 40., 30.]);
+        app.host
+            .document
+            .editor
+            .apply(crate::command::ModelCommand::SetDrawings { document: cropped })
+            .unwrap();
+        let outside = app.screen(viewport, Point::new(-1.5, 0.7));
+        click(&ctx, &mut app, outside);
+        assert!(!app.drawings_ui.canvas_selected);
+        let inside = app.screen(viewport, Point::new(-1.8, 0.9));
+        click(&ctx, &mut app, inside);
+        assert!(app.drawings_ui.canvas_selected);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+#[test]
+fn external_content_all_ten_commands_dispatch_without_configuration_preview() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for key in super::external_content::EXTERNAL_COMMANDS {
+            let (_ctx, mut app) = setup();
+            app.language = language;
+            assert!(app.external_content_command(key), "unrouted {key}");
+            assert!(app.command_dialog.is_none());
+        }
+        let (_ctx, app) = setup();
+        assert!(!app.external_command_enabled("Break Hotlink (Embed Elements)"));
+        assert!(!app.external_command_enabled("Save Hotlink as File…"));
+        assert!(!app.external_command_enabled("Save Selection as Module…"));
+    }
+}
+
+#[test]
+fn navigator_tree_leaves_ai_image_selection_visible_bilingual_without_model_changes() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.tab = Tab::Assistant;
+        let root = std::env::temp_dir().join(format!(
+            "oa-ai-source-visible-{}-{language:?}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        let path = root.join("source.png");
+        image::RgbaImage::from_pixel(16, 16, image::Rgba([1, 2, 3, 255]))
+            .save(&path)
+            .unwrap();
+        let source = crate::drawings::import(&path, &root.join("cache"), 1).unwrap();
+        app.host.document.editor.project.drawings.pages.push(source);
+        app.host.document.editor.mark_saved();
+        let before = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let input = text_center(&output.shapes, language.translate("Drawing input")).unwrap();
+        let row = text_center(&output.shapes, "#1 source.png").unwrap();
+        assert!(
+            input.y < 820. && row.y < 850.,
+            "input {input:?}, row {row:?}"
+        );
+        layers_click(&ctx, &mut app, row);
+        assert_eq!(app.drawings_ui.source, Some(1));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(!app.host.document.editor.dirty());
+        assert!(app.host.document.editor.undo.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn stale_file_save_keeps_editor_and_recovery_in_both_languages() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (_ctx, mut first) = setup();
+        let (_ctx, mut second) = setup();
+        let dir = std::env::temp_dir().join(format!(
+            "openarchi-ui-conflict-{}-{:?}-{}",
+            std::process::id(),
+            language,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir(&dir).unwrap();
+        let path = dir.join("project.json");
+        first.path = path.display().to_string();
+        first.recovery_slot = None;
+        first.save_project().unwrap();
+        let (project, version) = storage::load_with_version(&path).unwrap();
+        second.host.document.editor = Editor::new(project);
+        second.path = first.path.clone();
+        second.file_baseline = Some((path.clone(), version.clone()));
+        second.language = language;
+        let recovery = dir.join("recovery.json");
+        second.recovery_slot = Some(
+            crate::recovery::RecoverySlot::claim_legacy(&recovery)
+                .unwrap()
+                .unwrap(),
+        );
+        let initial = second.host.document.editor.project.clone();
+        second.host.document.editor.project.name = "second unsaved".into();
+        second.host.document.editor.commit(initial.clone());
+        let accepted = second.host.document.editor.project.clone();
+        second.host.document.editor.project.name = "redo candidate".into();
+        second.host.document.editor.commit(accepted.clone());
+        let redo_candidate = second.host.document.editor.project.clone();
+        second.host.document.editor.undo();
+        assert_eq!(second.host.document.editor.project, accepted);
+        assert_eq!(second.host.document.editor.undo.len(), 1);
+        assert_eq!(second.host.document.editor.redo.len(), 1);
+        let undo_delta = second.host.document.editor.undo[0].delta.clone();
+        let redo_delta = second.host.document.editor.redo[0].delta.clone();
+        let saved = second.host.document.editor.saved.clone();
+        let selection = (
+            second.host.document.editor.selected,
+            second.host.document.editor.selected_ids.clone(),
+        );
+        crate::recovery::write(&recovery, &second.host.document.editor.project).unwrap();
+        first.host.document.editor.project.name = "first writer".into();
+        first.save_project().unwrap();
+        let before = second.host.document.editor.project.clone();
+        let revision = second.host.document.editor.revision;
+        let dirty = second.host.document.editor.dirty();
+        let error = second.save_project().unwrap_err();
+        assert_eq!(
+            error,
+            language.translate("Project file changed since its baseline was read")
+        );
+        assert_eq!(second.host.document.editor.project, before);
+        assert_eq!(second.host.document.editor.revision, revision);
+        assert_eq!(second.host.document.editor.dirty(), dirty);
+        assert_eq!(second.file_baseline, Some((path.clone(), version)));
+        assert!(recovery.exists());
+        assert_eq!(storage::load(&path).unwrap().name, "first writer");
+        assert_eq!(second.host.document.editor.saved, saved);
+        assert_eq!(
+            (
+                second.host.document.editor.selected,
+                second.host.document.editor.selected_ids.clone()
+            ),
+            selection
+        );
+        assert_eq!(second.host.document.editor.undo.len(), 1);
+        assert_eq!(second.host.document.editor.redo.len(), 1);
+        assert_eq!(second.host.document.editor.undo[0].delta, undo_delta);
+        assert_eq!(second.host.document.editor.redo[0].delta, redo_delta);
+        second.host.document.editor.redo();
+        assert_eq!(second.host.document.editor.project, redo_candidate);
+        second.host.document.editor.undo();
+        assert_eq!(second.host.document.editor.project, accepted);
+        second.host.document.editor.undo();
+        assert_eq!(second.host.document.editor.project, initial);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn wall_reference_drag_finish_preserves_rejection_and_redo() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for locked in [false, true] {
+            let (_ctx, mut app) = setup();
+            app.language = language;
+            let id = add_wall_for_editing(&mut app);
+            let initial = app.host.document.editor.project.clone();
+            app.host.document.editor.project.name = "redo candidate".into();
+            app.host.document.editor.commit(initial);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.redo.len(), 1);
+            if locked {
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .edit_state
+                    .locked
+                    .insert(id);
+            }
+            app.host.document.editor.mark_saved();
+            let before = app.host.document.editor.project.clone();
+            let revision = app.host.document.editor.revision;
+            let redo_delta = app.host.document.editor.redo[0].delta.clone();
+            if locked {
+                if let Shape::Wall { start, .. } =
+                    &mut app.host.document.editor.project.elements[0].shape
+                {
+                    start.x += 1.;
+                }
+            } else {
+                app.host.document.editor.project.stories.clear();
+            }
+            app.finish_wall_reference_drag(before.clone(), WallEditCommand::MoveNode, true);
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.saved, before);
+            assert!(!app.host.document.editor.dirty());
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert!(app.host.document.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.redo.len(), 1);
+            assert_eq!(app.host.document.editor.redo[0].delta, redo_delta);
+            if locked {
+                assert_eq!(
+                    app.host.document.editor.status,
+                    "Selection contains locked elements"
+                );
+            } else {
+                assert!(!app.host.document.editor.status.is_empty());
+            }
+            assert_ne!(
+                app.host.document.editor.status,
+                "Wall reference-line endpoint moved"
+            );
+            assert_ne!(
+                app.host.document.editor.status,
+                language.translate("Wall endpoint joined at reference line")
+            );
+        }
+    }
+}
+
+#[test]
+fn rectangular_column_tool_click_places_real_model_in_both_languages() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let entry = text_center(&output.shapes, language.translate("Column"))
+            .expect("real column toolbox entry");
+        layers_click(&ctx, &mut app, entry);
+        assert_eq!(app.host.document.editor.tool, Tool::Column);
+        assert!(app.preview_tool.is_none());
+        app.host.document.editor.snap = false;
+        app.host.document.editor.column_section = crate::column::ColumnSection::Rectangular {
+            width: 0.6,
+            depth: 0.4,
+        };
+        app.host.document.editor.column_height = 3.5;
+        click(&ctx, &mut app, pos2(400., 300.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        let column = &app.host.document.editor.project.elements[0];
+        assert_eq!(column.kind(), "Column");
+        assert_eq!(
+            column.shape,
+            Shape::Column {
+                center: Point::default(),
+                section: crate::column::ColumnSection::Rectangular {
+                    width: 0.6,
+                    depth: 0.4
+                },
+                height: 3.5,
+                bottom_offset: 0.,
+                axis_rotation: 0.,
+                inclination: None,
+                plan: Default::default(),
+            }
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let after = app.host.document.editor.project.clone();
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.project, after);
+        app.host.document.editor.undo();
+        assert!(app.host.document.editor.project.elements.is_empty());
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
+    }
+}
+
+#[test]
+fn rectangular_column_named_menu_entry_activates_real_tool() {
+    let (_ctx, mut app) = setup();
+    app.activate_named_tool("Column");
+    assert_eq!(app.host.document.editor.tool, Tool::Column);
+    assert!(app.preview_tool.is_none());
+    app.open_command_preview("Column".into());
+    assert_eq!(app.host.document.editor.tool, Tool::Column);
+    assert!(app.command_dialog.is_none());
+}
+
+#[test]
+fn rectangular_beam_tool_two_clicks_cancel_and_history_in_both_languages() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let entry =
+            text_center(&output.shapes, language.translate("Beam")).expect("real beam entry");
+        layers_click(&ctx, &mut app, entry);
+        assert_eq!(app.host.document.editor.tool, Tool::Beam);
+        assert!(app.preview_tool.is_none());
+        app.host.document.editor.snap = false;
+        click(&ctx, &mut app, pos2(400., 300.));
+        assert!(app.host.document.editor.project.elements.is_empty());
+        assert!(app.host.document.editor.anchor.is_some());
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.anchor, None);
+        assert!(app.host.document.editor.undo.is_empty());
+        app.activate_named_tool("Beam");
+        click(&ctx, &mut app, pos2(400., 300.));
+        click(&ctx, &mut app, pos2(500., 350.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(app.host.document.editor.project.elements[0].kind(), "Beam");
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.anchor, None);
+        let after = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert!(app.host.document.editor.project.elements.is_empty());
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
+        app.open_command_preview("Beam".into());
+        assert_eq!(app.host.document.editor.tool, Tool::Beam);
+        assert!(app.command_dialog.is_none());
+    }
+}
+
+#[test]
+fn roof_five_click_workflow_cancel_each_stage_and_bilingual_entries() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for stop in 1..=4 {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let entry =
+                text_center(&output.shapes, language.translate("Roof")).expect("real roof tool");
+            layers_click(&ctx, &mut app, entry);
+            assert_eq!(app.host.document.editor.tool, Tool::Roof);
+            assert!(app.preview_tool.is_none());
+            app.host.document.editor.snap = false;
+            let points = [
+                pos2(400., 300.),
+                pos2(500., 300.),
+                pos2(450., 350.),
+                pos2(400., 300.),
+            ];
+            for p in points.into_iter().take(stop) {
+                click(&ctx, &mut app, p);
+                assert!(app.host.document.editor.project.elements.is_empty());
+                assert!(app.host.document.editor.undo.is_empty());
+            }
+            plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+            assert!(app.host.document.editor.roof_draft.is_none());
+            assert!(app.host.document.editor.project.elements.is_empty());
+        }
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.activate_named_tool("Roof");
+        app.host.document.editor.snap = false;
+        for p in [
+            pos2(400., 300.),
+            pos2(500., 300.),
+            pos2(450., 350.),
+            pos2(400., 300.),
+            pos2(520., 400.),
+        ] {
+            click(&ctx, &mut app, p);
+        }
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(app.host.document.editor.project.elements[0].kind(), "Roof");
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let after = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert!(app.host.document.editor.project.elements.is_empty());
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
+        app.open_command_preview("Roof".into());
+        assert_eq!(app.host.document.editor.tool, Tool::Roof);
+        assert!(app.command_dialog.is_none());
+    }
+}
+
+#[test]
+fn locked_delete_error_localizes_without_mutating_model_or_history() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for element_lock in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let id = add_wall_for_editing(&mut app);
+            if element_lock {
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .edit_state
+                    .locked
+                    .insert(id);
+            } else {
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .layers
+                    .layer_mut(ARCHICAD_LAYER)
+                    .unwrap()
+                    .status
+                    .locked = true;
+            }
+            app.host.document.editor.set_selection(vec![id]);
+            let before = app.host.document.editor.project.clone();
+            let revision = app.host.document.editor.revision;
+            let history = (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len(),
+            );
+            app.dispatch_edit("Delete");
+            let canonical = if element_lock {
+                format!("Element {id} is locked or read-only")
+            } else {
+                format!("Element {id} is on a locked layer")
+            };
+            assert_eq!(app.host.document.editor.status, canonical);
+            let expected = match (language, element_lock) {
+                (UiLanguage::English, _) => canonical.clone(),
+                (UiLanguage::SimplifiedChinese, true) => {
+                    format!("构件 {id} 已锁定或为只读，无法修改")
+                }
+                (UiLanguage::SimplifiedChinese, false) => {
+                    format!("构件 {id} 位于锁定图层，无法修改")
+                }
+            };
+            assert_eq!(app.status_text(), expected);
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            assert!(text_center(&output.shapes, &expected).is_some());
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert_eq!(
+                (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len()
+                ),
+                history
+            );
+            assert_eq!(app.host.document.editor.status, canonical);
+            app.language = match language {
+                UiLanguage::English => UiLanguage::SimplifiedChinese,
+                UiLanguage::SimplifiedChinese => UiLanguage::English,
+            };
+            layers_frame_output(&ctx, &mut app, vec![]);
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(
+                (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len()
+                ),
+                history
+            );
+        }
+    }
+    let (_ctx, mut app) = setup();
+    app.language = UiLanguage::SimplifiedChinese;
+    for unknown in [
+        "Element abc is on a locked layer",
+        "Element 1 is on a locked layer extra",
+    ] {
+        app.host.document.editor.status = unknown.into();
+        assert_eq!(app.status_text(), unknown);
+    }
+}
+
+#[test]
+fn inspector_source_refreshes_after_slab_edit_and_history_without_stale_apply() {
+    use super::wall_node_ui::WallPetCommand as C;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app, id) = slab_full_pet_fixture(language);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(
+            app.draft.as_ref().unwrap(),
+            &app.host.document.editor.project.elements[0]
+        );
+        let original = app.host.document.editor.project.clone();
+        // Exercise the actual canvas and palette entry, then render the inspector.
+        click(&ctx, &mut app, pos2(500., 300.));
+        polyline_pet_command(&ctx, &mut app, C::Curve);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        click(&ctx, &mut app, pos2(500., 350.));
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        let edited = app.host.document.editor.project.clone();
+        assert_ne!(edited, original);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(app.draft.as_ref().unwrap(), &edited.elements[0]);
+        // Same typed commit used by the inspector's Apply button.
+        app.host
+            .document
+            .editor
+            .replace_element(app.draft.clone().unwrap())
+            .unwrap();
+        assert_eq!(
+            app.host.document.editor.project, edited,
+            "Apply must not restore the old contour"
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert_eq!(app.host.document.editor.selected, Some(id));
+        app.host.document.editor.undo();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(app.draft.as_ref().unwrap(), &original.elements[0]);
+        app.host.document.editor.redo();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            app.draft.is_none(),
+            "Redo clears selection in the existing editor"
+        );
+        app.host.document.editor.set_selection(vec![id]);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(app.draft.as_ref().unwrap(), &edited.elements[0]);
+    }
+}
+
+#[test]
+fn inspector_source_preserves_pending_fields_when_selected_model_is_unchanged() {
+    let (ctx, mut app, _) = slab_full_pet_fixture(UiLanguage::English);
+    layers_frame_output(&ctx, &mut app, vec![]);
+    app.draft.as_mut().unwrap().name = "Pending name".into();
+    let before = app.host.document.editor.project.clone();
+    layers_frame_output(&ctx, &mut app, vec![]);
+    assert_eq!(app.draft.as_ref().unwrap().name, "Pending name");
+    assert_eq!(app.host.document.editor.project, before);
+    // A different element changes the document revision, not this draft's source.
+    app.host
+        .document
+        .editor
+        .place_column(Point::new(10., 10.))
+        .unwrap();
+    app.host
+        .document
+        .editor
+        .set_selection(vec![before.elements[0].id]);
+    layers_frame_output(&ctx, &mut app, vec![]);
+    assert_eq!(app.draft.as_ref().unwrap().name, "Pending name");
+    assert_eq!(
+        app.host.document.editor.project.elements[0],
+        before.elements[0]
+    );
+}
+
+#[test]
+fn recovery_ui_selects_only_requested_project_and_rejects_stale_claim() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let root = std::env::temp_dir().join(format!(
+            "recovery-ui-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let a = crate::recovery::RecoverySlot::create(&root.join("recoveries")).unwrap();
+        let b = crate::recovery::RecoverySlot::create(&root.join("recoveries")).unwrap();
+        let project_a = Project {
+            name: "A recovery".into(),
+            ..Project::default()
+        };
+        let project_b = Project {
+            name: "B recovery".into(),
+            ..Project::default()
+        };
+        a.write(&project_a).unwrap();
+        b.write(&project_b).unwrap();
+        let b_path = b.directory().to_owned();
+        drop(a);
+        drop(b);
+        let (ctx, mut first) = setup();
+        first.language = language;
+        first.initialize_recovery(&root);
+        let (_, mut second) = setup();
+        second.language = language;
+        second.initialize_recovery(&root);
+        assert_eq!(first.recovery_candidates.len(), 2);
+        assert_eq!(first.recovery_choice, None);
+        let before = first.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut first, vec![]);
+        let out = layers_frame_output(&ctx, &mut first, vec![]);
+        let pos = text_center(&out.shapes, "B recovery").unwrap();
+        layers_click(&ctx, &mut first, pos);
+        assert_eq!(first.host.document.editor.project, before);
+        assert_eq!(first.recovery_choice, Some(1));
+        let out = layers_frame_output(&ctx, &mut first, vec![]);
+        layers_click(
+            &ctx,
+            &mut first,
+            text_center(&out.shapes, language.translate("Recover")).unwrap(),
+        );
+        assert_eq!(first.host.document.editor.project, project_b);
+        assert!(first.host.document.editor.dirty());
+        assert!(!first.recovery_open);
+        assert!(first.file_baseline.is_none());
+        assert_eq!(first.recovery_slot.as_ref().unwrap().directory(), b_path);
+        second.recovery_choice = Some(1);
+        let before = second.host.document.editor.project.clone();
+        assert_eq!(
+            second.resolve_recovery(true).unwrap_err(),
+            language.translate("Recovery project is in use or no longer available")
+        );
+        assert_eq!(second.host.document.editor.project, before);
+        assert!(second.recovery_open);
+        second.recovery_choice = Some(0);
+        second.resolve_recovery(false).unwrap();
+        assert_eq!(
+            first.recovery_slot.as_ref().unwrap().read().unwrap(),
+            Some(project_b)
+        );
+        let (available, errors) = crate::recovery::discover(&root);
+        assert!(available.is_empty());
+        assert!(errors.is_empty());
+        drop(first);
+        drop(second);
+        let (available, errors) = crate::recovery::discover(&root);
+        assert_eq!(available.len(), 1);
+        assert!(errors.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn recovery_sessions_autosave_and_clear_without_touching_other_window() {
+    let root = std::env::temp_dir().join(format!(
+        "recovery-sessions-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let (ctx, mut a) = setup();
+    a.initialize_recovery(&root);
+    let (_, mut b) = setup();
+    b.initialize_recovery(&root);
+    a.host.document.editor.project.name = "A dirty".into();
+    b.host.document.editor.project.name = "B dirty".into();
+    a.autosave_recovery(&ctx);
+    a.finish_recovery_write(true);
+    b.autosave_recovery(&ctx);
+    b.finish_recovery_write(true);
+    let b_before = b.recovery_slot.as_ref().unwrap().read().unwrap();
+    a.path = root.join("saved.json").display().to_string();
+    a.save_project().unwrap();
+    assert_eq!(a.recovery_slot.as_ref().unwrap().read().unwrap(), None);
+    assert_eq!(b.recovery_slot.as_ref().unwrap().read().unwrap(), b_before);
+    drop(a);
+    drop(b);
+    let (_, mut c) = setup();
+    c.initialize_recovery(&root);
+    assert_eq!(c.recovery_candidates.len(), 1);
+    c.resolve_recovery(true).unwrap();
+    assert_eq!(Some(c.host.document.editor.project.clone()), b_before);
+    assert!(c.host.document.editor.dirty());
+    c.path = root.join("recovered.json").display().to_string();
+    c.save_project().unwrap();
+    assert_eq!(
+        storage::load(&root.join("recovered.json")).unwrap(),
+        c.host.document.editor.project
+    );
+    drop(c);
+    let legacy = root.join("recovery.openarchi.json");
+    storage::save(&Project::default(), &legacy).unwrap();
+    let (_, mut d) = setup();
+    d.initialize_recovery(&root);
+    assert_eq!(d.recovery_candidates.len(), 1);
+    assert!(d.recovery_candidates[0].legacy);
+    d.resolve_recovery(false).unwrap();
+    assert!(!legacy.exists());
+    std::fs::write(&legacy, "broken").unwrap();
+    let (_, mut e) = setup();
+    e.initialize_recovery(&root);
+    assert!(e.recovery_open);
+    assert!(!e.recovery_error.is_empty());
+    assert!(legacy.exists());
+    drop(d);
+    drop(e);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
+fn recovery_diagnostics_are_disclosed_without_changing_model_or_candidates() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.recovery_open = true;
+        app.recovery_error = "fixture.json: expected value at line 1 column 1".into();
+        let before = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &out.shapes,
+                language
+                    .translate("Recovery could not be completed. Recovery files have been kept.")
+            )
+            .is_some()
+        );
+        assert!(text_center(&out.shapes, &app.recovery_error).is_none());
+        let pos = text_center(&out.shapes, language.translate("Technical details")).unwrap();
+        layers_click(&ctx, &mut app, pos);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, &app.recovery_error).is_some());
+        assert_eq!(app.host.document.editor.project, before);
+        let pos = text_center(&out.shapes, language.translate("Close")).unwrap();
+        layers_click(&ctx, &mut app, pos);
+        assert!(!app.recovery_open);
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn opening_pointer_drag_commits_projection_and_keeps_overlap_error_visible() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Wall);
+        app.host.document.editor.click(Point::new(0., 0.), 0.);
+        app.host.document.editor.click(Point::new(6., 0.), 0.);
+        app.host.document.editor.set_tool(Tool::Door);
+        app.host.document.editor.click(Point::new(2., 0.), 0.1);
+        let door = app.host.document.editor.selection_ids()[0];
+        app.host.document.editor.set_tool(Tool::Window);
+        app.host.document.editor.click(Point::new(4., 0.), 0.1);
+        app.host.document.editor.set_tool(Tool::Select);
+        app.host.document.editor.set_selection(vec![door]);
+        let original = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        begin_direct_drag(&ctx, &mut app, pos2(500., 300.), pos2(525., 325.));
+        release_direct_drag(&ctx, &mut app, pos2(525., 325.));
+        assert_eq!(app.host.document.editor.project, original);
+        click(&ctx, &mut app, pos2(525., 325.));
+        assert!(app.pointer_drag.is_none());
+        assert_eq!(app.host.document.editor.undo.len(), history + 1);
+        assert!(
+            matches!(app.host.document.editor.project.elements[1].shape,Shape::Opening{offset,..} if (offset-2.5).abs()<1e-5)
+        );
+        let moved = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, original);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, moved);
+        app.host.document.editor.set_selection(vec![door]);
+        begin_direct_drag(&ctx, &mut app, pos2(525., 300.), pos2(575., 300.));
+        release_direct_drag(&ctx, &mut app, pos2(575., 300.));
+        let error = app.host.document.editor.status.clone();
+        assert!(error.to_lowercase().contains("overlap"), "{error}");
+        plan_frame(&ctx, &mut app, vec![]);
+        assert_eq!(app.host.document.editor.status, error);
+        assert!(
+            app.status_text()
+                .contains(if language == UiLanguage::English {
+                    "Overlapping openings"
+                } else {
+                    "洞口重叠"
+                })
+        );
+        click(&ctx, &mut app, pos2(575., 300.));
+        assert_eq!(app.host.document.editor.project, moved);
+        assert_eq!(
+            app.host.document.editor.status, error,
+            "error must survive rejected confirmation"
+        );
+        plan_frame(&ctx, &mut app, vec![]);
+        assert_eq!(
+            app.host.document.editor.status, error,
+            "error must survive the following frame"
+        );
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.pointer_drag.is_none());
+        assert_eq!(app.host.document.editor.project, moved);
+    }
+}
+
+#[test]
+fn opening_host_errors_localize_without_changing_names_or_editor_state() {
+    let (_ctx, mut app) = setup();
+    let name = "Door is taller than its host wall {name} 窗";
+    for (suffix, translated) in [
+        ("is taller than its host wall", "高度超出宿主墙"),
+        ("is below its host wall", "低于宿主墙底部"),
+        ("is outside its host wall", "超出宿主墙范围"),
+        ("would be outside its host wall", "将超出宿主墙范围"),
+        ("references a missing host wall", "引用的宿主墙不存在"),
+        (
+            "must be on the same story as its host wall",
+            "必须与宿主墙位于同一楼层",
+        ),
+    ] {
+        let canonical = format!("Opening {name} {suffix}");
+        app.host.document.editor.status = canonical.clone();
+        app.language = UiLanguage::English;
+        assert_eq!(app.status_text(), canonical);
+        app.language = UiLanguage::SimplifiedChinese;
+        assert_eq!(app.status_text(), format!("洞口 {name} {translated}"));
+        assert_eq!(
+            localized_error(app.language, &canonical),
+            format!("洞口 {name} {translated}")
+        );
+        assert_eq!(app.host.document.editor.status, canonical);
+    }
+}
+
+#[test]
+fn wall_invalid_release_discards_last_valid_preview_and_preserves_history() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for move_at_release in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let id = add_wall_for_editing(&mut app);
+            app.host.document.editor.set_selection(vec![id]);
+            let initial = app.host.document.editor.project.clone();
+            app.host.document.editor.project.name = "redo candidate".into();
+            app.host.document.editor.commit(initial);
+            app.host.document.editor.undo();
+            app.host.document.editor.mark_saved();
+            let before = app.host.document.editor.project.clone();
+            let revision = app.host.document.editor.revision;
+            let redo_delta = app.host.document.editor.redo[0].delta.clone();
+            let from = pos2(400., 300.);
+            let invalid = pos2(600., 300.);
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(from)]);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerButton {
+                    pos: from,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(450., 300.))]);
+            assert_ne!(app.host.document.editor.project, before);
+            if move_at_release {
+                plan_frame(&ctx, &mut app, vec![Event::PointerMoved(invalid)]);
+            }
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerButton {
+                    pos: invalid,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.saved, before);
+            assert!(!app.host.document.editor.dirty());
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert!(app.host.document.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.redo.len(), 1);
+            assert_eq!(app.host.document.editor.redo[0].delta, redo_delta);
+            let edit = app.wall_edit.as_ref().expect("retain rejection feedback");
+            assert!(edit.drag.is_none());
+            assert!(!edit.error.is_empty());
+            assert_eq!(app.host.document.editor.status, edit.error);
+            assert_ne!(
+                app.host.document.editor.status,
+                "Wall reference-line endpoint moved"
+            );
+        }
+    }
+}
+
+#[test]
+fn opening_overlap_confirmation_remains_visible_in_workspace() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Wall);
+        app.host.document.editor.click(Point::new(0., 0.), 0.);
+        app.host.document.editor.click(Point::new(6., 0.), 0.);
+        app.host.document.editor.set_tool(Tool::Door);
+        app.host.document.editor.click(Point::new(2., 0.), 0.1);
+        app.host.document.editor.set_tool(Tool::Window);
+        app.host.document.editor.click(Point::new(4., 0.), 0.1);
+        let window = app.host.document.editor.selection_ids()[0];
+        app.host.document.editor.set_tool(Tool::Select);
+        app.host.document.editor.set_selection(vec![window]);
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let mut shapes = Vec::new();
+        collect_shapes(&out.shapes, &mut shapes);
+        let canvas = shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Rect(r)
+                    if r.fill == Color32::from_rgba_unmultiplied(250, 250, 248, 255)
+                        && r.rect.width() > 500.
+                        && r.rect.height() > 300. =>
+                {
+                    Some(r.rect)
+                }
+                _ => None,
+            })
+            .expect("plan background");
+        let start = app.screen(canvas, Point::new(4., 0.));
+        let dest = app.screen(canvas, Point::new(2., 0.56));
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(start)]);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![Event::PointerButton {
+                pos: start,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(dest)]);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![Event::PointerButton {
+                pos: dest,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+        let error = app.host.document.editor.status.clone();
+        assert!(error.contains("Overlapping openings"), "preview: {error}");
+        layers_click(&ctx, &mut app, dest);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        assert_eq!(app.host.document.editor.status, error, "confirmation state");
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(&out.shapes, &app.status_text()).is_some(),
+            "visible error after confirmation"
+        );
+        assert_eq!(app.host.document.editor.status, error, "next frame state");
+    }
+}
+
+#[test]
+fn slab_tool_ready_status_uses_both_languages_without_model_changes() {
+    let (ctx, mut app) = setup();
+    app.host.document.editor.set_tool(Tool::Slab);
+    let project = app.host.document.editor.project.clone();
+    let selection = app.host.document.editor.selection_ids();
+    let history = (
+        app.host.document.editor.undo.len(),
+        app.host.document.editor.redo.len(),
+    );
+    let dirty = app.host.document.editor.dirty();
+    let status = app.host.document.editor.status.clone();
+    for (language, expected) in [
+        (
+            UiLanguage::English,
+            "Slab · Click two opposite corners · Enter commits Tracker values",
+        ),
+        (
+            UiLanguage::SimplifiedChinese,
+            "楼板 · 点击两个相对角点 · 按 Enter 确认追踪器数值",
+        ),
+        (
+            UiLanguage::English,
+            "Slab · Click two opposite corners · Enter commits Tracker values",
+        ),
+    ] {
+        app.language = language;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert_eq!(app.status_text(), expected);
+        assert!(text_center(&output.shapes, expected).is_some());
+        assert_eq!(app.host.document.editor.status, status);
+        assert_eq!(app.host.document.editor.project, project);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+    }
+}
+
+#[test]
+fn model_view_overlay_localizes_without_model_changes() {
+    let (ctx, mut app) = setup();
+    let project = app.host.document.editor.project.clone();
+    let history = (
+        app.host.document.editor.undo.len(),
+        app.host.document.editor.redo.len(),
+    );
+    let dirty = app.host.document.editor.dirty();
+    let selection = app.host.document.editor.selection_ids();
+    for (language, heading, navigation, marquee) in [
+        (
+            UiLanguage::English,
+            "3D  /  PERSPECTIVE",
+            "Shift + middle-drag to orbit · Right-drag to pan · Scroll to zoom",
+            "3D Marquee · draw base; right-click closes polygon · depth from Info Box · Shift+middle-drag orbits",
+        ),
+        (
+            UiLanguage::SimplifiedChinese,
+            "三维 / 透视",
+            "Shift + 中键拖动旋转 · 右键拖动平移 · 滚轮缩放",
+            "三维选区框 · 绘制底面；右键闭合多边形 · 深度见信息框 · Shift + 中键拖动旋转",
+        ),
+    ] {
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Select);
+        let output = model_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, heading).is_some());
+        assert!(text_center(&output.shapes, navigation).is_some());
+        app.host.document.editor.set_tool(Tool::Marquee);
+        let output = model_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, heading).is_some());
+        assert!(text_center(&output.shapes, marquee).is_some());
+        assert_eq!(app.host.document.editor.project, project);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+    }
+}
+
+#[test]
+fn marquee_info_box_and_ready_status_localize_without_model_changes() {
+    let (ctx, mut app) = setup();
+    app.host.document.editor.set_tool(Tool::Marquee);
+    let project = app.host.document.editor.project.clone();
+    let selection = app.host.document.editor.selection_ids();
+    let history = (
+        app.host.document.editor.undo.len(),
+        app.host.document.editor.redo.len(),
+    );
+    let dirty = app.host.document.editor.dirty();
+    let status = app.host.document.editor.status.clone();
+    for (language, expected_status, labels) in [
+        (
+            UiLanguage::English,
+            "Marquee · Drag a rectangle or choose Polygon / Rotated Rectangle",
+            ["Rectangle", "Rotated rectangle", "Polygon"],
+        ),
+        (
+            UiLanguage::SimplifiedChinese,
+            "选区框 · 拖动矩形，或选择多边形 / 旋转矩形",
+            ["矩形", "旋转矩形", "多边形"],
+        ),
+    ] {
+        app.language = language;
+        for (geometry, label) in [
+            MarqueeGeometry::Rectangle,
+            MarqueeGeometry::RotatedRectangle,
+            MarqueeGeometry::Polygon,
+        ]
+        .into_iter()
+        .zip(labels)
+        {
+            app.marquee_geometry = geometry;
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            assert!(
+                text_center(&out.shapes, label).is_some(),
+                "missing selected value {label}"
+            );
+            assert!(text_center(&out.shapes, expected_status).is_some());
+            assert_eq!(app.status_text(), expected_status);
+            assert_eq!(app.host.document.editor.status, status);
+            assert_eq!(app.host.document.editor.project, project);
+            assert_eq!(app.host.document.editor.selection_ids(), selection);
+            assert_eq!(
+                (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len()
+                ),
+                history
+            );
+            assert_eq!(app.host.document.editor.dirty(), dirty);
+        }
+    }
+}
+
+#[test]
+fn plan_canvas_accessibility_name_follows_language_without_model_changes() {
+    let (ctx, mut app) = setup();
+    ctx.enable_accesskit();
+    let project = app.host.document.editor.project.clone();
+    for (language, expected) in [
+        (UiLanguage::English, "Floor plan canvas"),
+        (UiLanguage::SimplifiedChinese, "楼层平面画布"),
+    ] {
+        app.language = language;
+        let output = plan_frame_output(&ctx, &mut app, vec![]);
+        let update = output
+            .platform_output
+            .accesskit_update
+            .expect("accessibility update");
+        assert!(
+            format!("{update:?}").contains(expected),
+            "missing {expected}"
+        );
+        assert_eq!(app.host.document.editor.project, project);
+    }
+}
+
+#[test]
+fn polyline_straight_insert_beside_ac29_arc_keeps_neighbor_and_redo_after_cancel() {
+    use super::wall_node_ui::WallPetCommand as C;
+    // AC29 INT5101 runtime fixture: 20261104-ac29-straight-insert-cancel.
+    // Distance 1 m / angle 0 is geometrically equivalent to its relative X/Y.
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let a = Point::new(0., 0.);
+        let b = Point::new(5., 0.);
+        let c = Point::new(5., 3.);
+        let arc = geometry::arc_segment_through(a, b, Point::new(2.5, 1.052_415_1)).unwrap();
+        let id = app.host.document.editor.project.add(
+            0,
+            Material::Plaster,
+            Shape::Polyline {
+                points: vec![a, b, c],
+                arcs: vec![Some(arc), None],
+            },
+        );
+        let before = app.host.document.editor.project.clone();
+        app.host.document.editor = Editor::new(before.clone());
+        app.host.document.editor.set_selection(vec![id]);
+        let viewport = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let anchor = Point::new(5., 1.504_020_5);
+        let entry = app.screen(viewport, anchor);
+        let revision = app.host.document.editor.revision;
+        click(&ctx, &mut app, entry);
+        assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 200.))]);
+        plan_frame(&ctx, &mut app, vec![]);
+        for (name, text) in [("wall_pet_distance", "1"), ("wall_pet_angle", "0")] {
+            let field = ctx.data(|d| d.get_temp::<Rect>(Id::new(name))).unwrap();
+            click(&ctx, &mut app, field.center());
+            plan_frame(&ctx, &mut app, vec![]);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text(text.into())],
+            );
+        }
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(350., 150.))]);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert!(!app.host.document.editor.dirty());
+        assert!(app.host.document.editor.undo.is_empty());
+        plan_frame(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+        assert!(
+            app.wall_insert.is_none(),
+            "{}",
+            app.host.document.editor.status
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let Shape::Polyline { points, arcs } = &app.host.document.editor.project.elements[0].shape
+        else {
+            panic!()
+        };
+        let expected = Point::new(6., 1.504_020_5);
+        assert_eq!(points.len(), 4);
+        assert_eq!((points[0], points[1], points[3]), (a, b, c));
+        assert!(points[2].distance(expected) < 1e-5, "{:?}", points[2]);
+        assert_eq!(arcs, &vec![Some(arc), None, None]);
+        let (_, sweep) = geometry::arc_center_sweep(points[0], points[1], arc).unwrap();
+        assert!((sweep - (-1.593_795_5)).abs() < 1e-5);
+        let after = app.host.document.editor.project.clone();
+        let loaded: Project = serde_json::from_slice(&serde_json::to_vec(&after).unwrap()).unwrap();
+        assert_eq!(loaded, after);
+        plan_frame(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.redo.len(), 1);
+        let revision = app.host.document.editor.revision;
+        click(&ctx, &mut app, entry);
+        assert_eq!(app.wall_insert.as_ref().unwrap().command, C::InsertNode);
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 200.))]);
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.wall_insert.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert!(!app.host.document.editor.dirty());
+        assert_eq!(app.host.document.editor.redo.len(), 1);
+        plan_frame(
+            &ctx,
+            &mut app,
+            vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        );
+        assert_eq!(app.host.document.editor.project, after);
+        assert!(app.host.document.editor.redo.is_empty());
+    }
+}
+
+fn keyboard_nudge_frame(
+    ctx: &Context,
+    app: &mut AtelierApp,
+    k: Key,
+    modifiers: Modifiers,
+) -> egui::FullOutput {
+    let output = layers_frame_output(
+        ctx,
+        app,
+        vec![
+            Event::ModifiersChanged(modifiers),
+            key(k, modifiers),
+            Event::Key {
+                key: k,
+                physical_key: None,
+                pressed: false,
+                repeat: false,
+                modifiers,
+            },
+        ],
+    );
+    layers_frame_output(ctx, app, vec![Event::ModifiersChanged(Modifiers::NONE)]);
+    output
+}
+
+#[test]
+fn layer_settings_ok_preserves_rejection_and_history_bilingual() {
+    use crate::{command::ModelCommand, layers::ElementLayer};
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for protection in ["none", "element", "layer"] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let layer = app
+                .host
+                .document
+                .editor
+                .project
+                .layers
+                .new_layer("Layer error probe", None);
+            let native = app.host.document.editor.project.add(
+                0,
+                Material::Plaster,
+                Shape::Polyline {
+                    points: vec![Point::new(0., 0.), Point::new(2., 0.)],
+                    arcs: vec![],
+                },
+            );
+            let protected = app.host.document.editor.project.add(
+                0,
+                Material::Plaster,
+                Shape::Polyline {
+                    points: vec![Point::new(0., 2.), Point::new(2., 2.)],
+                    arcs: vec![],
+                },
+            );
+            app.host
+                .document
+                .editor
+                .project
+                .elements
+                .iter_mut()
+                .find(|e| e.id == protected)
+                .unwrap()
+                .layer = ElementLayer(layer);
+            if protection == "element" {
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .edit_state
+                    .locked
+                    .insert(protected);
+            } else if protection == "layer" {
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .layers
+                    .layer_mut(layer)
+                    .unwrap()
+                    .status
+                    .locked = true;
+            }
+            app.host.document.editor = Editor::new(app.host.document.editor.project.clone());
+            app.host
+                .document
+                .editor
+                .apply(ModelCommand::MoveElements {
+                    ids: vec![native],
+                    offset: Point::new(0.5, 0.),
+                })
+                .unwrap();
+            let before = app.host.document.editor.project.clone();
+            app.host
+                .document
+                .editor
+                .apply(ModelCommand::MoveElements {
+                    ids: vec![native],
+                    offset: Point::new(0., 0.25),
+                })
+                .unwrap();
+            let expected_redo = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            app.host.document.editor.set_selection(vec![protected]);
+            let revision = app.host.document.editor.revision;
+            let selection = app.host.document.editor.selection_ids();
+            let saved = app.host.document.editor.saved.clone();
+            let dirty = app.host.document.editor.dirty();
+            let undo = app.host.document.editor.undo[0].delta.clone();
+            let redo = app.host.document.editor.redo[0].delta.clone();
+            keyboard_nudge_frame(&ctx, &mut app, Key::L, Modifiers::COMMAND);
+            // Set up the confirmed deletion candidate; exercise the real OK
+            // handler and its shared commit boundary through workspace events.
+            app.layer_settings
+                .as_mut()
+                .unwrap()
+                .draft
+                .delete_layer(layer)
+                .unwrap();
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let ok = text_center(&output.shapes, language.translate("OK")).unwrap();
+            layers_click(&ctx, &mut app, ok);
+            assert!(app.layer_settings.is_none());
+            if protection != "none" {
+                assert_eq!(app.host.document.editor.project, before);
+                assert_eq!(
+                    app.host.document.editor.status, "Selection contains locked elements",
+                    "{language:?} {protection}"
+                );
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                assert!(text_center(&output.shapes, &app.status_text()).is_some());
+                assert_eq!(app.host.document.editor.revision, revision);
+                assert_eq!(app.host.document.editor.selection_ids(), selection);
+                assert_eq!(app.host.document.editor.saved, saved);
+                assert_eq!(app.host.document.editor.dirty(), dirty);
+                assert_eq!(
+                    (
+                        app.host.document.editor.undo.len(),
+                        app.host.document.editor.redo.len()
+                    ),
+                    (1, 1)
+                );
+                assert_eq!(app.host.document.editor.undo[0].delta, undo);
+                assert_eq!(app.host.document.editor.redo[0].delta, redo);
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, expected_redo);
+            } else {
+                let mut expected = before.clone();
+                expected.layers.delete_layer(layer).unwrap();
+                expected
+                    .elements
+                    .iter_mut()
+                    .find(|e| e.id == protected)
+                    .unwrap()
+                    .layer = ElementLayer(crate::layers::ARCHICAD_LAYER);
+                assert_eq!(app.host.document.editor.project, expected);
+                assert!(
+                    app.host
+                        .document
+                        .editor
+                        .status
+                        .contains(language.translate("element(s) moved to"))
+                );
+                assert_eq!(
+                    (
+                        app.host.document.editor.undo.len(),
+                        app.host.document.editor.redo.len()
+                    ),
+                    (2, 0)
+                );
+                app.host.document.editor.undo();
+                assert_eq!(app.host.document.editor.project, before);
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, expected);
+            }
+        }
+    }
+}
+
+fn option_permission_fixture(
+    language: UiLanguage,
+    protection: &str,
+) -> (Context, AtelierApp, Vec<u64>) {
+    use crate::{command::ModelCommand, layers::ElementLayer};
+    let (ctx, mut app) = setup();
+    app.language = language;
+    let mut ids = Vec::new();
+    for y in [0., 3.] {
+        ids.push(app.host.document.editor.project.add(
+            0,
+            Material::Plaster,
+            Shape::Polyline {
+                points: vec![Point::new(0., y), Point::new(4., y)],
+                arcs: vec![],
+            },
+        ));
+    }
+    if protection == "element" {
+        app.host
+            .document
+            .editor
+            .project
+            .edit_state
+            .locked
+            .insert(ids[1]);
+    } else if protection == "layer" {
+        let layer = app
+            .host
+            .document
+            .editor
+            .project
+            .layers
+            .new_layer("Option locked", None);
+        app.host
+            .document
+            .editor
+            .project
+            .layers
+            .layer_mut(layer)
+            .unwrap()
+            .status
+            .locked = true;
+        app.host.document.editor.project.elements[1].layer = ElementLayer(layer);
+    } else if protection == "reference" {
+        use crate::external::{ReferenceEdit, ReferenceKind, ReferenceSource};
+        // Place through the existing typed adapter rather than treating an
+        // ordinary element's own lock as a stand-in for reference ownership.
+        // This is a cached source fixture; no disk-import claim is made.
+        let protected = app.host.document.editor.project.elements.pop().unwrap();
+        let source = ReferenceSource {
+            id: 0,
+            name: "Option read-only source".into(),
+            path: "/fixture/option-read-only-source.json".into(),
+            sha256: "0".repeat(64),
+            kind: ReferenceKind::Hotlink,
+            elements: vec![protected],
+            stories: app.host.document.editor.project.stories.clone(),
+            layers: app.host.document.editor.project.layers.clone(),
+        };
+        app.host
+            .document
+            .editor
+            .apply(ModelCommand::External(ReferenceEdit::Place {
+                source,
+                placement: crate::drawings::DrawingPlacement {
+                    origin: Point::default(),
+                    worksheet: None,
+                    story: 0,
+                    angle: 0.,
+                    visible: true,
+                    opacity: 255,
+                    frame: None,
+                },
+            }))
+            .unwrap();
+        ids[1] = app
+            .host
+            .document
+            .editor
+            .project
+            .drawings
+            .reference_instances[0]
+            .elements[0];
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .drawings
+                .reference_owner(ids[1])
+                .is_some()
+        );
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .edit_state
+                .locked
+                .is_empty()
+        );
+        let member = app
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .find(|e| e.id == ids[1])
+            .unwrap();
+        assert!(
+            !app.host
+                .document
+                .editor
+                .project
+                .layers
+                .is_locked(member.layer.0)
+        );
+        app.host.document.editor.project.validate().unwrap();
+    }
+    app.host.document.editor = Editor::new(app.host.document.editor.project.clone());
+    app.host
+        .document
+        .editor
+        .apply(ModelCommand::MoveElements {
+            ids: vec![ids[0]],
+            offset: Point::new(0.5, 0.),
+        })
+        .unwrap();
+    app.host
+        .document
+        .editor
+        .apply(ModelCommand::MoveElements {
+            ids: vec![ids[0]],
+            offset: Point::new(0., 0.25),
+        })
+        .unwrap();
+    app.host.document.editor.undo();
+    app.host.document.editor.set_selection(ids.clone());
+    (ctx, app, ids)
+}
+
+#[test]
+fn design_option_actions_preserve_rejection_and_nonempty_history_bilingual() {
+    use crate::model::ModelAdapter;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for protection in ["none", "element", "layer", "reference"] {
+            for action in ["assign", "main", "delete"] {
+                let (ctx, mut app, _) = option_permission_fixture(language, protection);
+                // Option membership is a fixture precondition, before the
+                // history records used for the property action are built.
+                let mut p = app.host.document.editor.saved.clone();
+                let option = p.design_options.create("Option error probe".into());
+                p.plan_options.active_design_option = Some(option);
+                if action != "assign" {
+                    for e in &mut p.elements {
+                        e.design_option = Some(option);
+                    }
+                }
+                let ids: Vec<_> = p.elements.iter().map(|e| e.id).collect();
+                app.host.document.editor = Editor::new(p);
+                app.host
+                    .document
+                    .editor
+                    .apply(crate::command::ModelCommand::MoveElements {
+                        ids: vec![ids[0]],
+                        offset: Point::new(0.5, 0.),
+                    })
+                    .unwrap();
+                let before = app.host.document.editor.project.clone();
+                app.host
+                    .document
+                    .editor
+                    .apply(crate::command::ModelCommand::MoveElements {
+                        ids: vec![ids[0]],
+                        offset: Point::new(0., 0.25),
+                    })
+                    .unwrap();
+                let expected_redo = app.host.document.editor.project.clone();
+                app.host.document.editor.undo();
+                app.host.document.editor.set_selection(ids.clone());
+                let revision = app.host.document.editor.revision;
+                let saved = app.host.document.editor.saved.clone();
+                let undo = app.host.document.editor.undo[0].delta.clone();
+                let redo = app.host.document.editor.redo[0].delta.clone();
+                app.open_plan_option_dialog(PlanOptionKind::DesignOptions);
+                let mut output = layers_frame_output(&ctx, &mut app, vec![]);
+                output.shapes.reverse();
+                let label = match action {
+                    "assign" => "Assign Selected to Active Option",
+                    "main" => "Move Selected to Main Model",
+                    _ => "Delete",
+                };
+                let button = text_center(&output.shapes, language.translate(label)).unwrap();
+                layers_click(&ctx, &mut app, button);
+                if protection != "none" {
+                    assert_eq!(app.host.document.editor.project, before);
+                    assert_eq!(
+                        app.host.document.editor.status, "Selection contains locked elements",
+                        "{language:?} {action} {protection}"
+                    );
+                    assert_eq!(app.host.document.editor.revision, revision);
+                    assert_eq!(app.host.document.editor.saved, saved);
+                    assert!(app.host.document.editor.dirty());
+                    assert_eq!(app.host.document.editor.selection_ids(), ids);
+                    assert_eq!(
+                        (
+                            app.host.document.editor.undo.len(),
+                            app.host.document.editor.redo.len()
+                        ),
+                        (1, 1)
+                    );
+                    assert_eq!(app.host.document.editor.undo[0].delta, undo);
+                    assert_eq!(app.host.document.editor.redo[0].delta, redo);
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, expected_redo);
+                } else {
+                    let mut expected = before.clone();
+                    for e in &mut expected.elements {
+                        e.design_option = if action == "assign" {
+                            Some(option)
+                        } else {
+                            None
+                        };
+                    }
+                    if action == "delete" {
+                        expected.design_options.remove(option);
+                        expected.plan_options.active_design_option = None;
+                    }
+                    assert_eq!(app.host.document.editor.project, expected);
+                    assert_eq!(app.host.document.editor.revision, revision + 1);
+                    assert_eq!(
+                        (
+                            app.host.document.editor.undo.len(),
+                            app.host.document.editor.redo.len()
+                        ),
+                        (2, 0)
+                    );
+                    app.host.document.editor.undo();
+                    assert_eq!(app.host.document.editor.project, before);
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, expected);
+                    assert_eq!(
+                        crate::storage::JsonAdapter
+                            .import(&crate::storage::JsonAdapter.export(&expected).unwrap())
+                            .unwrap(),
+                        expected
+                    );
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn renovation_reset_menu_preserves_rejection_and_nonempty_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for protection in ["none", "element", "layer", "reference"] {
+            for all in [false, true] {
+                let (ctx, mut app, ids) = option_permission_fixture(language, protection);
+                if all {
+                    app.host.document.editor.set_selection(vec![]);
+                }
+                let before = app.host.document.editor.project.clone();
+                let revision = app.host.document.editor.revision;
+                let selection = app.host.document.editor.selection_ids();
+                let saved = app.host.document.editor.saved.clone();
+                let undo = app.host.document.editor.undo[0].delta.clone();
+                let redo = app.host.document.editor.redo[0].delta.clone();
+                let mut expected_redo = before.clone();
+                expected_redo.elements[0].translate(Point::new(0., 0.25));
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                let document = text_center(&output.shapes, language.translate("Document")).unwrap();
+                layers_click(&ctx, &mut app, document);
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                let renovation =
+                    text_center(&output.shapes, language.translate("Renovation")).unwrap();
+                layers_click(&ctx, &mut app, renovation);
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                let reset = text_center(
+                    &output.shapes,
+                    language.translate("Reset Renovation Status…"),
+                )
+                .unwrap();
+                layers_click(&ctx, &mut app, reset);
+                if protection != "none" {
+                    assert_eq!(app.host.document.editor.project, before);
+                    assert_eq!(
+                        app.host.document.editor.status, "Selection contains locked elements",
+                        "{language:?} {protection} all={all}"
+                    );
+                    assert_eq!(app.host.document.editor.revision, revision);
+                    assert_eq!(app.host.document.editor.saved, saved);
+                    assert!(app.host.document.editor.dirty());
+                    assert_eq!(app.host.document.editor.selection_ids(), selection);
+                    assert_eq!(
+                        (
+                            app.host.document.editor.undo.len(),
+                            app.host.document.editor.redo.len()
+                        ),
+                        (1, 1)
+                    );
+                    assert_eq!(app.host.document.editor.undo[0].delta, undo);
+                    assert_eq!(app.host.document.editor.redo[0].delta, redo);
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, expected_redo);
+                } else {
+                    let mut expected = before.clone();
+                    for e in &mut expected.elements {
+                        if all || ids.contains(&e.id) {
+                            e.renovation = crate::view_settings::RenovationStatus::Existing;
+                        }
+                    }
+                    assert_eq!(app.host.document.editor.project, expected);
+                    assert_eq!(app.host.document.editor.revision, revision + 1);
+                    assert_eq!(
+                        (
+                            app.host.document.editor.undo.len(),
+                            app.host.document.editor.redo.len()
+                        ),
+                        (2, 0)
+                    );
+                    app.host.document.editor.undo();
+                    assert_eq!(app.host.document.editor.project, before);
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, expected);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn keyboard_nudge_keeps_permission_error_and_nonempty_history_bilingual() {
+    use crate::{
+        command::ModelCommand,
+        external::{self, ReferenceEdit, ReferenceKind},
+    };
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for protection in ["element", "layer", "reference"] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let shape = Shape::Polyline {
+                points: vec![Point::new(0., 0.), Point::new(2., 0.)],
+                arcs: vec![],
+            };
+            let native = app
+                .host
+                .document
+                .editor
+                .project
+                .add(0, Material::Plaster, shape.clone());
+            let mut source_path = None;
+            let protected = if protection == "reference" {
+                let path = std::env::temp_dir().join(format!(
+                    "oa-nudge-source-{}-{language:?}.json",
+                    std::process::id()
+                ));
+                storage::save(&app.host.document.editor.project, &path).unwrap();
+                let source = external::source(&path, ReferenceKind::Hotlink).unwrap();
+                app.host
+                    .document
+                    .editor
+                    .apply(ModelCommand::External(ReferenceEdit::Place {
+                        source,
+                        placement: crate::drawings::DrawingPlacement {
+                            origin: Point::new(0., 3.),
+                            worksheet: None,
+                            story: 0,
+                            angle: 0.,
+                            visible: true,
+                            opacity: 255,
+                            frame: None,
+                        },
+                    }))
+                    .unwrap();
+                source_path = Some(path);
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .drawings
+                    .reference_instances[0]
+                    .elements[0]
+            } else {
+                let id = app
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .add(0, Material::Plaster, shape);
+                if protection == "element" {
+                    app.host
+                        .document
+                        .editor
+                        .project
+                        .edit_state
+                        .locked
+                        .insert(id);
+                } else {
+                    let layer = app
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .layers
+                        .new_layer("Nudge locked", None);
+                    app.host
+                        .document
+                        .editor
+                        .project
+                        .layers
+                        .layer_mut(layer)
+                        .unwrap()
+                        .status
+                        .locked = true;
+                    app.host
+                        .document
+                        .editor
+                        .project
+                        .elements
+                        .iter_mut()
+                        .find(|e| e.id == id)
+                        .unwrap()
+                        .layer = crate::layers::ElementLayer(layer);
+                }
+                id
+            };
+            app.host.document.editor = Editor::new(app.host.document.editor.project.clone());
+            let initial = app.host.document.editor.project.clone();
+            app.host
+                .document
+                .editor
+                .apply(ModelCommand::MoveElements {
+                    ids: vec![native],
+                    offset: Point::new(0.5, 0.),
+                })
+                .unwrap();
+            let before = app.host.document.editor.project.clone();
+            app.host
+                .document
+                .editor
+                .apply(ModelCommand::MoveElements {
+                    ids: vec![native],
+                    offset: Point::new(0., 0.25),
+                })
+                .unwrap();
+            let expected_redo = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            app.host
+                .document
+                .editor
+                .set_selection(vec![native, protected]);
+            let revision = app.host.document.editor.revision;
+            let selection = app.host.document.editor.selection_ids();
+            let saved = app.host.document.editor.saved.clone();
+            let dirty = app.host.document.editor.dirty();
+            assert!(dirty);
+            assert_eq!(
+                (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len()
+                ),
+                (1, 1)
+            );
+            let undo = app.host.document.editor.undo[0].delta.clone();
+            let redo = app.host.document.editor.redo[0].delta.clone();
+            let canonical = if protection == "layer" {
+                format!("Element {protected} is on a locked layer")
+            } else {
+                format!("Element {protected} is locked or read-only")
+            };
+            for modifiers in [Modifiers::NONE, Modifiers::SHIFT] {
+                for k in [
+                    Key::ArrowLeft,
+                    Key::ArrowRight,
+                    Key::ArrowUp,
+                    Key::ArrowDown,
+                ] {
+                    keyboard_nudge_frame(&ctx, &mut app, k, modifiers);
+                    assert_eq!(
+                        app.host.document.editor.status, canonical,
+                        "{protection} {k:?}"
+                    );
+                    let display = app.status_text();
+                    let output = layers_frame_output(&ctx, &mut app, vec![]);
+                    assert!(text_center(&output.shapes, &display).is_some());
+                    assert_eq!(app.host.document.editor.project, before);
+                    assert_eq!(app.host.document.editor.revision, revision);
+                    assert_eq!(app.host.document.editor.selection_ids(), selection);
+                    assert_eq!(app.host.document.editor.saved, saved);
+                    assert_eq!(app.host.document.editor.dirty(), dirty);
+                    assert_eq!(
+                        (
+                            app.host.document.editor.undo.len(),
+                            app.host.document.editor.redo.len()
+                        ),
+                        (1, 1)
+                    );
+                    assert_eq!(app.host.document.editor.undo[0].delta, undo);
+                    assert_eq!(app.host.document.editor.redo[0].delta, redo);
+                }
+            }
+            edit_shortcut_frame(
+                &ctx,
+                &mut app,
+                Key::Z,
+                Modifiers::COMMAND | Modifiers::SHIFT,
+            );
+            assert_eq!(app.host.document.editor.project, expected_redo);
+            edit_shortcut_frame(&ctx, &mut app, Key::Z, Modifiers::COMMAND);
+            assert_eq!(app.host.document.editor.project, before);
+            edit_shortcut_frame(&ctx, &mut app, Key::Z, Modifiers::COMMAND);
+            assert_eq!(app.host.document.editor.project, initial);
+            if let Some(path) = source_path {
+                std::fs::remove_file(path).unwrap();
+            }
+        }
+    }
+}
+
+#[test]
+fn keyboard_nudge_success_keeps_step_and_one_transaction_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for large in [false, true] {
+            for (k, direction) in [
+                (Key::ArrowLeft, Point::new(-1., 0.)),
+                (Key::ArrowRight, Point::new(1., 0.)),
+                (Key::ArrowUp, Point::new(0., 1.)),
+                (Key::ArrowDown, Point::new(0., -1.)),
+            ] {
+                let (ctx, mut app) = setup();
+                app.language = language;
+                let id = shortcut_test_wall(&mut app);
+                app.host.document.editor = Editor::new(app.host.document.editor.project.clone());
+                app.host.document.editor.set_selection(vec![id]);
+                let before = app.host.document.editor.project.clone();
+                let settings = &before.grid_settings;
+                let offset = Point::new(
+                    direction.x * settings.nudge_distance(true, large),
+                    direction.y * settings.nudge_distance(false, large),
+                );
+                let mut expected = before.clone();
+                expected.translate_many(&[id], offset);
+                keyboard_nudge_frame(
+                    &ctx,
+                    &mut app,
+                    k,
+                    if large {
+                        Modifiers::SHIFT
+                    } else {
+                        Modifiers::NONE
+                    },
+                );
+                assert_eq!(app.host.document.editor.status, "Selection nudged");
+                assert_eq!(app.host.document.editor.project, expected);
+                assert_eq!(app.host.document.editor.undo.len(), 1);
+                assert!(app.host.document.editor.redo.is_empty());
+                edit_shortcut_frame(&ctx, &mut app, Key::Z, Modifiers::COMMAND);
+                assert_eq!(app.host.document.editor.project, before);
+                edit_shortcut_frame(
+                    &ctx,
+                    &mut app,
+                    Key::Z,
+                    Modifiers::COMMAND | Modifiers::SHIFT,
+                );
+                assert_eq!(app.host.document.editor.project, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn save_as_menu_uses_real_save_dialog_and_keeps_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let id = shortcut_test_wall(&mut app);
+        let dir = std::env::temp_dir().join(format!(
+            "oa-save-as-entry-{}-{language:?}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("source.json");
+        let destination = dir.join("destination.json");
+        app.path = source.display().to_string();
+        app.save_project().unwrap();
+        let source_bytes = std::fs::read(&source).unwrap();
+        let initial = app.host.document.editor.project.clone();
+        app.host.document.editor.project.name = "Save As unsaved".into();
+        app.host.document.editor.commit(initial.clone());
+        let before = app.host.document.editor.project.clone();
+        app.host.document.editor.project.name = "Save As redo".into();
+        app.host.document.editor.commit(before.clone());
+        let redo_candidate = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        app.host.document.editor.set_selection(vec![id]);
+        let selection = app.host.document.editor.selection_ids();
+        let saved = app.host.document.editor.saved.clone();
+        let baseline = app.file_baseline.clone();
+        let revision = app.host.document.editor.revision;
+        let undo = app.host.document.editor.undo[0].delta.clone();
+        let redo = app.host.document.editor.redo[0].delta.clone();
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let file = text_center(&out.shapes, language.translate("File")).unwrap();
+        layers_click(&ctx, &mut app, file);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let save_as = text_center(&out.shapes, language.translate("Save As…")).unwrap();
+        layers_click(&ctx, &mut app, save_as);
+        assert!(matches!(app.file_action, Some(FileAction::Save)));
+        assert!(app.command_dialog.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.saved, saved);
+        assert!(app.host.document.editor.dirty());
+        assert_eq!(app.file_baseline, baseline);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("Save project")).is_some());
+        use crate::model::ModelAdapter;
+        let format_name = crate::storage::JsonAdapter.format_name().to_owned();
+        // The native file adapter may use a newer envelope than internal geometry precision.
+        assert_eq!(format_name, "OpenArchi JSON");
+        let caption = language
+            .translate("Project file · {format}")
+            .replace("{format}", &format_name);
+        assert!(
+            text_center(&out.shapes, &caption).is_some(),
+            "caption must match actual output adapter: {caption}"
+        );
+        let cancel = text_center(&out.shapes, language.translate("Cancel")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert!(app.file_action.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.saved, saved);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.file_baseline, baseline);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            (1, 1)
+        );
+        assert_eq!(app.host.document.editor.undo[0].delta, undo);
+        assert_eq!(app.host.document.editor.redo[0].delta, redo);
+        #[cfg(target_os = "macos")]
+        app.perform_menu_action(super::native_menu::MenuAction::Command("Save As…"), &ctx);
+        #[cfg(not(target_os = "macos"))]
+        app.open_command_preview("Save As…".into());
+        assert!(matches!(app.file_action, Some(FileAction::Save)));
+        assert!(app.command_dialog.is_none());
+        app.file_dialog_path = Some(destination.display().to_string());
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let save = text_center(&out.shapes, language.translate("Save")).unwrap();
+        layers_click(&ctx, &mut app, save);
+        assert!(app.file_action.is_none(), "{}", app.file_error);
+        assert_eq!(storage::load(&destination).unwrap(), before);
+        assert_eq!(std::fs::read(&source).unwrap(), source_bytes);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.saved, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert!(!app.host.document.editor.dirty());
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(app.file_baseline.as_ref().unwrap().0, destination);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            (1, 1)
+        );
+        assert_eq!(app.host.document.editor.undo[0].delta, undo);
+        assert_eq!(app.host.document.editor.redo[0].delta, redo);
+        edit_shortcut_frame(
+            &ctx,
+            &mut app,
+            Key::Z,
+            Modifiers::COMMAND | Modifiers::SHIFT,
+        );
+        assert_eq!(app.host.document.editor.project, redo_candidate);
+        edit_shortcut_frame(&ctx, &mut app, Key::Z, Modifiers::COMMAND);
+        assert_eq!(app.host.document.editor.project, before);
+        edit_shortcut_frame(&ctx, &mut app, Key::Z, Modifiers::COMMAND);
+        assert_eq!(app.host.document.editor.project, initial);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[test]
+fn oversized_open_error_is_localized_without_mutating_model_or_history() {
+    let dir = std::env::temp_dir().join(format!("oa-open-size-error-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let oversized = dir.join("oversized.json");
+    let mut bytes = serde_json::to_vec(&Project::default()).unwrap();
+    bytes.resize(32 * 1024 * 1024 + 1, b' ');
+    std::fs::write(&oversized, bytes).unwrap();
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let id = shortcut_test_wall(&mut app);
+        let before = app.host.document.editor.project.clone();
+        app.host.document.editor.project.name = "Pending redo".into();
+        app.host.document.editor.commit(before.clone());
+        let redone = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        app.host.document.editor.set_selection(vec![id]);
+        let selection = app.host.document.editor.selection_ids();
+        let saved = app.host.document.editor.saved.clone();
+        let dirty = app.host.document.editor.dirty();
+        let revision = app.host.document.editor.revision;
+        let baseline = app.file_baseline.clone();
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        let redo = app.host.document.editor.redo[0].delta.clone();
+        app.path = oversized.display().to_string();
+        open_test_project(&ctx, &mut app, &oversized);
+        assert!(matches!(app.file_action, Some(FileAction::Open)));
+        assert_eq!(app.file_error, "Project exceeds 32 MB demo limit");
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let expected = match language {
+            UiLanguage::English => "Project exceeds 32 MB demo limit",
+            UiLanguage::SimplifiedChinese => "项目超过 32 MB 演示版大小限制",
+        };
+        assert!(text_center(&out.shapes, expected).is_some());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(app.host.document.editor.saved, saved);
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.file_baseline, baseline);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+        assert_eq!(app.host.document.editor.redo[0].delta, redo);
+        let cancel = text_center(&out.shapes, language.translate("Cancel")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert!(app.file_action.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        edit_shortcut_frame(
+            &ctx,
+            &mut app,
+            Key::Z,
+            Modifiers::COMMAND | Modifiers::SHIFT,
+        );
+        assert_eq!(app.host.document.editor.project, redone);
+    }
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
+fn opening_info_box_permission_fixture(
+    language: UiLanguage,
+    kind: OpeningKind,
+    protection: &str,
+) -> (Context, AtelierApp, u64, u64) {
+    let (ctx, mut app) = setup();
+    app.language = language;
+    let mut project = Project::default();
+    let wall = project.add(
+        0,
+        Material::Plaster,
+        Shape::Wall {
+            start: Point::new(0., 0.),
+            end: Point::new(8., 0.),
+            thickness: 0.3,
+            height: 3.2,
+        },
+    );
+    let door = project.add(
+        0,
+        Material::Plaster,
+        Shape::Opening {
+            host_wall: wall,
+            kind: OpeningKind::Door,
+            width: 0.9,
+            height: 2.1,
+            sill: 0.,
+            offset: 2.,
+        },
+    );
+    let window = project.add(
+        0,
+        Material::Plaster,
+        Shape::Opening {
+            host_wall: wall,
+            kind: OpeningKind::Window,
+            width: 1.2,
+            height: 1.4,
+            sill: 0.9,
+            offset: 5.,
+        },
+    );
+    let id = if kind == OpeningKind::Door {
+        door
+    } else {
+        window
+    };
+    let other = if id == door { window } else { door };
+    match protection {
+        "own" => {
+            project.edit_state.locked.insert(id);
+        }
+        "layer" => {
+            let layer = project.layers.new_layer("Info Box locked fixture", None);
+            project
+                .elements
+                .iter_mut()
+                .find(|e| e.id == id)
+                .unwrap()
+                .layer = crate::layers::ElementLayer(layer);
+            project.layers.set_status(
+                layer,
+                crate::layers::LayerStatus {
+                    visible: true,
+                    locked: true,
+                    solid_3d: true,
+                },
+            );
+        }
+        "reference" => {
+            project
+                .drawings
+                .reference_sources
+                .push(crate::external::ReferenceSource {
+                    id: 91,
+                    name: "Info Box cached fixture".into(),
+                    path: "/fixture/readonly.json".into(),
+                    sha256: "0".repeat(64),
+                    kind: crate::external::ReferenceKind::Hotlink,
+                    elements: project.elements.clone(),
+                    stories: project.stories.clone(),
+                    layers: project.layers.clone(),
+                });
+            project
+                .drawings
+                .reference_instances
+                .push(crate::external::ReferenceInstance {
+                    id: 92,
+                    source: 91,
+                    elements: vec![id],
+                    loaded: true,
+                    placement: crate::drawings::DrawingPlacement {
+                        worksheet: None,
+                        story: 0,
+                        origin: Point::default(),
+                        angle: 0.,
+                        visible: true,
+                        opacity: 255,
+                        frame: None,
+                    },
+                });
+        }
+        "none" => {}
+        _ => panic!("unknown fixture protection"),
+    }
+    project.validate().unwrap();
+    app.host.document.editor = Editor::new(project);
+    app.host.document.editor.set_tool(Tool::Select);
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.project.name = "Undo baseline".into();
+    app.host.document.editor.commit(before);
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.project.name = "Redo candidate".into();
+    app.host.document.editor.commit(before);
+    app.host.document.editor.undo();
+    app.host.document.editor.mark_saved();
+    app.host.document.editor.set_selection(vec![id]);
+    layers_frame_output(&ctx, &mut app, vec![]);
+    (ctx, app, id, other)
+}
+
+#[test]
+fn protected_opening_info_box_ignores_pointer_and_numeric_input_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for kind in [OpeningKind::Door, OpeningKind::Window] {
+            for protection in ["layer", "own", "reference"] {
+                let (ctx, mut app, id, other) =
+                    opening_info_box_permission_fixture(language, kind, protection);
+                assert!(app.host.document.editor.locked_element(id));
+                let before = app.host.document.editor.project.clone();
+                let saved = app.host.document.editor.saved.clone();
+                let selection = app.host.document.editor.selection_ids();
+                let revision = app.host.document.editor.revision;
+                let undo = app.host.document.editor.undo[0].delta.clone();
+                let redo = app.host.document.editor.redo[0].delta.clone();
+                let state = app.info_box_opening.as_ref().unwrap();
+                let values = [state.width, state.height, state.sill, state.offset];
+                for value in values {
+                    let out = layers_frame_output(&ctx, &mut app, vec![]);
+                    let pos =
+                        text_center(&out.shapes, &format!("{value:.3}")).unwrap_or_else(|| {
+                            let mut texts = Vec::new();
+                            collect_text(&out.shapes, &mut texts);
+                            panic!("missing value {value}: {texts:?}");
+                        });
+                    layers_click(&ctx, &mut app, pos);
+                    layers_frame_output(&ctx, &mut app, vec![Event::Text("1".into())]);
+                    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+                    layers_frame_output(
+                        &ctx,
+                        &mut app,
+                        vec![Event::PointerButton {
+                            pos,
+                            button: PointerButton::Primary,
+                            pressed: true,
+                            modifiers: Modifiers::NONE,
+                        }],
+                    );
+                    let target = pos + vec2(18., 0.);
+                    layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(target)]);
+                    layers_frame_output(
+                        &ctx,
+                        &mut app,
+                        vec![Event::PointerButton {
+                            pos: target,
+                            button: PointerButton::Primary,
+                            pressed: false,
+                            modifiers: Modifiers::NONE,
+                        }],
+                    );
+                    let state = app.info_box_opening.as_ref().unwrap();
+                    assert_eq!(
+                        [state.width, state.height, state.sill, state.offset],
+                        values
+                    );
+                    assert!(!state.dirty, "{language:?}/{kind:?}/{protection}");
+                    assert!(state.error.is_empty());
+                    assert_eq!(app.host.document.editor.project, before);
+                    assert_eq!(app.host.document.editor.saved, saved);
+                    assert!(!app.host.document.editor.dirty());
+                    assert_eq!(app.host.document.editor.selection_ids(), selection);
+                    assert_eq!(app.host.document.editor.revision, revision);
+                    assert_eq!(
+                        (
+                            app.host.document.editor.undo.len(),
+                            app.host.document.editor.redo.len()
+                        ),
+                        (1, 1)
+                    );
+                    assert_eq!(app.host.document.editor.undo[0].delta, undo);
+                    assert_eq!(app.host.document.editor.redo[0].delta, redo);
+                }
+                app.host.document.editor.set_selection(vec![other]);
+                layers_frame_output(&ctx, &mut app, vec![]);
+                let state = app.info_box_opening.as_ref().unwrap();
+                assert_eq!(state.element_id, other);
+                assert!(!state.dirty);
+                assert!(state.error.is_empty());
+                app.host.document.editor.redo();
+                let mut expected = before;
+                expected.name = "Redo candidate".into();
+                assert_eq!(app.host.document.editor.project, expected);
+            }
+        }
+    }
+}
+
+#[test]
+fn unlocked_opening_info_box_numeric_input_still_commits_and_undoes_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for kind in [OpeningKind::Door, OpeningKind::Window] {
+            let (ctx, mut app, id, _) = opening_info_box_permission_fixture(language, kind, "none");
+            let before = app.host.document.editor.project.clone();
+            let width = app.info_box_opening.as_ref().unwrap().width;
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            let pos = text_center(&out.shapes, &format!("{width:.3}")).unwrap_or_else(|| {
+                let mut texts = Vec::new();
+                collect_text(&out.shapes, &mut texts);
+                panic!("missing width {width}: {texts:?}");
+            });
+            layers_click(&ctx, &mut app, pos);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("1.5".into())],
+            );
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let mut expected = before.clone();
+            let Shape::Opening { width, .. } = &mut expected
+                .elements
+                .iter_mut()
+                .find(|e| e.id == id)
+                .unwrap()
+                .shape
+            else {
+                panic!("opening")
+            };
+            *width = 1.5;
+            assert_eq!(app.host.document.editor.project, expected);
+            assert!(app.host.document.editor.redo.is_empty());
+            assert_eq!(app.host.document.editor.undo.len(), 2);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, expected);
+        }
+    }
+}
+
+#[test]
+fn opening_info_box_protection_preserves_existing_failed_draft_policy() {
+    let (ctx, mut app, id, other) =
+        opening_info_box_permission_fixture(UiLanguage::English, OpeningKind::Door, "own");
+    let before = app.host.document.editor.project.clone();
+    let state = app.info_box_opening.as_mut().unwrap();
+    state.width = 1.1;
+    state.dirty = true;
+    assert!(!app.commit_info_box_opening());
+    let error = app.info_box_opening.as_ref().unwrap().error.clone();
+    app.host.document.editor.set_selection(vec![other]);
+    layers_frame_output(&ctx, &mut app, vec![]);
+    let state = app.info_box_opening.as_ref().unwrap();
+    assert_eq!(state.element_id, id);
+    assert_eq!(state.width, 1.1);
+    assert!(state.dirty);
+    assert_eq!(state.error, error);
+    assert_eq!(app.host.document.editor.project, before);
+}
+
+#[test]
+fn general_roof_workspace_uses_triangulated_contour_in_both_languages() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let contour = crate::roof_contour::RoofContour {
+            outer: vec![
+                Point::new(0., 0.),
+                Point::new(6., 0.),
+                Point::new(6., 2.),
+                Point::new(2., 2.),
+                Point::new(2., 6.),
+                Point::new(0., 6.),
+            ],
+            holes: vec![vec![
+                Point::new(0.5, 0.5),
+                Point::new(1.5, 0.5),
+                Point::new(1.5, 1.5),
+                Point::new(0.5, 1.5),
+            ]],
+        };
+        let vertices = contour.triangles().len() * 3;
+        let id = app
+            .host
+            .document
+            .editor
+            .place_roof(crate::roof::RoofSpec {
+                contour: Some(contour),
+                pivot_start: Point::default(),
+                pivot_end: Point::new(6., 0.),
+                rise_left: true,
+                min: Point::default(),
+                max: Point::new(6., 6.),
+                pitch: 30.,
+                thickness: 0.2,
+                pivot_offset: 3.,
+            })
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(out.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Mesh(m) if m.vertices.len()==vertices && m.vertices.iter().all(|v|v.color==Color32::from_rgb(195,225,218)))));
+        for _ in 0..3 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let layout = layers_frame_output(&ctx, &mut app, vec![]);
+        let navigator = text_center(&layout.shapes, language.translate("NAVIGATOR")).unwrap();
+        let mut shapes = vec![];
+        collect_shapes(&layout.shapes, &mut shapes);
+        let background = app.host.document.editor.project.grid_settings.background;
+        let canvas = shapes
+            .iter()
+            .find_map(|shape| match shape {
+                egui::Shape::Rect(r)
+                    if r.rect.height() > 400.
+                        && r.fill
+                            == Color32::from_rgb(background[0], background[1], background[2]) =>
+                {
+                    Some(r.rect)
+                }
+                _ => None,
+            })
+            .expect("plan background");
+        assert!(
+            canvas.right() < navigator.x,
+            "canvas {canvas:?} overlaps navigator {navigator:?}"
+        );
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn fit_frames_elevated_roofs_and_tall_columns_across_aspects_without_model_changes() {
+    let (_ctx, mut app) = setup();
+    app.host.document.editor.project = Project::default();
+    app.host.document.editor.column_section = crate::column::ColumnSection::Rectangular {
+        width: 0.4,
+        depth: 0.4,
+    };
+    app.host.document.editor.column_height = 80.;
+    app.host
+        .document
+        .editor
+        .place_column(Point::new(0., 0.))
+        .unwrap();
+    app.host
+        .document
+        .editor
+        .place_roof(crate::roof::RoofSpec {
+            contour: None,
+            pivot_start: Point::default(),
+            pivot_end: Point::new(6., 0.),
+            rise_left: true,
+            min: Point::default(),
+            max: Point::new(6., 6.),
+            pitch: 30.,
+            thickness: 0.2,
+            pivot_offset: 95.,
+        })
+        .unwrap();
+    let before = app.host.document.editor.project.clone();
+    let rev = app.host.document.editor.revision;
+    let undo = app.host.document.editor.undo.len();
+    for yaw in [-1.05, 0., 2.] {
+        for pitch in [0.3, 0.83, 1.3] {
+            app.camera.yaw = yaw;
+            app.camera.pitch = pitch;
+            app.fit();
+            for aspect in [0.5, 1., 2.] {
+                app.fit_model_contents_for_aspect(aspect);
+                let matrix = app.camera.matrix(aspect);
+                for e in &app.host.document.editor.project.elements {
+                    for point in geometry::corners(&app.host.document.editor.project, e) {
+                        let p = matrix.project_point3(point);
+                        assert!(
+                            p.x.abs() < 1. && p.y.abs() < 1. && p.z > 0. && p.z < 1.,
+                            "{p:?}, {aspect}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, rev);
+    assert_eq!(app.host.document.editor.undo.len(), undo);
+}
+
+#[test]
+fn fit_empty_current_story_still_frames_visible_other_story() {
+    let (_ctx, mut app) = setup();
+    app.host.document.editor.story = 1;
+    app.host.document.editor.column_section = crate::column::ColumnSection::Rectangular {
+        width: 1.,
+        depth: 1.,
+    };
+    app.host.document.editor.column_height = 40.;
+    app.host
+        .document
+        .editor
+        .place_column(Point::new(100., 80.))
+        .unwrap();
+    app.host.document.editor.story = 0;
+    app.all_stories = true;
+    let before = app.host.document.editor.project.clone();
+    let revision = app.host.document.editor.revision;
+    let undo = app.host.document.editor.undo.len();
+    app.fit();
+    assert_eq!(app.plan_center, Point::default());
+    assert!(app.camera.target.is_finite());
+    for aspect in [0.5, 1., 2.] {
+        app.fit_model_contents_for_aspect(aspect);
+        for point in geometry::corners(
+            &app.host.document.editor.project,
+            &app.host.document.editor.project.elements[0],
+        ) {
+            let p = app.camera.matrix(aspect).project_point3(point);
+            assert!(p.x.abs() < 1. && p.y.abs() < 1. && p.z > 0. && p.z < 1.);
+        }
+    }
+    app.all_stories = false;
+    app.fit();
+    assert_eq!(app.camera.target, Camera::default().target);
+    assert_eq!(app.camera.span, Camera::default().span);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, revision);
+    assert_eq!(app.host.document.editor.undo.len(), undo);
+}
+
+#[test]
+fn slab_creation_elevation_control_bilingual_does_not_commit_until_placement() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for rotated in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            app.host.document.editor.set_tool(Tool::Slab);
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            assert!(text_center(&out.shapes, language.translate("Top offset to story")).is_some());
+            if rotated {
+                let pos =
+                    text_center(&out.shapes, language.translate("Rotated Rectangle")).unwrap();
+                layers_click(&ctx, &mut app, pos);
+            }
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            let pos = text_center(&out.shapes, "0.000").unwrap_or_else(|| {
+                let mut texts = Vec::new();
+                collect_text(&out.shapes, &mut texts);
+                panic!("offset text absent: {texts:?}")
+            });
+            layers_click(&ctx, &mut app, pos);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("-0.75".into())],
+            );
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert!((app.host.document.editor.slab_elevation + 0.75).abs() < 1e-5);
+            assert!(app.host.document.editor.project.elements.is_empty());
+            assert!(app.host.document.editor.undo.is_empty());
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            layers_click(&ctx, &mut app, pos2(700., 550.));
+            if rotated {
+                layers_click(&ctx, &mut app, pos2(650., 650.));
+            }
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            assert_eq!(
+                crate::slab_geometry::contour(&app.host.document.editor.project.elements[0])
+                    .elevation,
+                -0.75
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+        }
+    }
+}
+
+#[test]
+fn column_bottom_offset_control_bilingual_places_without_early_commit() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host.document.editor.set_tool(Tool::Column);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("Bottom offset to story")).is_some());
+        let pos = text_center(&out.shapes, "0.000").unwrap();
+        layers_click(&ctx, &mut app, pos);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("-1.25".into())],
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.column_bottom_offset, -1.25);
+        assert!(app.host.document.editor.project.elements.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Column {
+                bottom_offset: -1.25,
+                ..
+            }
+        ));
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+    }
+}
+
+#[test]
+fn column_axis_rotation_control_bilingual_places_rotated_geometry() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host.document.editor.set_tool(Tool::Column);
+        app.host.document.editor.column_section = crate::column::ColumnSection::Rectangular {
+            width: 0.8,
+            depth: 0.4,
+        };
+        app.host.document.editor.column_height = 3.;
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("Axis rotation")).is_some());
+        let pos = text_center(&out.shapes, "0.0").unwrap();
+        layers_click(&ctx, &mut app, pos);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("-30".into())],
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.column_axis_rotation, -30.);
+        assert!(app.host.document.editor.project.elements.is_empty());
+        assert!(app.host.document.editor.undo.is_empty());
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        let e = &app.host.document.editor.project.elements[0];
+        assert!(matches!(
+            e.shape,
+            Shape::Column {
+                axis_rotation: -30.,
+                ..
+            }
+        ));
+        assert_ne!(geometry::footprint(e)[0].y, geometry::footprint(e)[1].y);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+    }
+}
+
+#[test]
+fn circular_column_real_ui_switch_diameter_place_cancel_and_history_bilingual() {
+    use crate::column::ColumnSection;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host.document.editor.column_section = ColumnSection::Rectangular {
+            width: 0.8,
+            depth: 0.4,
+        };
+        app.host.document.editor.column_height = 3.;
+        app.host.document.editor.column_bottom_offset = -0.75;
+        app.host.document.editor.column_axis_rotation = 37.;
+        app.host.document.editor.set_tool(Tool::Column);
+        let original = app.host.document.editor.project.clone();
+        for (name, circular) in [
+            ("Circular", true),
+            ("Rectangular", false),
+            ("Circular", true),
+            ("Circular", true),
+        ] {
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            let pos = text_center(&out.shapes, language.translate(name)).unwrap();
+            layers_click(&ctx, &mut app, pos);
+            assert_eq!(
+                app.host.document.editor.column_section.is_circular(),
+                circular
+            );
+            assert_eq!(app.host.document.editor.project, original);
+            assert!(app.host.document.editor.undo.is_empty());
+            assert_eq!(app.host.document.editor.column_height, 3.);
+            assert_eq!(app.host.document.editor.column_bottom_offset, -0.75);
+            assert_eq!(app.host.document.editor.column_axis_rotation, 37.);
+        }
+        assert_eq!(
+            app.host.document.editor.column_section,
+            ColumnSection::Circular { diameter: 0.4 }
+        );
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("Diameter")).is_some());
+        assert!(text_center(&out.shapes, language.translate("Axis rotation")).is_none());
+        assert_eq!(
+            app.status_text(),
+            language.translate("Column · Click to place a centered column")
+        );
+        let rectangle = text_center(&out.shapes, language.translate("Rectangular")).unwrap();
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(rectangle)]);
+        assert!(app.host.document.editor.column_section.is_circular());
+        let value = text_center(&out.shapes, "0.40").unwrap_or_else(|| {
+            let mut text = Vec::new();
+            collect_text(&out.shapes, &mut text);
+            panic!("Missing diameter value: {text:?}")
+        });
+        layers_click(&ctx, &mut app, value);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("0.6".into())],
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert_eq!(
+            app.host.document.editor.column_section,
+            ColumnSection::Circular { diameter: 0.6 }
+        );
+        assert_eq!(app.host.document.editor.project, original);
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(550., 500.))]);
+        assert!(app.host.document.editor.project.elements.is_empty());
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Column {
+                section: ColumnSection::Circular { diameter: 0.6 },
+                bottom_offset: -0.75,
+                axis_rotation: 37.,
+                ..
+            }
+        ));
+        let placed = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.project, placed);
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+        assert_eq!(app.host.document.editor.project, original);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        );
+        assert_eq!(app.host.document.editor.project, placed);
+    }
+}
+
+#[test]
+fn contour_drag_preview_keeps_separate_outer_and_hole_paths_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for roof in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            let points = vec![
+                Point::new(0., 0.),
+                Point::new(6., 0.),
+                Point::new(6., 2.),
+                Point::new(2., 2.),
+                Point::new(2., 6.),
+                Point::new(0., 6.),
+            ];
+            let hole = vec![
+                Point::new(0.5, 0.5),
+                Point::new(1.5, 0.5),
+                Point::new(1.5, 1.5),
+                Point::new(0.5, 1.5),
+            ];
+            let id = if roof {
+                app.host
+                    .document
+                    .editor
+                    .place_roof(crate::roof::RoofSpec {
+                        contour: Some(crate::roof_contour::RoofContour {
+                            outer: points,
+                            holes: vec![hole],
+                        }),
+                        pivot_start: Point::default(),
+                        pivot_end: Point::new(6., 0.),
+                        rise_left: true,
+                        min: Point::default(),
+                        max: Point::new(6., 6.),
+                        pitch: 30.,
+                        thickness: 0.2,
+                        pivot_offset: 0.,
+                    })
+                    .unwrap()
+            } else {
+                app.host
+                    .document
+                    .editor
+                    .place_slab_contour(crate::model::SlabContour {
+                        points,
+                        holes: vec![crate::model::SlabContour {
+                            points: hole,
+                            ..Default::default()
+                        }],
+                        ..Default::default()
+                    })
+                    .unwrap()
+            };
+            app.host.document.editor.set_selection(vec![id]);
+            let original = app.host.document.editor.project.clone();
+            let history = app.host.document.editor.undo.len();
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
+            app.dispatch_edit("Drag");
+            click(&ctx, &mut app, pos2(400., 300.));
+            let out =
+                plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(500., 300.))]);
+            let mut shapes = vec![];
+            collect_shapes(&out.shapes, &mut shapes);
+            let paths: Vec<_> = shapes
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Path(p)
+                        if p.stroke.width == 2.
+                            && p.stroke.color == egui::epaint::ColorMode::Solid(ACCENT)
+                            && p.points.len() >= 5
+                            && p.points.first() == p.points.last()
+                            && p.points.iter().all(|point| point.x >= 500.) =>
+                    {
+                        Some(&p.points)
+                    }
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                paths.len(),
+                2,
+                "two independent rings, roof={roof}: {paths:?}"
+            );
+            assert!(paths.iter().any(|p| p.len() == 7 && p.first() == p.last()));
+            assert!(paths.iter().any(|p| p.len() == 5 && p.first() == p.last()));
+            assert_eq!(app.host.document.editor.project, original);
+            assert_eq!(app.host.document.editor.undo.len(), history);
+            plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.project, original);
+            app.host.document.editor.set_selection(vec![id]);
+            app.dispatch_edit("Drag");
+            click(&ctx, &mut app, pos2(400., 300.));
+            click(&ctx, &mut app, pos2(500., 300.));
+            assert_ne!(app.host.document.editor.project, original);
+            assert_eq!(app.host.document.editor.undo.len(), history + 1);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, original);
+            app.host.document.editor.redo();
+            let moved = &app.host.document.editor.project.elements[0];
+            let paths = geometry::element_plan_paths(&app.host.document.editor.project, moved);
+            assert_eq!(paths.iter().map(Vec::len).collect::<Vec<_>>(), vec![7, 5]);
+            assert_eq!(paths[0][0].x, 2.);
+            assert_eq!(paths[1][0].x, 2.5);
+        }
+    }
+}
+
+#[test]
+fn slanted_beam_real_ui_parameters_two_clicks_cancel_and_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for angle in [-30., 30.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            app.host.document.editor.set_tool(Tool::Beam);
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            assert!(
+                text_center(
+                    &out.shapes,
+                    language.translate("Horizontal · Top-center axis")
+                )
+                .is_some()
+            );
+            assert!(text_center(&out.shapes, language.translate("Slant angle")).is_some());
+            let pos = text_center(&out.shapes, "0.0").expect("angle input");
+            layers_click(&ctx, &mut app, pos);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![
+                    key(Key::A, Modifiers::COMMAND),
+                    Event::Text(angle.to_string()),
+                ],
+            );
+            let out = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.beam_slant_angle, angle);
+            assert!(
+                text_center(&out.shapes, language.translate("Slanted · Top-center axis")).is_some()
+            );
+            let empty = app.host.document.editor.project.clone();
+            assert!(app.host.document.editor.undo.is_empty());
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 500.))]);
+            assert_eq!(app.host.document.editor.project, empty);
+            assert!(app.host.document.editor.anchor.is_some());
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.project, empty);
+            assert!(app.host.document.editor.undo.is_empty());
+            app.host.document.editor.set_tool(Tool::Beam);
+            layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            layers_click(&ctx, &mut app, pos2(700., 500.));
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            let created = app.host.document.editor.project.clone();
+            let beam = &created.elements[0];
+            assert!(matches!(beam.shape,Shape::Beam { slant_angle,.. } if slant_angle==angle));
+            let c = geometry::corners(&created, beam);
+            assert_eq!((c[5].z - c[4].z).signum(), angle.signum());
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+            assert_eq!(app.host.document.editor.project, empty);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+            );
+            assert_eq!(app.host.document.editor.project, created);
+        }
+    }
+}
+
+#[test]
+fn slab_settings_top_offset_bilingual_draft_apply_preserves_contour_and_history() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let contour = crate::model::SlabContour {
+            points: vec![
+                Point::new(0., 0.),
+                Point::new(6., 0.),
+                Point::new(6., 5.),
+                Point::new(0., 5.),
+            ],
+            holes: vec![crate::model::SlabContour {
+                points: vec![
+                    Point::new(2., 2.),
+                    Point::new(3., 2.),
+                    Point::new(3., 3.),
+                    Point::new(2., 3.),
+                ],
+                ..Default::default()
+            }],
+            elevation: 1.25,
+            ..Default::default()
+        };
+        let id = app
+            .host
+            .document
+            .editor
+            .place_slab_contour(contour)
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        app.show_right = false;
+        app.open_element_settings();
+        let before = app.host.document.editor.project.clone();
+        let undo = app.host.document.editor.undo.len();
+        layers_frame_output(&ctx, &mut app, vec![]);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(&out.shapes, language.translate("Top offset to story")).is_some(),
+            "{:?}",
+            {
+                let mut text = Vec::new();
+                collect_text(&out.shapes, &mut text);
+                text
+            }
+        );
+        let field = text_center(&out.shapes, "1.250").expect("visible property elevation");
+        layers_click(&ctx, &mut app, field);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("-0.75".into())],
+        );
+        let out = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert_eq!(
+            app.host.document.editor.project, before,
+            "editing is still a draft"
+        );
+        assert_eq!(app.host.document.editor.undo.len(), undo);
+        let apply = text_center(&out.shapes, language.translate("Apply")).expect("visible Apply");
+        layers_click(&ctx, &mut app, apply);
+        let mut expected = before.clone();
+        expected.elements[0]
+            .slab_contour
+            .as_mut()
+            .unwrap()
+            .elevation = -0.75;
+        assert_eq!(
+            app.host.document.editor.project, expected,
+            "only elevation changes"
+        );
+        assert_eq!(app.host.document.editor.undo.len(), undo + 1);
+        let roundtrip: Project =
+            serde_json::from_str(&serde_json::to_string(&expected).unwrap()).unwrap();
+        assert_eq!(roundtrip, expected);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, expected);
+    }
+}
+
+#[test]
+fn slab_contour_property_bounds_are_read_only_but_legacy_bounds_remain_editable() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for explicit in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.set_tool(Tool::Slab);
+            app.host.document.editor.click(Point::new(0., 0.), 0.);
+            app.host.document.editor.click(Point::new(6.375, 4.), 0.);
+            if explicit {
+                let e = &mut app.host.document.editor.project.elements[0];
+                e.slab_contour = Some(crate::slab_geometry::contour(e));
+            }
+            app.host
+                .document
+                .editor
+                .set_selection(vec![app.host.document.editor.project.elements[0].id]);
+            app.show_right = false;
+            app.open_element_settings();
+            let before = app.host.document.editor.project.clone();
+            for _ in 0..3 {
+                layers_frame_output(&ctx, &mut app, vec![]);
+            }
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            let field = text_center(&out.shapes, "6.375").unwrap();
+            layers_click(&ctx, &mut app, field);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("7.375".into())],
+            );
+            let out = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.project, before);
+            let draft = app.element_settings.as_ref().unwrap();
+            let Shape::Slab { max, .. } = draft.shape else {
+                panic!()
+            };
+            assert_eq!(max.x, if explicit { 6.375 } else { 7.375 });
+            let apply = text_center(&out.shapes, language.translate("Apply")).unwrap();
+            layers_click(&ctx, &mut app, apply);
+            app.host.document.editor.project.validate().unwrap();
+            if explicit {
+                assert_eq!(app.host.document.editor.project, before);
+            } else {
+                let after = app.host.document.editor.project.clone();
+                assert_ne!(after, before);
+                app.host.document.editor.undo();
+                assert_eq!(app.host.document.editor.project, before);
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, after);
+            }
+        }
+    }
+}
+
+#[test]
+fn idle_legacy_slab_properties_do_not_materialize_a_contour() {
+    let (ctx, mut app) = setup();
+    app.host.document.editor.set_tool(Tool::Slab);
+    app.host.document.editor.click(Point::new(0., 0.), 0.);
+    app.host.document.editor.click(Point::new(4., 3.), 0.);
+    app.host.document.editor.set_tool(Tool::Select);
+    app.host
+        .document
+        .editor
+        .set_selection(vec![app.host.document.editor.project.elements[0].id]);
+    let before = app.host.document.editor.project.clone();
+    layers_frame_output(&ctx, &mut app, vec![]);
+    assert!(app.draft.as_ref().unwrap().slab_contour.is_none());
+    assert_eq!(app.host.document.editor.project, before);
+}
+
+#[test]
+fn curved_beam_active_session_canvas_preview_click_retry_and_cancel() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host.document.editor.set_tool(Tool::Beam);
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
+        // Method entry is still pending; the rest uses real plan events.
+        app.host
+            .document
+            .editor
+            .click_beam_arc(app.hover_point)
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        app.tracker_locked = true; // Stale straight-beam ΔX/ΔY must not override the radius.
+        app.tracker_a = 80.;
+        app.tracker_b = 80.;
+        let center = app.host.document.editor.beam_arc_draft.unwrap().center();
+        let target = Point::new(center.x + 3., center.y);
+        assert_eq!(app.base_target(target, false).0, target);
+        app.tracker_locked = false;
+        click(&ctx, &mut app, pos2(550., 300.));
+        let draft = app.host.document.editor.beam_arc_draft.unwrap();
+        assert!((draft.radius().unwrap() - 3.).abs() < 0.001);
+        assert_eq!(app.host.document.editor.project, before);
+        let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 150.))]);
+        let preview = app.host.document.editor.beam_arc_preview().unwrap();
+        assert!(output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Mesh(mesh) if mesh.vertices.len() > 30 && mesh.vertices.iter().all(|v| v.color == Color32::from_rgba_unmultiplied(39,146,137,50)))));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        // An invalid current center must hide the old mesh and reject the click.
+        let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
+        assert!(!output.shapes.iter().any(|shape| matches!(&shape.shape,
+            egui::Shape::Mesh(mesh) if mesh.vertices.len() > 30 && mesh.vertices.iter().all(|v| v.color == Color32::from_rgba_unmultiplied(39,146,137,50)))));
+        click(&ctx, &mut app, pos2(400., 300.));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.beam_arc_draft.is_some());
+        click(&ctx, &mut app, pos2(400., 150.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(app.host.document.editor.project.elements[0], preview);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert!(app.host.document.editor.beam_arc_draft.is_none());
+        let after = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
+        app.host
+            .document
+            .editor
+            .click_beam_arc(Point::new(20., 20.))
+            .unwrap();
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.host.document.editor.beam_arc_draft.is_none());
+        assert_eq!(app.host.document.editor.project, after);
+    }
+}
+
+#[test]
+fn curved_beam_canvas_continuous_direction_and_large_arc_hollow_preview() {
+    for (angles, clockwise, large) in [
+        (vec![-5_f64, -60., -90.], true, false),
+        (vec![5_f64, 90., 180., 270.], false, true),
+    ] {
+        let (ctx, mut app) = setup();
+        app.host.document.editor.snap = false;
+        app.host.document.editor.set_tool(Tool::Beam);
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos2(400., 300.))]);
+        app.host
+            .document
+            .editor
+            .click_beam_arc(app.hover_point)
+            .unwrap();
+        click(&ctx, &mut app, pos2(550., 300.));
+        let mut end = Pos2::ZERO;
+        for angle in angles {
+            end = pos2(
+                400. + 150. * angle.to_radians().cos(),
+                300. - 150. * angle.to_radians().sin(),
+            );
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
+        }
+        let candidate = app
+            .host
+            .document
+            .editor
+            .beam_arc_draft
+            .unwrap()
+            .candidate()
+            .unwrap();
+        assert_eq!(candidate.arc.clockwise, clockwise);
+        assert_eq!(candidate.arc.large_arc, large);
+        let output = plan_frame_output(&ctx, &mut app, vec![]);
+        let mesh = output
+            .shapes
+            .iter()
+            .find_map(|shape| match &shape.shape {
+                egui::Shape::Mesh(mesh)
+                    if mesh.vertices.len() > 30
+                        && mesh.vertices.iter().all(|v| {
+                            v.color == Color32::from_rgba_unmultiplied(39, 146, 137, 50)
+                        }) =>
+                {
+                    Some(mesh)
+                }
+                _ => None,
+            })
+            .unwrap();
+        for indices in mesh.indices.chunks_exact(3) {
+            let points: Vec<_> = indices
+                .iter()
+                .map(|i| {
+                    let p = mesh.vertices[*i as usize].pos;
+                    Point::new(p.x.into(), p.y.into())
+                })
+                .collect();
+            assert!(
+                !geometry::point_in_polygon(Point::new(400., 300.), &points),
+                "hollow center must not be filled"
+            );
+        }
+        click(&ctx, &mut app, end);
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert!(
+            matches!(app.host.document.editor.project.elements[0].shape, Shape::Beam {arc:Some(arc),..} if arc == candidate.arc)
+        );
+    }
+}
+
+#[test]
+fn curved_beam_method_buttons_preserve_center_and_restart_radius_bilingual() {
+    use crate::beam_creation::BeamGeometryMethod;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host.document.editor.set_tool(Tool::Beam);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let method = text_center(&output.shapes, language.translate("Center and radius")).unwrap();
+        layers_click(&ctx, &mut app, method);
+        assert_eq!(
+            app.host.document.editor.beam_method,
+            BeamGeometryMethod::CenterRadius
+        );
+        let before = app.host.document.editor.project.clone();
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        let center = app.host.document.editor.beam_arc_draft.unwrap().center();
+        layers_click(&ctx, &mut app, pos2(700., 500.));
+        let accepted = app.host.document.editor.beam_arc_draft;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let current = text_center(&output.shapes, language.translate("Center and radius")).unwrap();
+        layers_click(&ctx, &mut app, current);
+        assert_eq!(app.host.document.editor.beam_arc_draft, accepted);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let single = text_center(&output.shapes, language.translate("Single")).unwrap();
+        layers_click(&ctx, &mut app, single);
+        assert!(app.host.document.editor.beam_arc_draft.is_none());
+        assert_eq!(app.host.document.editor.anchor, Some(center));
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let curved = text_center(&output.shapes, language.translate("Center and radius")).unwrap();
+        layers_click(&ctx, &mut app, curved);
+        assert_eq!(
+            app.host.document.editor.beam_arc_draft.unwrap().center(),
+            center
+        );
+        assert!(
+            app.host
+                .document
+                .editor
+                .beam_arc_draft
+                .unwrap()
+                .start()
+                .is_none()
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        layers_click(&ctx, &mut app, pos2(700., 500.));
+        layers_click(&ctx, &mut app, pos2(550., 350.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Beam { arc: Some(_), .. }
+        ));
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn curved_beam_numeric_tracker_actual_fields_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for angle in [-60_f64, 60.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            app.host.document.editor.set_tool(Tool::Beam);
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let method =
+                text_center(&output.shapes, language.translate("Center and radius")).unwrap();
+            layers_click(&ctx, &mut app, method);
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            let center = app.host.document.editor.beam_arc_draft.unwrap().center();
+            layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 500.))]);
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let value = format!("{:.3}", app.tracker_a);
+            let field = text_center(&output.shapes, &value).expect("radius field");
+            layers_click(&ctx, &mut app, field);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("5".into())],
+            );
+            let output = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert_eq!(app.tracker_a, 5.);
+            let next =
+                text_center(&output.shapes, language.translate("Set radius [Enter]")).unwrap();
+            if angle > 0. {
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            } else {
+                layers_click(&ctx, &mut app, next);
+            }
+            assert!(
+                (app.host
+                    .document
+                    .editor
+                    .beam_arc_draft
+                    .unwrap()
+                    .radius()
+                    .unwrap()
+                    - 5.)
+                    .abs()
+                    < 1e-5
+            );
+            assert!(app.host.document.editor.project.elements.is_empty());
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let field = text_center(&output.shapes, "0.00").expect("sweep field");
+            layers_click(&ctx, &mut app, field);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![
+                    key(Key::A, Modifiers::COMMAND),
+                    Event::Text(angle.to_string()),
+                ],
+            );
+            let output = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert_eq!(app.tracker_a, angle);
+            let create = text_center(&output.shapes, language.translate("Create [Enter]")).unwrap();
+            if angle > 0. {
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            } else {
+                layers_click(&ctx, &mut app, create);
+            }
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            let Shape::Beam {
+                start,
+                end,
+                arc: Some(arc),
+                ..
+            } = app.host.document.editor.project.elements[0].shape
+            else {
+                panic!()
+            };
+            assert_eq!(arc.clockwise, angle < 0.);
+            assert!((start.distance(center) - 5.).abs() < 1e-5);
+            assert!((end.distance(center) - 5.).abs() < 1e-5);
+            assert!(
+                (geometry::arc_length(start, end, arc) - 5. * std::f64::consts::PI / 3.).abs()
+                    < 1e-4
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+        }
+    }
+}
+
+#[test]
+fn inclined_column_plan_cut_is_drawn_and_selected_by_canvas_events() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for story in [0, 1] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            let id = app
+                .host
+                .document
+                .editor
+                .place_column_with_inclination(
+                    Point::default(),
+                    crate::column::ColumnSection::Circular { diameter: 0.6 },
+                    6.,
+                    Some(crate::column_inclination::ColumnInclination {
+                        slant_degrees: 30.,
+                        direction_degrees: 0.,
+                    }),
+                )
+                .unwrap();
+            if let Shape::Column { plan, .. } =
+                &mut app.host.document.editor.project.elements[0].shape
+            {
+                plan.display = crate::column_plan::ColumnPlanDisplay::CutOnly;
+            }
+            app.host.document.editor.switch_story(story);
+            app.plan_center = Point::new(0., (1.1 + story as f64 * 3.2) * 3_f64.sqrt());
+            app.host.document.editor.set_selection(vec![]);
+            let project = app.host.document.editor.project.clone();
+            let undo = app.host.document.editor.undo.len();
+            let target = app.screen(
+                Rect::from_min_size(Pos2::ZERO, vec2(800., 600.)),
+                Point::new(0., (1.1 + story as f64 * 3.2) * 3_f64.sqrt()),
+            );
+            let out = plan_frame_output(&ctx, &mut app, vec![]);
+            assert!(out.shapes.iter().any(|s| matches!(&s.shape,egui::Shape::Path(path) if path.closed && path.points.len()>=32 && path.points.iter().any(|p|p.distance(target)<35.))));
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(target)]);
+            for pressed in [true, false] {
+                plan_frame(
+                    &ctx,
+                    &mut app,
+                    vec![Event::PointerButton {
+                        pos: target,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    }],
+                );
+            }
+            assert_eq!(app.host.document.editor.selected, Some(id));
+            assert_eq!(app.host.document.editor.project, project);
+            assert_eq!(app.host.document.editor.undo.len(), undo);
+        }
+    }
+}
+
+#[test]
+fn slanted_column_menu_numeric_preview_and_click_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Column")).unwrap(),
+        );
+        let before = app.host.document.editor.project.clone();
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(
+                &out.shapes,
+                language.translate("Column positioning and display"),
+            )
+            .unwrap(),
+        );
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let slanted = text_center(&out.shapes, language.translate("Slanted column")).unwrap();
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(slanted)]);
+        assert!(!app.host.document.editor.column_slanted);
+        layers_click(&ctx, &mut app, slanted);
+        assert!(app.host.document.editor.column_slanted);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let angle = text_center(&out.shapes, "90°")
+            .or_else(|| text_center(&out.shapes, "90"))
+            .unwrap_or_else(|| {
+                let mut text = Vec::new();
+                collect_text(&out.shapes, &mut text);
+                panic!("angle text {text:?}")
+            });
+        layers_click(&ctx, &mut app, angle);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("60".into())],
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert_eq!(
+            app.host.document.editor.column_inclination.slant_degrees,
+            60.
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        // Close the menu with Escape before using the canvas; cancellation must not create a column.
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        if app.host.document.editor.tool != Tool::Column {
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&out.shapes, language.translate("Column")).unwrap(),
+            );
+        }
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(650., 500.))]);
+        assert_eq!(app.host.document.editor.project, before);
+        layers_click(&ctx, &mut app, pos2(650., 500.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Column {
+                inclination: Some(crate::column_inclination::ColumnInclination {
+                    slant_degrees: 60.,
+                    ..
+                }),
+                ..
+            }
+        ));
+        let created = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+        assert_eq!(app.host.document.editor.project, before);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        );
+        assert_eq!(app.host.document.editor.project, created);
+    }
+}
+
+#[test]
+fn two_click_column_menu_canvas_preview_cancel_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Column")).unwrap(),
+        );
+        let before = app.host.document.editor.project.clone();
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(
+                &out.shapes,
+                language.translate("Column positioning and display"),
+            )
+            .unwrap(),
+        );
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Two-click column")).unwrap(),
+        );
+        assert!(app.host.document.editor.column_two_click);
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        if app.host.document.editor.tool != Tool::Column {
+            app.host.document.editor.set_tool(Tool::Column);
+        }
+        layers_click(&ctx, &mut app, pos2(610., 490.));
+        assert!(app.host.document.editor.anchor.is_some());
+        assert_eq!(app.host.document.editor.project, before);
+        layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 530.))]);
+        assert_eq!(app.host.document.editor.project, before);
+        layers_click(&ctx, &mut app, pos2(700., 530.));
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert!(app.host.document.editor.anchor.is_none());
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Column {
+                inclination: Some(_),
+                ..
+            }
+        ));
+        let created = app.host.document.editor.project.clone();
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Z, Modifiers::COMMAND)]);
+        assert_eq!(app.host.document.editor.project, before);
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::Z, Modifiers::COMMAND | Modifiers::SHIFT)],
+        );
+        assert_eq!(app.host.document.editor.project, created);
+        layers_click(&ctx, &mut app, pos2(610., 490.));
+        assert!(app.host.document.editor.anchor.is_some());
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.host.document.editor.anchor.is_none());
+        assert_eq!(app.host.document.editor.project, created);
+    }
+}
+
+#[test]
+fn column_missing_story_feedback_and_explicit_range_recovery_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.switch_story(2);
+        app.host.document.editor.set_tool(Tool::Column);
+        app.host.document.editor.column_two_click = true;
+        let before = app.host.document.editor.project.clone();
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(
+                &out.shapes,
+                language.translate("Column positioning and display"),
+            )
+            .unwrap(),
+        );
+        let error = language.translate("The floor plan range references a missing story. Choose Entire element or adjust the range.");
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let mut labels = Vec::new();
+        collect_text(&out.shapes, &mut labels);
+        assert!(labels.iter().any(|s| s == error), "{labels:?}");
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Entire element")).unwrap(),
+        );
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let mut labels = Vec::new();
+        collect_text(&out.shapes, &mut labels);
+        assert!(!labels.iter().any(|s| s == error));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert!(app.host.document.editor.anchor.is_none());
+        assert!(
+            app.host
+                .document
+                .editor
+                .column_axis_preview(Point::new(0., 0.), Point::new(3., 4.))
+                .is_ok()
+        );
+    }
+}
+
+#[test]
+fn column_properties_inclination_numeric_apply_invalid_recovery_bilingual() {
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let events = discrete_key_events(ctx, events);
+        let mut output = ctx.run_ui(
+            egui::RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900., 1400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.properties(ui),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+        frame(
+            ctx,
+            app,
+            vec![
+                Event::PointerMoved(pos),
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        frame(
+            ctx,
+            app,
+            vec![Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed: false,
+                modifiers: Modifiers::NONE,
+            }],
+        );
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.column_slanted = true;
+        app.host.document.editor.column_inclination.slant_degrees = 60.;
+        let id = app
+            .host
+            .document
+            .editor
+            .place_column(Point::new(2., 3.))
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        for (input, valid) in [("0", false), ("45", true)] {
+            let out = frame(&ctx, &mut app, vec![]);
+            let old = if input == "0" { "60.0" } else { "0.0" };
+            // Choose the number aligned with the inclination label, not another zero field.
+            let label = text_center(&out.shapes, language.translate("Column inclination")).unwrap();
+            let mut texts = Vec::new();
+            fn positions(shapes: &[egui::epaint::ClippedShape], value: &str, out: &mut Vec<Pos2>) {
+                for shape in shapes {
+                    if let egui::Shape::Text(t) = &shape.shape {
+                        if t.galley.text() == value {
+                            out.push(t.pos + t.galley.size() * 0.5);
+                        }
+                    }
+                }
+            }
+            positions(&out.shapes, old, &mut texts);
+            let pos = *texts
+                .iter()
+                .min_by(|a, b| (a.y - label.y).abs().total_cmp(&(b.y - label.y).abs()))
+                .unwrap();
+            press(&ctx, &mut app, pos);
+            frame(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text(input.into())],
+            );
+            frame(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.project, before);
+            let out = frame(&ctx, &mut app, vec![]);
+            press(
+                &ctx,
+                &mut app,
+                text_center(&out.shapes, language.translate("Apply changes")).unwrap(),
+            );
+            if !valid {
+                assert_eq!(app.host.document.editor.project, before);
+                assert_eq!(app.host.document.editor.undo.len(), history);
+            }
+        }
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Column {
+                inclination: Some(crate::column_inclination::ColumnInclination {
+                    slant_degrees: 45.,
+                    ..
+                }),
+                ..
+            }
+        ));
+        assert_eq!(app.host.document.editor.undo.len(), history + 1);
+        let updated = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, updated);
+    }
+}
+
+#[test]
+fn floor_cut_document_dialog_numeric_cancel_apply_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let before = app.host.document.editor.project.clone();
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Document")).unwrap(),
+        );
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Floor Plan Cut Plane…")).unwrap(),
+        );
+        assert_eq!(app.plan_option_dialog, Some(PlanOptionKind::FloorPlanCut));
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(&ctx, &mut app, text_center(&out.shapes, "1.100").unwrap());
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("2.2".into())],
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert!((app.plan_dialog_options.floor_plan_cut.height - 2.2).abs() < 1e-5);
+        assert_eq!(app.host.document.editor.project, before);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Cancel")).unwrap(),
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.plan_option_dialog.is_none());
+        app.open_plan_option_dialog(PlanOptionKind::FloorPlanCut);
+        assert_eq!(app.plan_dialog_options, before.plan_options);
+        // Re-enter the real numeric field, then commit through the actual OK button.
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(&ctx, &mut app, text_center(&out.shapes, "1.100").unwrap());
+        layers_frame_output(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("2.2".into())],
+        );
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("OK")).unwrap(),
+        );
+        assert!(app.plan_option_dialog.is_none());
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let updated = app.host.document.editor.project.clone();
+        assert!((updated.plan_options.floor_plan_cut.height - 2.2).abs() < 1e-5);
+        assert_eq!(updated.elements, before.elements);
+        let loaded: Project =
+            serde_json::from_str(&serde_json::to_string(&updated).unwrap()).unwrap();
+        loaded.validate().unwrap();
+        assert_eq!(loaded, updated);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, updated);
+    }
+}
+
+#[test]
+fn inclined_column_fit_uses_current_cut_and_selection_frames_full_solid() {
+    let (_ctx, mut app) = setup();
+    app.host.document.editor.column_slanted = true;
+    app.host.document.editor.column_height = 6.;
+    app.host.document.editor.column_inclination.slant_degrees = 20.;
+    app.host
+        .document
+        .editor
+        .column_inclination
+        .direction_degrees = -60.;
+    app.host.document.editor.column_plan.display = crate::column_plan::ColumnPlanDisplay::CutOnly;
+    let id = app
+        .host
+        .document
+        .editor
+        .place_column(Point::new(2., 3.))
+        .unwrap();
+    app.host.document.editor.switch_story(1);
+    let before = app.host.document.editor.project.clone();
+    let undo = app.host.document.editor.undo.len();
+    let outline = geometry::element_plan_outline_on_story(&before, &before.elements[0], 1);
+    let lo = outline
+        .iter()
+        .fold(Point::new(f64::INFINITY, f64::INFINITY), |a, p| {
+            Point::new(a.x.min(p.x), a.y.min(p.y))
+        });
+    let hi = outline
+        .iter()
+        .fold(Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY), |a, p| {
+            Point::new(a.x.max(p.x), a.y.max(p.y))
+        });
+    app.fit();
+    assert!(
+        app.plan_center
+            .distance(Point::new((lo.x + hi.x) / 2., (lo.y + hi.y) / 2.))
+            < 1e-5
+    );
+    app.host.document.editor.set_selection(vec![id]);
+    for yaw in [-1.05, 0., 2.] {
+        for pitch in [0.3, 0.83, 1.3] {
+            app.camera.yaw = yaw;
+            app.camera.pitch = pitch;
+            app.fit_selection();
+            for aspect in [0.5, 1., 2.] {
+                let matrix = app.camera.matrix(aspect);
+                for point in geometry::corners(&before, &before.elements[0]) {
+                    let p = matrix.project_point3(point);
+                    assert!(
+                        p.x.abs() < 1. && p.y.abs() < 1. && p.z > 0. && p.z < 1.,
+                        "{p:?}"
+                    );
+                }
+            }
+        }
+    }
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), undo);
+    assert_eq!(app.host.document.editor.selected, Some(id));
+}
+
+#[test]
+fn column_trace_cross_story_transform_cut_fill_and_visibility_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.column_slanted = true;
+        app.host.document.editor.column_height = 6.;
+        app.host.document.editor.column_inclination.slant_degrees = 60.;
+        app.host.document.editor.column_section =
+            crate::column::ColumnSection::Circular { diameter: 0.6 };
+        app.host.document.editor.column_plan.display =
+            crate::column_plan::ColumnPlanDisplay::ProjectedWithOverhead;
+        app.host
+            .document
+            .editor
+            .place_column(Point::default())
+            .unwrap();
+        app.trace.enabled = true;
+        app.trace.reference = TraceReference::Story(1);
+        app.trace.offset = Point::new(0.7, -0.3);
+        app.trace.rotation_deg = 30.;
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let element = &before.elements[0];
+        let plan = crate::column_plan::for_element(&before, element, 1)
+            .unwrap()
+            .unwrap();
+        let pivot = app.trace_reference_pivot(TraceSelection::Story(1), &[element]);
+        let expected: Vec<_> = plan
+            .cut
+            .iter()
+            .map(|p| app.screen(rect, app.trace.transform(*p, pivot)))
+            .collect();
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(rect),
+                ..Default::default()
+            },
+            |ui| {
+                app.paint_trace_reference(ui.painter(), rect, None);
+            },
+        );
+        output.textures_delta.clear();
+        assert!(
+            output
+                .shapes
+                .iter()
+                .any(|shape| matches!(&shape.shape, egui::Shape::Path(path)
+            if path.closed && path.fill != Color32::TRANSPARENT && path.points == expected))
+        );
+        assert!(
+            output
+                .shapes
+                .iter()
+                .any(|shape| matches!(&shape.shape, egui::Shape::LineSegment { .. }))
+        );
+        app.trace.visibility.columns = false;
+        let mut hidden = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(rect),
+                ..Default::default()
+            },
+            |ui| {
+                app.paint_trace_reference(ui.painter(), rect, None);
+            },
+        );
+        hidden.textures_delta.clear();
+        assert!(!hidden.shapes.iter().any(|shape| matches!(
+            &shape.shape,
+            egui::Shape::Path(_) | egui::Shape::LineSegment { .. }
+        )));
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn column_reference_snap_real_canvas_creation_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.column_slanted = true;
+        app.host.document.editor.column_height = 6.;
+        app.host.document.editor.column_inclination.slant_degrees = 60.;
+        app.host.document.editor.column_section =
+            crate::column::ColumnSection::Circular { diameter: 0.6 };
+        app.host.document.editor.column_plan.display =
+            crate::column_plan::ColumnPlanDisplay::CutOnly;
+        app.host
+            .document
+            .editor
+            .place_column(Point::default())
+            .unwrap();
+        app.host.document.editor.switch_story(1);
+        let reference = crate::column_plan::reference_points(
+            &app.host.document.editor.project,
+            &app.host.document.editor.project.elements[0],
+            1,
+        )[0];
+        app.plan_center = reference;
+        app.host.document.editor.column_slanted = false;
+        app.host.document.editor.set_tool(Tool::Column);
+        app.host.document.editor.snap = true;
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let pos = app.screen(rect, Point::new(reference.x + 0.02, reference.y + 0.02));
+        let output = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
+        assert!(text_center(&output.shapes, language.translate("SnapPoint")).is_some());
+        assert_eq!(app.host.document.editor.project, before);
+        for pressed in [true, false] {
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+        }
+        assert_eq!(app.host.document.editor.project.elements.len(), 2);
+        let Shape::Column { center, .. } = app.host.document.editor.project.elements[1].shape
+        else {
+            panic!()
+        };
+        assert!(center.distance(reference) < 1e-5);
+        assert_eq!(app.host.document.editor.project.elements[1].story, 1);
+        assert_eq!(app.host.document.editor.undo.len(), history + 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn column_properties_checkbox_and_direction_accessible_events_bilingual() {
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let events = discrete_key_events(ctx, events);
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(500., 1200.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.properties(ui),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+        frame(ctx, app, vec![Event::PointerMoved(pos)]);
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed,
+                    modifiers: Modifiers::NONE,
+                }],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.enable_accesskit();
+        app.language = language;
+        let id = app
+            .host
+            .document
+            .editor
+            .place_column(Point::new(2., 3.))
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
+        let out = frame(&ctx, &mut app, vec![]);
+        let update = out.platform_output.accesskit_update.unwrap();
+        let checkbox = update
+            .nodes
+            .iter()
+            .find(|(_, node)| format!("{:?}", node.role()) == "CheckBox")
+            .unwrap()
+            .1
+            .bounds()
+            .unwrap();
+        let checkbox = pos2(
+            ((checkbox.x0 + checkbox.x1) / 2.) as f64,
+            ((checkbox.y0 + checkbox.y1) / 2.) as f64,
+        );
+        press(&ctx, &mut app, checkbox);
+        let out = frame(&ctx, &mut app, vec![]);
+        let label = text_center(&out.shapes, language.translate("Column direction")).unwrap();
+        let mut positions = Vec::new();
+        for shape in &out.shapes {
+            if let egui::Shape::Text(t) = &shape.shape
+                && t.galley.text() == "0.0"
+            {
+                positions.push(t.pos + t.galley.size() * 0.5);
+            }
+        }
+        let number = *positions
+            .iter()
+            .min_by(|a, b| (a.y - label.y).abs().total_cmp(&(b.y - label.y).abs()))
+            .unwrap();
+        press(&ctx, &mut app, number);
+        frame(
+            &ctx,
+            &mut app,
+            vec![key(Key::A, Modifiers::COMMAND), Event::Text("-30".into())],
+        );
+        frame(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.project, before);
+        let out = frame(&ctx, &mut app, vec![]);
+        press(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Apply changes")).unwrap(),
+        );
+        assert!(matches!(
+            app.host.document.editor.project.elements[0].shape,
+            Shape::Column {
+                inclination: Some(crate::column_inclination::ColumnInclination {
+                    slant_degrees: 90.,
+                    direction_degrees: -30.
+                }),
+                ..
+            }
+        ));
+        frame(&ctx, &mut app, vec![]);
+        press(&ctx, &mut app, checkbox);
+        let out = frame(&ctx, &mut app, vec![]);
+        press(
+            &ctx,
+            &mut app,
+            text_center(&out.shapes, language.translate("Apply changes")).unwrap(),
+        );
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn inclined_column_upper_story_drag_preview_matches_committed_cut_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for circular in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            app.host.document.editor.column_plan.display =
+                crate::column_plan::ColumnPlanDisplay::CutOnly;
+            let section = if circular {
+                crate::column::ColumnSection::Circular { diameter: 0.6 }
+            } else {
+                crate::column::ColumnSection::Rectangular {
+                    width: 0.4,
+                    depth: 0.6,
+                }
+            };
+            let id = app
+                .host
+                .document
+                .editor
+                .place_column_with_inclination(
+                    Point::default(),
+                    section,
+                    6.,
+                    Some(crate::column_inclination::ColumnInclination {
+                        slant_degrees: 60.,
+                        direction_degrees: 0.,
+                    }),
+                )
+                .unwrap();
+            app.host.document.editor.switch_story(1);
+            app.host.document.editor.set_selection(vec![id]);
+            app.plan_center = Point::new(0., 4.3 / 3_f64.sqrt());
+            let before = app.host.document.editor.project.clone();
+            let history = app.host.document.editor.undo.len();
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            let from = pos2(400., 300.);
+            let to = pos2(500., 300.);
+            let a = app.world(rect, from);
+            let b = app.world(rect, to);
+            let offset = Point::new(b.x - a.x, b.y - a.y);
+            let mut expected = before.clone();
+            if let Shape::Column { center, .. } = &mut expected.elements[0].shape {
+                center.x += offset.x;
+                center.y += offset.y;
+            }
+            let cut = crate::column_plan::for_element(&expected, &expected.elements[0], 1)
+                .unwrap()
+                .unwrap();
+            let points: Vec<_> = cut.cut.iter().map(|p| app.screen(rect, *p)).collect();
+            assert!(!points.is_empty());
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(from)]);
+            app.dispatch_edit("Drag");
+            click(&ctx, &mut app, from);
+            let out = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(to)]);
+            let mut shapes = vec![];
+            collect_shapes(&out.shapes, &mut shapes);
+            assert!(
+                shapes.iter().any(|s| matches!(s, egui::Shape::Path(path)
+                if path.closed && path.fill == Color32::TRANSPARENT
+                    && path.stroke.width == 2.
+                    && path.stroke.color == egui::epaint::ColorMode::Solid(ACCENT)
+                    && path.points == points)),
+                "current-story cut preview missing: circular={circular}"
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.undo.len(), history);
+            click(&ctx, &mut app, to);
+            assert_eq!(app.host.document.editor.project, expected);
+            assert_eq!(app.host.document.editor.undo.len(), history + 1);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.set_selection(vec![id]);
+            app.dispatch_edit("Drag");
+            click(&ctx, &mut app, from);
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(to)]);
+            plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.redo.len(), 1);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, expected);
+        }
+    }
+}
+
+#[test]
+fn unfocused_workspace_does_not_delete_selected_elements_or_consume_real_redo() {
+    for delete in [Key::Delete, Key::Backspace] {
+        let (ctx, mut app) = setup();
+        let id = app
+            .host
+            .document
+            .editor
+            .place_column(Point::default())
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        app.host.document.editor.move_selection(Point::new(1., 0.));
+        let redo_target = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+            app.host.document.editor.revision,
+        );
+        layers_frame_output(&ctx, &mut app, vec![]);
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 900.))),
+                focused: false,
+                events: vec![Event::WindowFocused(false), key(delete, Modifiers::NONE)],
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        out.textures_delta.clear();
+        assert_eq!(
+            app.host.document.editor.project, before,
+            "unfocused {delete:?}"
+        );
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len(),
+                app.host.document.editor.revision
+            ),
+            history
+        );
+        layers_frame_output(&ctx, &mut app, vec![Event::WindowFocused(true)]);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, redo_target);
+        // History replay deliberately clears selection; select the delete target again.
+        app.host.document.editor.set_selection(vec![id]);
+        layers_frame_output(&ctx, &mut app, vec![key(delete, Modifiers::NONE)]);
+        assert!(
+            app.host.document.editor.project.elements.is_empty(),
+            "new focused delete must work"
+        );
+    }
+}
+
+#[test]
+fn roof_trace_preserves_concavity_holes_transform_and_visibility_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let contour = crate::roof_contour::RoofContour {
+            outer: [(0., 0.), (6., 0.), (6., 2.), (2., 2.), (2., 6.), (0., 6.)]
+                .map(|(x, y)| Point::new(x, y))
+                .to_vec(),
+            holes: vec![
+                [(0.5, 0.5), (1.5, 0.5), (1.5, 1.5), (0.5, 1.5)]
+                    .map(|(x, y)| Point::new(x, y))
+                    .to_vec(),
+            ],
+        };
+        let (min, max) = contour.bounds().unwrap();
+        app.host
+            .document
+            .editor
+            .place_roof(crate::roof::RoofSpec {
+                contour: Some(contour.clone()),
+                min,
+                max,
+                pivot_start: Point::default(),
+                pivot_end: Point::new(6., 0.),
+                rise_left: true,
+                pitch: 30.,
+                thickness: 0.2,
+                pivot_offset: 3.,
+            })
+            .unwrap();
+        app.trace.enabled = true;
+        app.trace.reference = TraceReference::Story(0);
+        app.trace.offset = Point::new(0.7, -0.3);
+        app.trace.rotation_deg = 30.;
+        let before = app.host.document.editor.project.clone();
+        let selected = app.host.document.editor.selected;
+        let revision = app.host.document.editor.revision;
+        let history = app.host.document.editor.undo.len();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let pivot = app.trace_reference_pivot(TraceSelection::Story(0), &[&before.elements[0]]);
+        let expected_edges: Vec<_> = contour
+            .rings()
+            .into_iter()
+            .flat_map(|ring| {
+                (0..ring.len())
+                    .map(|i| {
+                        [
+                            app.screen(rect, app.trace.transform(ring[i], pivot)),
+                            app.screen(
+                                rect,
+                                app.trace.transform(ring[(i + 1) % ring.len()], pivot),
+                            ),
+                        ]
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .collect();
+        for transparent in [false, true] {
+            app.trace.transparent_fills = transparent;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(rect),
+                    ..Default::default()
+                },
+                |ui| {
+                    app.paint_trace_reference(ui.painter(), rect, None);
+                },
+            );
+            output.textures_delta.clear();
+            let edges: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::LineSegment { points, .. } => Some(*points),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(edges, expected_edges);
+            let meshes: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|s| match &s.shape {
+                    egui::Shape::Mesh(mesh) => Some(mesh),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(meshes.len(), 1);
+            let mesh = meshes[0];
+            let mut area = 0.;
+            for tri in mesh.indices.chunks_exact(3) {
+                let [a, b, c] = [tri[0], tri[1], tri[2]].map(|i| mesh.vertices[i as usize].pos);
+                area += ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs() * 0.5;
+                // All triangle centroids must remain in the actual transformed roof,
+                // rather than a bounding rectangle or a filled hole.
+                let center = (a.to_vec2() + b.to_vec2() + c.to_vec2()) / 3.;
+                let world = app.world(rect, center.to_pos2());
+                let shifted = Point::new(
+                    world.x - app.trace.offset.x - pivot.x,
+                    world.y - app.trace.offset.y - pivot.y,
+                );
+                let angle = (-app.trace.rotation_deg).to_radians();
+                let local = Point::new(
+                    pivot.x + shifted.x * angle.cos() - shifted.y * angle.sin(),
+                    pivot.y + shifted.x * angle.sin() + shifted.y * angle.cos(),
+                );
+                assert!(contour.contains(local));
+            }
+            assert!((f64::from(area) / app.plan_scale.powi(2) - 19.).abs() < 1e-4);
+            assert!(
+                mesh.vertices
+                    .iter()
+                    .all(|v| (v.color.a() == 0) == transparent)
+            );
+        }
+        app.trace.visibility.roofs = false;
+        let mut hidden = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(rect),
+                ..Default::default()
+            },
+            |ui| {
+                app.paint_trace_reference(ui.painter(), rect, None);
+            },
+        );
+        hidden.textures_delta.clear();
+        assert!(!hidden.shapes.iter().any(|s| matches!(
+            s.shape,
+            egui::Shape::Mesh(_) | egui::Shape::LineSegment { .. }
+        )));
+        assert_eq!(
+            app.language.translate("Roofs"),
+            if language == UiLanguage::English {
+                "Roofs"
+            } else {
+                "屋顶"
+            }
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.selected, selected);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn roof_beam_trace_palette_checkbox_events_bilingual_preserve_model_and_history() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        fn trace_frame(
+            ctx: &Context,
+            app: &mut AtelierApp,
+            events: Vec<Event>,
+        ) -> egui::FullOutput {
+            let time = ctx.input(|i| i.time) + 1. / 60.;
+            let mut out = ctx.run_ui(
+                RawInput {
+                    time: Some(time),
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 900.))),
+                    events,
+                    ..Default::default()
+                },
+                |ui| app.workspace(ui),
+            );
+            out.textures_delta.clear();
+            out
+        }
+        fn trace_click(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+            trace_frame(ctx, app, vec![Event::PointerMoved(pos)]);
+            for pressed in [true, false] {
+                trace_frame(
+                    ctx,
+                    app,
+                    vec![Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    }],
+                );
+            }
+        }
+        let (ctx, mut app) = setup();
+        app.language = language;
+        ctx.global_style_mut(|style| style.animation_time = 0.);
+        app.choose_trace_reference(crate::trace::TraceReference::Story(1));
+        app.trace.palette_open = true;
+        let mut before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let history = app.host.document.editor.undo.len();
+        for _ in 0..3 {
+            trace_frame(&ctx, &mut app, vec![]);
+        }
+        fn visible_text(out: &egui::FullOutput, area: Rect, label: &str) -> Option<Pos2> {
+            fn find(shape: &egui::Shape, clip: Rect, area: Rect, label: &str) -> Option<Pos2> {
+                match shape {
+                    egui::Shape::Text(t) if t.galley.text() == label => {
+                        let p = t.pos + t.galley.size() / 2.;
+                        (clip.contains(p) && area.contains(p)).then_some(p)
+                    }
+                    egui::Shape::Vec(v) => v.iter().find_map(|s| find(s, clip, area, label)),
+                    _ => None,
+                }
+            }
+            out.shapes
+                .iter()
+                .rev()
+                .find_map(|s| find(&s.shape, s.clip_rect, area, label))
+        }
+        let mut header = None;
+        for _ in 0..10 {
+            for _ in 0..15 {
+                trace_frame(&ctx, &mut app, vec![]);
+            }
+            let out = trace_frame(&ctx, &mut app, vec![]);
+            let area = ctx
+                .memory(|m| m.area_rect(Id::new("trace_palette")))
+                .unwrap();
+            header = visible_text(&out, area, language.translate("Visible Elements"));
+            if header.is_some() {
+                break;
+            }
+            trace_frame(
+                &ctx,
+                &mut app,
+                vec![Event::PointerMoved(pos2(
+                    area.left() + 16.,
+                    area.center().y,
+                ))],
+            );
+            trace_frame(
+                &ctx,
+                &mut app,
+                vec![Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0., -90.),
+                    modifiers: Modifiers::NONE,
+                    phase: egui::TouchPhase::End,
+                }],
+            );
+        }
+        let header = header.expect("Trace type popup reachable by scrolling");
+        trace_click(&ctx, &mut app, header);
+        for _ in 0..3 {
+            trace_frame(&ctx, &mut app, vec![]);
+        }
+        for label in ["Roofs", "Beams"] {
+            for expected in [false, true] {
+                let mut roofs = None;
+                for _ in 0..6 {
+                    for _ in 0..15 {
+                        trace_frame(&ctx, &mut app, vec![]);
+                    }
+                    let out = trace_frame(&ctx, &mut app, vec![]);
+                    let area = ctx
+                        .memory(|m| m.area_rect(Id::new("trace_palette")))
+                        .unwrap();
+                    roofs = visible_text(&out, area, language.translate(label));
+                    if roofs.is_some() {
+                        break;
+                    }
+                    trace_frame(
+                        &ctx,
+                        &mut app,
+                        vec![Event::PointerMoved(pos2(
+                            area.left() + 16.,
+                            area.center().y,
+                        ))],
+                    );
+                    trace_frame(
+                        &ctx,
+                        &mut app,
+                        vec![Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            delta: vec2(0., -80.),
+                            modifiers: Modifiers::NONE,
+                            phase: egui::TouchPhase::End,
+                        }],
+                    );
+                }
+                let roofs = roofs.unwrap_or_else(|| {
+                    let out = trace_frame(&ctx, &mut app, vec![]);
+                    let mut shapes = vec![];
+                    collect_shapes(&out.shapes, &mut shapes);
+                    let labels = shapes
+                        .iter()
+                        .filter_map(|s| match s {
+                            egui::Shape::Text(t) => Some((t.galley.text().to_owned(), t.pos)),
+                            _ => None,
+                        })
+                        .collect::<Vec<_>>();
+                    panic!("Trace checkbox {label} unreachable: {labels:?}");
+                });
+                trace_click(&ctx, &mut app, roofs);
+                assert_eq!(
+                    if label == "Roofs" {
+                        app.trace.visibility.roofs
+                    } else {
+                        app.trace.visibility.beams
+                    },
+                    expected,
+                    "{language:?} {label} at {roofs:?}"
+                );
+                assert!(app.trace.visibility.columns && app.trace.visibility.slabs);
+            }
+        }
+        before.trace = app.host.document.editor.project.trace.clone();
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.revision > revision);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn beam_trace_real_straight_slanted_and_large_arc_geometry_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for mode in 0..5 {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let radius = if mode == 4 { 0.02 } else { 4. };
+            if mode == 4 {
+                app.host.document.editor.beam_size = [0.01, 0.01, 3.];
+                app.plan_scale = 6000.;
+            }
+            let start = Point::new(radius, 0.);
+            let end = Point::new(0., radius);
+            let empty_center = if mode >= 2 {
+                let arc = crate::model::ArcSegment {
+                    radius,
+                    clockwise: mode == 3,
+                    large_arc: true,
+                };
+                app.host
+                    .document
+                    .editor
+                    .place_curved_beam(start, end, arc)
+                    .unwrap();
+                Some(geometry::arc_center_sweep(start, end, arc).unwrap().0)
+            } else {
+                app.host
+                    .document
+                    .editor
+                    .place_slanted_beam(start, end, if mode == 1 { 30. } else { 0. })
+                    .unwrap();
+                None
+            };
+            app.trace.enabled = true;
+            app.trace.reference = TraceReference::Story(0);
+            app.trace.rotation_deg = -25.;
+            app.trace.offset = if mode == 4 {
+                Point::default()
+            } else {
+                Point::new(0.7, -0.2)
+            };
+            let before = app.host.document.editor.project.clone();
+            let selected = app.host.document.editor.selected;
+            let revision = app.host.document.editor.revision;
+            let history = app.host.document.editor.undo.len();
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            let element = &before.elements[0];
+            let pivot = app.trace_reference_pivot(TraceSelection::Story(0), &[element]);
+            let outline = geometry::element_plan_outline(&before, element);
+            let expected: Vec<_> = outline
+                .iter()
+                .map(|p| app.screen(rect, app.trace.transform(*p, pivot)))
+                .collect();
+            let area = (0..expected.len())
+                .map(|i| {
+                    let a = expected[i];
+                    let b = expected[(i + 1) % expected.len()];
+                    a.x as f64 * b.y as f64 - a.y as f64 * b.x as f64
+                })
+                .sum::<f64>()
+                .abs()
+                / 2.;
+            for transparent in [false, true] {
+                app.trace.transparent_fills = transparent;
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(rect),
+                        ..Default::default()
+                    },
+                    |ui| {
+                        app.paint_trace_reference(ui.painter(), rect, None);
+                    },
+                );
+                output.textures_delta.clear();
+                assert!(output.shapes.iter().any(|s| matches!(&s.shape, egui::Shape::Path(path) if path.closed && path.points == expected)));
+                let mesh = output
+                    .shapes
+                    .iter()
+                    .find_map(|s| match &s.shape {
+                        egui::Shape::Mesh(mesh) => Some(mesh),
+                        _ => None,
+                    })
+                    .unwrap();
+                let mut actual_area = 0.;
+                for t in mesh.indices.chunks_exact(3) {
+                    let [a, b, c] = [t[0], t[1], t[2]].map(|i| mesh.vertices[i as usize].pos);
+                    actual_area += ((b.x - a.x) as f64 * (c.y - a.y) as f64
+                        - (b.y - a.y) as f64 * (c.x - a.x) as f64)
+                        .abs()
+                        / 2.;
+                    if let Some(center) = empty_center {
+                        let p = app.screen(rect, app.trace.transform(center, pivot));
+                        assert!(!geometry::point_in_polygon(
+                            Point::new(p.x.into(), p.y.into()),
+                            &[a, b, c].map(|q| Point::new(q.x.into(), q.y.into()))
+                        ));
+                    }
+                }
+                assert!((actual_area - area).abs() < 0.02, "{actual_area} vs {area}");
+                assert!(
+                    mesh.vertices
+                        .iter()
+                        .all(|v| (v.color.a() == 0) == transparent)
+                );
+            }
+            app.trace.visibility.beams = false;
+            let mut hidden = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(rect),
+                    ..Default::default()
+                },
+                |ui| app.paint_trace_reference(ui.painter(), rect, None),
+            );
+            hidden.textures_delta.clear();
+            assert!(
+                !hidden
+                    .shapes
+                    .iter()
+                    .any(|s| matches!(&s.shape, egui::Shape::Mesh(_) | egui::Shape::Path(_)))
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.selected, selected);
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert_eq!(app.host.document.editor.undo.len(), history);
+        }
+    }
+}
+
+#[test]
+fn roof_polygon_internal_session_plan_events_concave_preview_escape_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.plan_scale = 30.;
+        app.host.document.editor.set_tool(Tool::Roof);
+        for p in [Point::new(-2., 0.), Point::new(8., 0.), Point::new(0., 2.)] {
+            app.host.document.editor.click(p, 0.01);
+        }
+        app.host.document.editor.begin_roof_polygon().unwrap();
+        let before = app.host.document.editor.project.clone();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        for p in [
+            Point::new(0., 0.),
+            Point::new(6., 0.),
+            Point::new(6., 2.),
+            Point::new(2., 2.),
+            Point::new(2., 6.),
+        ] {
+            let pos = app.screen(rect, p);
+            click(&ctx, &mut app, pos);
+        }
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .roof_polygon_draft()
+                .unwrap()
+                .points()
+                .len(),
+            5
+        );
+        let frozen = app
+            .host
+            .document
+            .editor
+            .roof_polygon_draft()
+            .unwrap()
+            .clone();
+        let point = app.screen(rect, Point::new(0., 6.));
+        let out = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(point)]);
+        let fill = Color32::from_rgba_unmultiplied(39, 146, 137, 50);
+        let mesh = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Mesh(mesh)
+                    if !mesh.vertices.is_empty()
+                        && mesh.vertices.iter().all(|v| v.color == fill) =>
+                {
+                    Some(mesh)
+                }
+                _ => None,
+            })
+            .expect("actual roof candidate triangles");
+        let area: f64 = mesh
+            .indices
+            .chunks_exact(3)
+            .map(|t| {
+                let [a, b, c] = [t[0], t[1], t[2]].map(|i| mesh.vertices[i as usize].pos);
+                ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs() / 2.
+            })
+            .map(f64::from)
+            .sum();
+        assert!((f64::from(area) / app.plan_scale.powi(2) - 20.).abs() < 1e-4);
+        assert_eq!(app.host.document.editor.roof_polygon_draft(), Some(&frozen));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(
+            app.host.document.editor.roof_polygon_draft().is_none()
+                && app.host.document.editor.roof_draft.is_none()
+                && app.host.document.editor.anchor.is_none()
+        );
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn stair_shared_candidate_preview_invalid_correction_and_commit_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        app.host.document.editor.set_tool(Tool::Stair);
+        click(&ctx, &mut app, pos2(400., 300.));
+        let before = app.host.document.editor.project.clone();
+        let fill = Color32::from_rgba_unmultiplied(39, 146, 137, 50);
+        app.host.document.editor.stair_spec.width = 0.;
+        let out = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(640., 300.))]);
+        assert!(!out.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Mesh(m) if !m.vertices.is_empty() && m.vertices.iter().all(|v|v.color==fill))));
+        click(&ctx, &mut app, pos2(640., 300.));
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.anchor.is_some());
+        assert!(app.host.document.editor.undo.is_empty());
+        app.host.document.editor.stair_spec.width = 1.25;
+        let mut spec = app.host.document.editor.stair_spec.clone();
+        spec.start = Point::default();
+        spec.end = Point::new(4.8, 0.);
+        let candidate = app
+            .host
+            .document
+            .editor
+            .stair_creation_candidate(spec)
+            .unwrap();
+        let out = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(640., 300.))]);
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let expected: Vec<_> = geometry::footprint(&candidate)
+            .into_iter()
+            .map(|p| app.screen(rect, p))
+            .collect();
+        assert!(
+            out.shapes
+                .iter()
+                .any(|s| matches!(&s.shape,egui::Shape::Path(p) if p.closed && p.points==expected))
+        );
+        let mesh = out
+            .shapes
+            .iter()
+            .find_map(|s| match &s.shape {
+                egui::Shape::Mesh(m)
+                    if !m.vertices.is_empty() && m.vertices.iter().all(|v| v.color == fill) =>
+                {
+                    Some(m)
+                }
+                _ => None,
+            })
+            .unwrap();
+        let area: f64 = mesh
+            .indices
+            .chunks_exact(3)
+            .map(|t| {
+                let [a, b, c] = [t[0], t[1], t[2]].map(|i| mesh.vertices[i as usize].pos);
+                f64::from((b - a).rot90().dot(c - a).abs()) / 2. / app.plan_scale.powi(2)
+            })
+            .sum();
+        assert!((area - 4.8 * 1.25).abs() < 1e-5, "{area}");
+        assert_eq!(app.host.document.editor.project, before);
+        click(&ctx, &mut app, pos2(640., 300.));
+        assert_eq!(app.host.document.editor.project.elements[0], candidate);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+    }
+}
+
+#[test]
+fn model_parameter_transfer_shortcuts_activate_tools_and_keep_target_placement_bilingually() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for kind in 0..3 {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let source_shape = match kind {
+                0 => Shape::Column {
+                    center: Point::new(-3., 0.),
+                    section: crate::column::ColumnSection::Circular { diameter: 0.7 },
+                    height: 4.,
+                    bottom_offset: 0.,
+                    axis_rotation: 20.,
+                    inclination: None,
+                    plan: Default::default(),
+                },
+                1 => Shape::Beam {
+                    start: Point::new(-4., 0.),
+                    end: Point::new(-1., 0.),
+                    width: 0.7,
+                    height: 0.8,
+                    top_offset: 3.,
+                    slant_angle: 0.,
+                    arc: None,
+                },
+                _ => Shape::Roof {
+                    spec: crate::roof::RoofSpec {
+                        contour: None,
+                        pivot_start: Point::new(-4., 0.),
+                        pivot_end: Point::new(-1., 0.),
+                        rise_left: true,
+                        min: Point::new(-4., 0.),
+                        max: Point::new(-1., 3.),
+                        pitch: 30.,
+                        thickness: 0.3,
+                        pivot_offset: 2.,
+                    },
+                },
+            };
+            let mut target_shape = source_shape.clone();
+            match &mut target_shape {
+                Shape::Column { center, height, .. } => {
+                    *center = Point::new(3., 0.);
+                    *height = 2.;
+                }
+                Shape::Beam {
+                    start, end, width, ..
+                } => {
+                    *start = Point::new(1., 0.);
+                    *end = Point::new(4., 0.);
+                    *width = 0.2;
+                }
+                Shape::Roof { spec } => {
+                    spec.translate(Point::new(5., 0.));
+                    spec.pitch = 10.;
+                }
+                _ => unreachable!(),
+            }
+            let source = app.host.document.editor.project.add(
+                0,
+                crate::model::Material::Timber,
+                source_shape,
+            );
+            let target = app.host.document.editor.project.add(
+                0,
+                crate::model::Material::Concrete,
+                target_shape.clone(),
+            );
+            app.host.document.editor.mark_saved();
+            app.host.document.editor.set_selection(vec![source]);
+            let before = app.host.document.editor.project.clone();
+            plan_frame(&ctx, &mut app, vec![key(Key::C, Modifiers::ALT)]);
+            assert_eq!(
+                app.host.document.editor.tool,
+                [Tool::Column, Tool::Beam, Tool::Roof][kind]
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            app.host.document.editor.set_selection(vec![target]);
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![key(Key::C, Modifiers::ALT | Modifiers::COMMAND)],
+            );
+            assert_eq!(
+                app.host.document.editor.undo.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            let updated = app
+                .host
+                .document
+                .editor
+                .project
+                .elements
+                .iter()
+                .find(|e| e.id == target)
+                .unwrap();
+            assert_eq!(updated.material, crate::model::Material::Timber);
+            match (&updated.shape, target_shape) {
+                (Shape::Column { center, height, .. }, Shape::Column { center: old, .. }) => {
+                    assert_eq!(*center, old);
+                    assert_eq!(*height, 4.);
+                }
+                (
+                    Shape::Beam {
+                        start, end, width, ..
+                    },
+                    Shape::Beam {
+                        start: old_start,
+                        end: old_end,
+                        ..
+                    },
+                ) => {
+                    assert_eq!((*start, *end), (old_start, old_end));
+                    assert_eq!(*width, 0.7);
+                }
+                (Shape::Roof { spec }, Shape::Roof { spec: old }) => {
+                    assert_eq!(spec.min, old.min);
+                    assert_eq!(spec.pitch, 30.);
+                }
+                _ => panic!(),
+            }
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn model_transfer_canvas_gestures_then_creation_use_picked_defaults_bilingually() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for kind in 0..3 {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            let source_shape = match kind {
+                0 => Shape::Column {
+                    center: Point::new(-5., 2.),
+                    section: crate::column::ColumnSection::Circular { diameter: 0.8 },
+                    height: 4.,
+                    bottom_offset: 0.2,
+                    axis_rotation: 25.,
+                    inclination: None,
+                    plan: Default::default(),
+                },
+                1 => Shape::Beam {
+                    start: Point::new(-6., 2.),
+                    end: Point::new(-3., 2.),
+                    width: 0.6,
+                    height: 0.7,
+                    top_offset: 2.,
+                    slant_angle: 10.,
+                    arc: None,
+                },
+                _ => Shape::Roof {
+                    spec: crate::roof::RoofSpec {
+                        contour: None,
+                        pivot_start: Point::new(-6., 1.),
+                        pivot_end: Point::new(-3., 1.),
+                        rise_left: true,
+                        min: Point::new(-6., 1.),
+                        max: Point::new(-3., 3.),
+                        pitch: 30.,
+                        thickness: 0.3,
+                        pivot_offset: 2.,
+                    },
+                },
+            };
+            let mut target_shape = source_shape.clone();
+            match &mut target_shape {
+                Shape::Column { center, height, .. } => {
+                    *center = Point::new(2., 2.);
+                    *height = 2.;
+                }
+                Shape::Beam {
+                    start, end, width, ..
+                } => {
+                    *start = Point::new(0., 2.);
+                    *end = Point::new(3., 2.);
+                    *width = 0.2;
+                }
+                Shape::Roof { spec } => {
+                    spec.translate(Point::new(6., 0.));
+                    spec.pitch = 10.;
+                }
+                _ => unreachable!(),
+            }
+            app.host
+                .document
+                .editor
+                .project
+                .add(0, Material::Timber, source_shape.clone());
+            let target = app
+                .host
+                .document
+                .editor
+                .project
+                .add(0, Material::Concrete, target_shape);
+            let before = app.host.document.editor.project.clone();
+            let screen = |app: &AtelierApp, p: Point| {
+                app.screen(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.)), p)
+            };
+            let source_hit = screen(&app, Point::new(if kind == 0 { -5. } else { -4.5 }, 2.));
+            modifier_click(&ctx, &mut app, source_hit, Modifiers::ALT);
+            assert_eq!(
+                app.host.document.editor.tool,
+                [Tool::Column, Tool::Beam, Tool::Roof][kind],
+                "{}",
+                app.host.document.editor.status
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            let target_hit = screen(&app, Point::new(if kind == 0 { 2. } else { 1.5 }, 2.));
+            modifier_click(
+                &ctx,
+                &mut app,
+                target_hit,
+                Modifiers::ALT | Modifiers::COMMAND,
+            );
+            assert_eq!(
+                app.host.document.editor.undo.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .elements
+                    .iter()
+                    .find(|e| e.id == target)
+                    .unwrap()
+                    .material,
+                Material::Timber
+            );
+            plan_frame(
+                &ctx,
+                &mut app,
+                vec![Event::ModifiersChanged(Modifiers::NONE)],
+            );
+            let accepted = app.host.document.editor.project.clone();
+            let points = match kind {
+                0 => vec![Point::new(-2., -3.)],
+                1 => vec![Point::new(-2., -3.), Point::new(1., -3.)],
+                _ => vec![
+                    Point::new(-2., -4.),
+                    Point::new(1., -4.),
+                    Point::new(-1., -2.),
+                    Point::new(-2., -4.),
+                    Point::new(1., -2.),
+                ],
+            };
+            for (i, p) in points.iter().enumerate() {
+                let pos = screen(&app, *p);
+                click(&ctx, &mut app, pos);
+                if i + 1 < points.len() {
+                    assert_eq!(app.host.document.editor.project, accepted);
+                }
+            }
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                3,
+                "{}",
+                app.host.document.editor.status
+            );
+            let created = app.host.document.editor.project.elements.last().unwrap();
+            assert_eq!(created.material, Material::Timber);
+            match (&created.shape, &source_shape) {
+                (
+                    Shape::Column {
+                        center,
+                        section,
+                        height,
+                        bottom_offset,
+                        axis_rotation,
+                        ..
+                    },
+                    Shape::Column {
+                        section: ss,
+                        height: sh,
+                        bottom_offset: sb,
+                        axis_rotation: sa,
+                        ..
+                    },
+                ) => {
+                    assert_eq!(*center, Point::new(-2., -3.));
+                    assert_eq!(
+                        (section, height, bottom_offset, axis_rotation),
+                        (ss, sh, sb, sa)
+                    );
+                }
+                (
+                    Shape::Beam {
+                        start,
+                        end,
+                        width,
+                        height,
+                        top_offset,
+                        slant_angle,
+                        ..
+                    },
+                    Shape::Beam {
+                        width: sw,
+                        height: sh,
+                        top_offset: st,
+                        slant_angle: sa,
+                        ..
+                    },
+                ) => {
+                    assert_eq!((*start, *end), (Point::new(-2., -3.), Point::new(1., -3.)));
+                    assert_eq!((width, height, top_offset, slant_angle), (sw, sh, st, sa));
+                }
+                (Shape::Roof { spec }, Shape::Roof { spec: s }) => {
+                    assert_eq!(
+                        (spec.pitch, spec.thickness, spec.pivot_offset),
+                        (s.pitch, s.thickness, s.pivot_offset)
+                    );
+                    assert_eq!(spec.min, Point::new(-2., -4.));
+                }
+                _ => panic!(),
+            }
+            assert_eq!(app.host.document.editor.undo.len(), 2);
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, accepted);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn model_transfer_settings_scroll_footer_confirm_and_cancel_bilingually() {
+    fn visible_text(output: &eframe::egui::FullOutput, label: &str) -> Option<Pos2> {
+        output.shapes.iter().find_map(|shape| {
+            let p = text_center(std::slice::from_ref(shape), label)?;
+            shape.clip_rect.contains(p).then_some(p)
+        })
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let before = app.host.document.editor.project.clone();
+        let mut scroll_pointer = Pos2::ZERO;
+        for confirm in [false, true] {
+            app.open_transfer_settings();
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let mut output = layers_frame_output(&ctx, &mut app, vec![]);
+            for _ in 0..16 {
+                if visible_text(&output, language.translate("New")).is_some() {
+                    break;
+                }
+                assert_ne!(scroll_pointer, Pos2::ZERO);
+                output = layers_frame_output(
+                    &ctx,
+                    &mut app,
+                    vec![
+                        Event::PointerMoved(scroll_pointer),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            phase: egui::TouchPhase::Move,
+                            delta: vec2(0., 160.),
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+            for _ in 0..20 {
+                layers_frame_output(&ctx, &mut app, vec![]);
+            }
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let new = visible_text(&output, language.translate("New"))
+                .expect("new set reachable after scrolling up");
+            scroll_pointer = new;
+            layers_click(&ctx, &mut app, new);
+            assert_eq!(app.transfer_dialog.as_ref().unwrap().sets.len(), 2);
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            let footer = language.translate(if confirm { "OK" } else { "Cancel" });
+            let mut button = None;
+            for _ in 0..16 {
+                let output = layers_frame_output(
+                    &ctx,
+                    &mut app,
+                    vec![
+                        Event::PointerMoved(new),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            phase: egui::TouchPhase::Move,
+                            delta: vec2(0., -160.),
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+                if let Some(p) = visible_text(&output, footer) {
+                    button = Some(p);
+                    break;
+                }
+            }
+            let button = button.expect("scrolled footer must be inside clip");
+            // Let egui settle smooth scrolling before resolving the final button position.
+            for _ in 0..20 {
+                layers_frame_output(&ctx, &mut app, vec![]);
+            }
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let button = visible_text(&output, footer).unwrap_or(button);
+            layers_click(&ctx, &mut app, button);
+            assert!(
+                app.transfer_dialog.is_none(),
+                "footer click must close dialog"
+            );
+            if confirm {
+                assert_eq!(
+                    app.host
+                        .document
+                        .editor
+                        .project
+                        .transfer_settings
+                        .sets
+                        .len(),
+                    2
+                );
+                assert_eq!(app.host.document.editor.undo.len(), 1);
+                let after = app.host.document.editor.project.clone();
+                app.host.document.editor.undo();
+                assert_eq!(app.host.document.editor.project, before);
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, after);
+            } else {
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+            }
+        }
+    }
+}
+
+fn edit_creation_tracker_field(
+    ctx: &Context,
+    app: &mut AtelierApp,
+    label: &str,
+    old: String,
+    value: &str,
+) {
+    let output = layers_frame_output(ctx, app, vec![]);
+    let label = text_center(&output.shapes, label).unwrap();
+    let mut shapes = Vec::new();
+    collect_shapes(&output.shapes, &mut shapes);
+    let field = shapes
+        .iter()
+        .filter_map(|s| {
+            if let egui::Shape::Text(t) = s {
+                let p = t.pos + t.galley.size() / 2.;
+                (t.galley.text() == old && p.x > label.x && (p.y - label.y).abs() < 5.).then_some(p)
+            } else {
+                None
+            }
+        })
+        .min_by(|a, b| a.x.total_cmp(&b.x))
+        .expect("numeric field beside tracker label");
+    layers_click(ctx, app, field);
+    layers_frame_output(
+        ctx,
+        app,
+        vec![key(Key::A, Modifiers::COMMAND), Event::Text(value.into())],
+    );
+    layers_frame_output(ctx, app, vec![key(Key::Tab, Modifiers::NONE)]);
+}
+
+#[test]
+fn rotated_slab_numeric_tracker_actual_fields_preview_commit_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for width in [-2_f64, 2.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            app.host.document.editor.set_tool(Tool::Slab);
+            app.host.document.editor.slab_elevation = 0.75;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Rotated Rectangle")).unwrap(),
+            );
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(700., 450.))]);
+            let before = app.host.document.editor.project.clone();
+            let start = app.host.document.editor.slab_draft.unwrap().baseline().0;
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Length"), old, "5");
+            let old = format!("{:.2}", app.tracker_b);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Angle"), old, "30");
+            assert_eq!((app.tracker_a, app.tracker_b), (5., 30.));
+            assert!(app.tracker_locked);
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            let draft = app.host.document.editor.slab_draft.unwrap();
+            let (_, end) = draft.baseline();
+            let end = end.expect("Enter only accepts baseline");
+            assert!((start.distance(end) - 5.).abs() < 1e-5);
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            assert!(!app.tracker_locked);
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(
+                &ctx,
+                &mut app,
+                language.translate("Signed width"),
+                old,
+                &width.to_string(),
+            );
+            assert_eq!(app.tracker_a, width);
+            let target = draft.numeric_target(width, 0.).unwrap();
+            let preview = app
+                .host
+                .document
+                .editor
+                .rotated_slab_preview(target)
+                .unwrap();
+            let output =
+                layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(750., 600.))]);
+            assert!(output.shapes.iter().any(|s|matches!(&s.shape,egui::Shape::Mesh(m) if m.vertices.iter().any(|v|v.color==Color32::from_rgba_unmultiplied(39,146,137,50)))));
+            if width > 0. {
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            } else {
+                layers_click(&ctx, &mut app, pos2(750., 600.));
+            }
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            assert_eq!(app.host.document.editor.project.elements[0], preview);
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            assert!(app.host.document.editor.slab_draft.is_none());
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn rotated_slab_tracker_invalid_input_and_cancel_preserve_real_redo() {
+    let (ctx, mut app) = setup();
+    app.host
+        .document
+        .editor
+        .place_column(Point::new(20., 20.))
+        .unwrap();
+    let redo = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.set_tool(Tool::Slab);
+    app.host.document.editor.slab_method =
+        crate::slab_creation::SlabGeometryMethod::RotatedRectangle;
+    layers_frame_output(&ctx, &mut app, vec![]);
+    layers_click(&ctx, &mut app, pos2(550., 500.));
+    let draft = app.host.document.editor.slab_draft;
+    app.tracker_locked = true;
+    app.tracker_a = -1.;
+    app.tracker_b = 30.;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    assert_eq!(app.host.document.editor.slab_draft, draft);
+    assert!(app.tracker_locked);
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
+    app.tracker_a = 5.;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    assert!(matches!(
+        app.host.document.editor.slab_draft,
+        Some(crate::slab_creation::SlabDraft::Width { .. })
+    ));
+    let draft = app.host.document.editor.slab_draft;
+    app.tracker_locked = true;
+    app.tracker_a = 0.;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    assert_eq!(app.host.document.editor.slab_draft, draft);
+    assert!(app.tracker_locked);
+    assert_eq!(app.host.document.editor.project, before);
+    let layer = app
+        .host
+        .document
+        .editor
+        .project
+        .layers
+        .layers
+        .iter_mut()
+        .find(|l| l.id != 0 && !l.status.locked)
+        .unwrap();
+    let layer_id = layer.id;
+    layer.status.locked = true;
+    app.host.document.editor.slab_layer = crate::layers::ElementLayer(layer_id);
+    let locked = app.host.document.editor.project.clone();
+    app.tracker_a = 2.;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    assert_eq!(app.host.document.editor.project, locked);
+    assert_eq!(app.host.document.editor.slab_draft, draft);
+    assert!(app.tracker_locked);
+    assert!(app.host.document.editor.undo.is_empty());
+    assert!(app.host.document.editor.status.contains("locked"));
+    app.host
+        .document
+        .editor
+        .project
+        .layers
+        .layers
+        .iter_mut()
+        .find(|l| l.id == layer_id)
+        .unwrap()
+        .status
+        .locked = false;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+    assert!(app.host.document.editor.slab_draft.is_none());
+    assert!(!app.tracker_locked);
+    assert_eq!(app.host.document.editor.project, before);
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, redo);
+}
+
+#[test]
+fn rotated_slab_buttons_and_story_tool_transitions_clear_numeric_session_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for exit in ["Cancel", "Arrow", "Story", "Create"] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            app.host
+                .document
+                .editor
+                .place_column(Point::new(20., 20.))
+                .unwrap();
+            let redo = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            let before = app.host.document.editor.project.clone();
+            app.host.document.editor.set_tool(Tool::Slab);
+            app.host.document.editor.slab_method =
+                crate::slab_creation::SlabGeometryMethod::RotatedRectangle;
+            layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            app.tracker_a = 5.;
+            app.tracker_b = 30.;
+            app.tracker_locked = true;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Set baseline [Enter]")).unwrap(),
+            );
+            assert!(matches!(
+                app.host.document.editor.slab_draft,
+                Some(crate::slab_creation::SlabDraft::Width { .. })
+            ));
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            app.tracker_a = -2.;
+            app.tracker_locked = true;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let label = match exit {
+                "Story" => "01  First floor     +3.20 m",
+                "Create" => language.translate("Create [Enter]"),
+                _ => language.translate(exit),
+            };
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, label).unwrap_or_else(|| panic!("missing {label}")),
+            );
+            layers_frame_output(&ctx, &mut app, vec![]);
+            assert!(app.host.document.editor.slab_draft.is_none(), "{exit}");
+            assert!(
+                !app.tracker_locked,
+                "{exit}: numeric lock survives cancellation"
+            );
+            if exit == "Create" {
+                assert_eq!(app.host.document.editor.project.elements.len(), 1);
+                assert!((app.host.document.editor.project.elements[0].area() - 10.).abs() < 1e-4);
+                assert_eq!(app.host.document.editor.undo.len(), 1);
+                app.host.document.editor.undo();
+                assert_eq!(app.host.document.editor.project, before);
+            } else {
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, redo);
+            }
+        }
+    }
+}
+
+#[test]
+fn rotated_slab_numeric_lock_is_cleared_by_worksheet_navigation() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host
+            .document
+            .editor
+            .project
+            .drawings
+            .worksheets
+            .push(crate::drawings::Worksheet {
+                id: 99,
+                name: "Numeric worksheet".into(),
+            });
+        app.host.document.editor.set_tool(Tool::Slab);
+        app.host.document.editor.slab_method =
+            crate::slab_creation::SlabGeometryMethod::RotatedRectangle;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        app.tracker_a = 5.;
+        app.tracker_b = 30.;
+        app.tracker_locked = true;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        let elements = app.host.document.editor.project.elements.clone();
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, "Numeric worksheet").unwrap(),
+        );
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .active_worksheet,
+            Some(99)
+        );
+        assert!(app.host.document.editor.slab_draft.is_none());
+        assert!(!app.tracker_locked);
+        assert_eq!((app.tracker_a, app.tracker_b), (0., 0.));
+        assert_eq!(app.host.document.editor.project.elements, elements);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            history
+        );
+    }
+}
+
+#[test]
+fn roof_numeric_tracker_actual_fields_preview_and_commit_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for dx in [-4_f64, 4.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Roof")).unwrap(),
+            );
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            let before = app.host.document.editor.project.clone();
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Length"), old, "6");
+            let old = format!("{:.2}", app.tracker_b);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Angle"), old, "15");
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Set pivot [Enter]")).unwrap(),
+            );
+            let crate::roof::RoofDraft::RiseSide { start, end } =
+                app.host.document.editor.roof_draft.unwrap()
+            else {
+                panic!()
+            };
+            assert!((start.distance(end) - 6.).abs() < 1e-5);
+            assert!(!app.tracker_locked);
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            layers_click(&ctx, &mut app, pos2(700., 350.));
+            assert!(matches!(
+                app.host.document.editor.roof_draft,
+                Some(crate::roof::RoofDraft::ContourStart { .. })
+            ));
+            layers_click(&ctx, &mut app, pos2(650., 550.));
+            let draft = app.host.document.editor.roof_draft.unwrap();
+            assert!(matches!(draft, crate::roof::RoofDraft::ContourEnd { .. }));
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(
+                &ctx,
+                &mut app,
+                language.translate("ΔX"),
+                old,
+                &dx.to_string(),
+            );
+            let old = format!("{:.3}", app.tracker_b);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("ΔY"), old, "3");
+            let target = draft.numeric_target(dx, 3.).unwrap();
+            let expected = app.host.document.editor.roof_preview(target).unwrap();
+            assert_eq!(app.host.document.editor.project, before);
+            layers_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos2(800., 650.))]);
+            if dx > 0. {
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            } else {
+                layers_click(&ctx, &mut app, pos2(800., 650.));
+            }
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "{}",
+                app.host.document.editor.status
+            );
+            assert!(
+                matches!(&app.host.document.editor.project.elements[0].shape,Shape::Roof{spec} if *spec==expected)
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            assert!(app.host.document.editor.roof_draft.is_none());
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn roof_numeric_tracker_rejection_and_cancel_preserve_redo() {
+    let (ctx, mut app) = setup();
+    app.host
+        .document
+        .editor
+        .place_column(Point::new(20., 20.))
+        .unwrap();
+    let redo = app.host.document.editor.project.clone();
+    app.host.document.editor.undo();
+    let before = app.host.document.editor.project.clone();
+    app.host.document.editor.set_tool(Tool::Roof);
+    layers_frame_output(&ctx, &mut app, vec![]);
+    layers_click(&ctx, &mut app, pos2(550., 500.));
+    let draft = app.host.document.editor.roof_draft;
+    app.tracker_a = -1.;
+    app.tracker_b = 0.;
+    app.tracker_locked = true;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    assert_eq!(app.host.document.editor.roof_draft, draft);
+    assert!(app.tracker_locked);
+    assert_eq!(app.host.document.editor.project, before);
+    app.tracker_a = 6.;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    layers_click(&ctx, &mut app, pos2(700., 350.));
+    layers_click(&ctx, &mut app, pos2(650., 550.));
+    let draft = app.host.document.editor.roof_draft;
+    app.tracker_a = 0.;
+    app.tracker_b = 3.;
+    app.tracker_locked = true;
+    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+    assert_eq!(app.host.document.editor.roof_draft, draft);
+    assert!(app.tracker_locked);
+    assert_eq!(app.host.document.editor.project, before);
+    let output = layers_frame_output(&ctx, &mut app, vec![]);
+    layers_click(
+        &ctx,
+        &mut app,
+        text_center(&output.shapes, "Cancel").unwrap(),
+    );
+    assert!(app.host.document.editor.roof_draft.is_none());
+    assert!(!app.tracker_locked);
+    assert!(app.host.document.editor.undo.is_empty());
+    app.host.document.editor.redo();
+    assert_eq!(app.host.document.editor.project, redo);
+}
+
+#[test]
+fn roof_numeric_all_stages_cancel_navigation_preserve_model_and_redo_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for method in [
+            crate::roof::RoofGeometryMethod::Rectangular,
+            crate::roof::RoofGeometryMethod::RotatedRectangle,
+        ] {
+            let rotated = method == crate::roof::RoofGeometryMethod::RotatedRectangle;
+            for stage in 0..if rotated { 5 } else { 4 } {
+                for action in ["Cancel", "Arrow", "Story", "Worksheet"] {
+                    let (ctx, mut app) = setup();
+                    app.language = language;
+                    app.host.document.editor.snap = false;
+                    app.host.document.editor.project.drawings.worksheets.push(
+                        crate::drawings::Worksheet {
+                            id: 99,
+                            name: "Roof worksheet".into(),
+                        },
+                    );
+                    app.host
+                        .document
+                        .editor
+                        .place_column(Point::new(20., 20.))
+                        .unwrap();
+                    let mut redo = app.host.document.editor.project.clone();
+                    app.host.document.editor.undo();
+                    let mut before = app.host.document.editor.project.clone();
+                    app.host.document.editor.set_tool(Tool::Roof);
+                    app.host.document.editor.roof_method = method;
+                    layers_frame_output(&ctx, &mut app, vec![]);
+                    layers_click(&ctx, &mut app, pos2(550., 500.));
+                    if stage > 0 {
+                        app.tracker_a = 6.;
+                        app.tracker_b = 15.;
+                        app.tracker_locked = true;
+                        layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+                    }
+                    if stage > 1 {
+                        layers_click(&ctx, &mut app, pos2(700., 350.));
+                    }
+                    if stage > 2 {
+                        layers_click(&ctx, &mut app, pos2(650., 550.));
+                    }
+                    if stage > 3 {
+                        app.tracker_a = 5.;
+                        app.tracker_b = 30.;
+                        app.tracker_locked = true;
+                        layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+                    }
+                    assert_eq!(
+                        match app.host.document.editor.roof_draft.unwrap() {
+                            crate::roof::RoofDraft::PivotEnd { .. } => 0,
+                            crate::roof::RoofDraft::RiseSide { .. } => 1,
+                            crate::roof::RoofDraft::ContourStart { .. } => 2,
+                            crate::roof::RoofDraft::ContourEnd { .. } => 3,
+                            crate::roof::RoofDraft::RotatedContour {
+                                rectangle: crate::slab_creation::SlabDraft::BaselineEnd { .. },
+                                ..
+                            } => 3,
+                            crate::roof::RoofDraft::RotatedContour {
+                                rectangle: crate::slab_creation::SlabDraft::Width { .. },
+                                ..
+                            } => 4,
+                        },
+                        stage
+                    );
+                    if stage == 0 || stage >= 3 {
+                        app.tracker_a = 4.;
+                        app.tracker_b = 3.;
+                        app.tracker_locked = true;
+                    }
+                    let output = layers_frame_output(&ctx, &mut app, vec![]);
+                    let label = match action {
+                        "Story" => "01  First floor     +3.20 m",
+                        "Worksheet" => "Roof worksheet",
+                        _ => language.translate(action),
+                    };
+                    layers_click(&ctx, &mut app, text_center(&output.shapes, label).unwrap());
+                    layers_frame_output(&ctx, &mut app, vec![]);
+                    assert!(
+                        app.host.document.editor.roof_draft.is_none(),
+                        "{stage} {action}"
+                    );
+                    assert!(!app.tracker_locked, "{stage} {action}");
+                    assert!(app.host.document.editor.undo.is_empty());
+                    if action == "Worksheet" {
+                        before.plan_options.active_worksheet = Some(99);
+                        redo.plan_options.active_worksheet = Some(99);
+                    }
+                    assert_eq!(app.host.document.editor.project, before);
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, redo);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn roof_numeric_create_button_locked_failure_then_retry_one_transaction_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for method in [
+            crate::roof::RoofGeometryMethod::Rectangular,
+            crate::roof::RoofGeometryMethod::RotatedRectangle,
+        ] {
+            for retry in [false, true] {
+                let (ctx, mut app) = setup();
+                app.language = language;
+                app.host.document.editor.snap = false;
+                app.host
+                    .document
+                    .editor
+                    .place_column(Point::new(20., 20.))
+                    .unwrap();
+                let redo = app.host.document.editor.project.clone();
+                app.host.document.editor.undo();
+                let before = app.host.document.editor.project.clone();
+                app.host.document.editor.set_tool(Tool::Roof);
+                app.host.document.editor.roof_method = method;
+                layers_frame_output(&ctx, &mut app, vec![]);
+                layers_click(&ctx, &mut app, pos2(550., 500.));
+                app.tracker_a = 6.;
+                app.tracker_b = 15.;
+                app.tracker_locked = true;
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+                layers_click(&ctx, &mut app, pos2(700., 350.));
+                layers_click(&ctx, &mut app, pos2(650., 550.));
+                if method == crate::roof::RoofGeometryMethod::RotatedRectangle {
+                    app.tracker_a = 5.;
+                    app.tracker_b = 30.;
+                    app.tracker_locked = true;
+                    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+                }
+                let draft = app.host.document.editor.roof_draft;
+                app.tracker_a = -4.;
+                app.tracker_b = 3.;
+                app.tracker_locked = true;
+                let layer = app
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .layers
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id != 0 && !l.status.locked)
+                    .unwrap();
+                let id = layer.id;
+                layer.status.locked = true;
+                app.host.document.editor.roof_layer = crate::layers::ElementLayer(id);
+                let locked = app.host.document.editor.project.clone();
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                layers_click(
+                    &ctx,
+                    &mut app,
+                    text_center(&output.shapes, language.translate("Create [Enter]")).unwrap(),
+                );
+                assert_eq!(app.host.document.editor.project, locked);
+                assert_eq!(app.host.document.editor.roof_draft, draft);
+                assert!(app.tracker_locked);
+                assert!(app.host.document.editor.undo.is_empty());
+                assert_eq!(app.host.document.editor.redo.len(), 1);
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .layers
+                    .layers
+                    .iter_mut()
+                    .find(|l| l.id == id)
+                    .unwrap()
+                    .status
+                    .locked = false;
+                if !retry {
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, redo);
+                    continue;
+                }
+                // Retry the exact rejected draft without resetting or reconstructing it.
+                assert_eq!(app.host.document.editor.roof_draft, draft);
+                let target = draft.unwrap().numeric_target(-4., 3.).unwrap();
+                let expected = app.host.document.editor.roof_preview(target).unwrap();
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                layers_click(
+                    &ctx,
+                    &mut app,
+                    text_center(&output.shapes, language.translate("Create [Enter]")).unwrap(),
+                );
+                assert_eq!(
+                    app.host.document.editor.project.elements.len(),
+                    1,
+                    "{}",
+                    app.host.document.editor.status
+                );
+                assert_eq!(app.host.document.editor.undo.len(), 1);
+                assert!(app.host.document.editor.roof_draft.is_none());
+                assert!(!app.tracker_locked);
+                assert!(
+                    matches!(&app.host.document.editor.project.elements[0].shape,Shape::Roof{spec} if *spec==expected)
+                );
+                let placed = app.host.document.editor.project.clone();
+                app.host.document.editor.undo();
+                assert_eq!(app.host.document.editor.project, before);
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, placed);
+            }
+        }
+    }
+}
+
+#[test]
+fn rotated_roof_actual_method_numeric_fields_and_creation_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for width in [-2_f64, 2.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor.snap = false;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Roof")).unwrap(),
+            );
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Rotated Rectangle")).unwrap(),
+            );
+            assert_eq!(
+                app.host.document.editor.roof_method,
+                crate::roof::RoofGeometryMethod::RotatedRectangle
+            );
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Rectangular")).unwrap(),
+            );
+            assert_eq!(
+                app.host.document.editor.roof_method,
+                crate::roof::RoofGeometryMethod::RotatedRectangle
+            );
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Length"), old, "6");
+            let old = format!("{:.2}", app.tracker_b);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Angle"), old, "15");
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            layers_click(&ctx, &mut app, pos2(700., 350.));
+            layers_click(&ctx, &mut app, pos2(650., 550.));
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Length"), old, "5");
+            let old = format!("{:.2}", app.tracker_b);
+            edit_creation_tracker_field(&ctx, &mut app, language.translate("Angle"), old, "-30");
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(
+                &ctx,
+                &mut app,
+                text_center(&output.shapes, language.translate("Set baseline [Enter]")).unwrap(),
+            );
+            assert!(!app.tracker_locked);
+            assert!(app.host.document.editor.project.elements.is_empty());
+            let draft = app.host.document.editor.roof_draft.unwrap();
+            let old = format!("{:.3}", app.tracker_a);
+            edit_creation_tracker_field(
+                &ctx,
+                &mut app,
+                language.translate("Signed width"),
+                old,
+                "0",
+            );
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.roof_draft, Some(draft));
+            assert!(app.host.document.editor.project.elements.is_empty());
+            assert_eq!(
+                app.host.document.editor.status,
+                "Invalid roof geometry or parameters"
+            );
+            edit_creation_tracker_field(
+                &ctx,
+                &mut app,
+                language.translate("Signed width"),
+                "0.000".into(),
+                &width.to_string(),
+            );
+            let expected = app
+                .host
+                .document
+                .editor
+                .roof_preview(draft.numeric_target(width, 0.).unwrap())
+                .unwrap();
+            if width > 0. {
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                layers_click(
+                    &ctx,
+                    &mut app,
+                    text_center(&output.shapes, language.translate("Create [Enter]")).unwrap(),
+                );
+            } else {
+                layers_click(&ctx, &mut app, pos2(800., 650.));
+            }
+            assert!(
+                matches!(&app.host.document.editor.project.elements[0].shape,Shape::Roof{spec} if spec==&expected)
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            assert!(app.host.document.editor.roof_draft.is_none());
+            assert!(!app.tracker_locked);
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert!(app.host.document.editor.project.elements.is_empty());
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn simple_creation_rejection_preserves_numeric_input_and_recovers_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for tool in [Tool::Stair, Tool::Beam, Tool::Slab] {
+            for pointer in [false, true] {
+                for retry in [false, true] {
+                    let (ctx, mut app) = setup();
+                    app.language = language;
+                    app.host.document.editor.snap = false;
+                    app.host
+                        .document
+                        .editor
+                        .place_column(Point::new(20., 20.))
+                        .unwrap();
+                    let redo = app.host.document.editor.project.clone();
+                    app.host.document.editor.undo();
+                    let before = app.host.document.editor.project.clone();
+                    app.host.document.editor.set_tool(tool);
+                    layers_frame_output(&ctx, &mut app, vec![]);
+                    layers_click(&ctx, &mut app, pos2(550., 500.));
+                    let anchor = app.host.document.editor.anchor;
+                    assert!(anchor.is_some());
+                    app.tracker_a = 0.;
+                    app.tracker_b = 0.;
+                    app.tracker_locked = true;
+                    if pointer {
+                        layers_click(&ctx, &mut app, pos2(800., 600.));
+                    } else {
+                        let output = layers_frame_output(&ctx, &mut app, vec![]);
+                        layers_click(
+                            &ctx,
+                            &mut app,
+                            text_center(&output.shapes, language.translate("Create [Enter]"))
+                                .unwrap(),
+                        );
+                    }
+                    assert_eq!(app.host.document.editor.project, before);
+                    assert_eq!(app.host.document.editor.anchor, anchor);
+                    assert!(app.host.document.editor.undo.is_empty());
+                    assert!(app.tracker_locked, "{tool:?} pointer={pointer}");
+                    layers_frame_output(
+                        &ctx,
+                        &mut app,
+                        vec![Event::PointerMoved(pos2(850., 650.))],
+                    );
+                    assert_eq!((app.tracker_a, app.tracker_b), (0., 0.));
+                    if !retry {
+                        let output = layers_frame_output(&ctx, &mut app, vec![]);
+                        layers_click(
+                            &ctx,
+                            &mut app,
+                            text_center(&output.shapes, language.translate("Cancel")).unwrap(),
+                        );
+                        assert!(app.host.document.editor.anchor.is_none());
+                        assert!(!app.tracker_locked);
+                        assert_eq!(app.host.document.editor.project, before);
+                        app.host.document.editor.redo();
+                        assert_eq!(app.host.document.editor.project, redo);
+                        continue;
+                    }
+                    edit_creation_tracker_field(
+                        &ctx,
+                        &mut app,
+                        language.translate("ΔX"),
+                        "0.000".into(),
+                        "4",
+                    );
+                    edit_creation_tracker_field(
+                        &ctx,
+                        &mut app,
+                        language.translate("ΔY"),
+                        "0.00".into(),
+                        "3",
+                    );
+                    layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+                    assert_eq!(
+                        app.host.document.editor.project.elements.len(),
+                        1,
+                        "{tool:?}: {}",
+                        app.host.document.editor.status
+                    );
+                    let start = anchor.unwrap();
+                    let end = Point::new(start.x + 4., start.y + 3.);
+                    match &app.host.document.editor.project.elements[0].shape {
+                        Shape::Stair { spec } => {
+                            assert_eq!(spec.start, start);
+                            assert_eq!(spec.end, end);
+                        }
+                        Shape::Beam {
+                            start: actual_start,
+                            end: actual_end,
+                            ..
+                        } => {
+                            assert_eq!(*actual_start, start);
+                            assert_eq!(*actual_end, end);
+                        }
+                        Shape::Slab { min, max, .. } => {
+                            assert_eq!(*min, start);
+                            assert_eq!(*max, end);
+                        }
+                        other => panic!("unexpected shape {other:?}"),
+                    }
+                    assert!(app.host.document.editor.anchor.is_none());
+                    assert!(!app.tracker_locked);
+                    assert_eq!(app.host.document.editor.undo.len(), 1);
+                    let after = app.host.document.editor.project.clone();
+                    app.host.document.editor.undo();
+                    assert_eq!(app.host.document.editor.project, before);
+                    app.host.document.editor.redo();
+                    assert_eq!(app.host.document.editor.project, after);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn internal_slab_polygon_escape_clears_empty_and_populated_sessions_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for populated in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host
+                .document
+                .editor
+                .place_column(Point::new(20., 20.))
+                .unwrap();
+            let redo = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            let before = app.host.document.editor.project.clone();
+            app.host.document.editor.set_tool(Tool::Slab);
+            app.host.document.editor.begin_slab_polygon().unwrap();
+            if populated {
+                app.host
+                    .document
+                    .editor
+                    .accept_slab_polygon_vertex(Point::new(1., 2.))
+                    .unwrap();
+            }
+            layers_frame_output(&ctx, &mut app, vec![]);
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+            assert!(app.host.document.editor.slab_polygon_draft().is_none());
+            assert!(app.host.document.editor.anchor.is_none());
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, redo);
+        }
+    }
+}
+
+#[test]
+fn polygon_internal_canvas_previews_all_regions_without_mutating_draft_bilingual() {
+    for tool in [Tool::Slab, Tool::Roof] {
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            for (nodes, cursor, expected_area, expected_regions) in [
+                (
+                    vec![
+                        Point::new(0., 0.),
+                        Point::new(6., 0.),
+                        Point::new(6., 2.),
+                        Point::new(2., 2.),
+                        Point::new(2., 6.),
+                    ],
+                    Point::new(0., 6.),
+                    20.,
+                    1,
+                ),
+                (
+                    vec![Point::new(0., 0.), Point::new(4., 4.), Point::new(0., 4.)],
+                    Point::new(4., 0.),
+                    8.,
+                    2,
+                ),
+                (
+                    vec![
+                        (0., 0.),
+                        (6., 0.),
+                        (6., 6.),
+                        (0., 6.),
+                        (0., 0.),
+                        (2., 2.),
+                        (2., 4.),
+                        (4., 4.),
+                        (4., 2.),
+                        (2., 2.),
+                    ]
+                    .into_iter()
+                    .map(|(x, y)| Point::new(x, y))
+                    .collect(),
+                    Point::new(0., 0.),
+                    32.,
+                    1,
+                ),
+                (
+                    vec![Point::new(0., 0.), Point::new(3., 0.)],
+                    Point::new(6., 0.),
+                    0.,
+                    0,
+                ),
+            ] {
+                let (ctx, mut app) = setup();
+                app.language = language;
+                app.host.document.editor.snap = false;
+                app.plan_scale = 30.;
+                app.host.document.editor.set_tool(tool);
+                if tool == Tool::Roof {
+                    for p in [
+                        Point::new(-2., -1.),
+                        Point::new(8., -1.),
+                        Point::new(0., 2.),
+                    ] {
+                        app.host.document.editor.click(p, 0.01);
+                    }
+                    app.host.document.editor.begin_roof_polygon().unwrap();
+                } else {
+                    app.host.document.editor.begin_slab_polygon().unwrap();
+                }
+                let before = app.host.document.editor.project.clone();
+                let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+                for point in &nodes {
+                    let pos = app.screen(rect, *point);
+                    click(&ctx, &mut app, pos);
+                }
+                let slab = app.host.document.editor.slab_polygon_draft().cloned();
+                let roof = app.host.document.editor.roof_polygon_draft().cloned();
+                let accepted = slab
+                    .as_ref()
+                    .map(|d| d.points())
+                    .or_else(|| roof.as_ref().map(|d| d.points()))
+                    .unwrap();
+                assert_eq!(accepted.len(), nodes.len());
+                let pos = app.screen(rect, cursor);
+                let out = plan_frame_output(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
+                let fill = Color32::from_rgba_unmultiplied(39, 146, 137, 50);
+                let meshes: Vec<_> = out
+                    .shapes
+                    .iter()
+                    .filter_map(|s| match &s.shape {
+                        egui::Shape::Mesh(m)
+                            if !m.vertices.is_empty()
+                                && m.vertices.iter().all(|v| v.color == fill) =>
+                        {
+                            Some(m)
+                        }
+                        _ => None,
+                    })
+                    .collect();
+                assert_eq!(meshes.len(), expected_regions);
+                let area: f64 = meshes
+                    .iter()
+                    .flat_map(|m| {
+                        m.indices.chunks_exact(3).map(|t| {
+                            let [a, b, c] = [t[0], t[1], t[2]].map(|i| m.vertices[i as usize].pos);
+                            ((b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)).abs() / 2.
+                        })
+                    })
+                    .map(f64::from)
+                    .sum();
+                assert!((f64::from(area) / app.plan_scale.powi(2) - expected_area).abs() < 1e-4);
+                assert_eq!(app.host.document.editor.slab_polygon_draft(), slab.as_ref());
+                assert_eq!(app.host.document.editor.roof_polygon_draft(), roof.as_ref());
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+                plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+                assert!(
+                    app.host.document.editor.slab_polygon_draft().is_none()
+                        && app.host.document.editor.roof_polygon_draft().is_none()
+                        && app.host.document.editor.anchor.is_none()
+                );
+                assert_eq!(app.host.document.editor.project, before);
+            }
+        }
+    }
+}
+
+#[test]
+fn internal_polygon_draft_nodes_share_preview_click_snap_and_clear_on_cancel() {
+    for tool in [Tool::Slab, Tool::Roof] {
+        for scale in [20., 80.] {
+            let (ctx, mut app) = setup();
+            app.plan_scale = scale;
+            app.host.document.editor.snap = true;
+            app.host.document.editor.project.guide_settings.snap_enabled = false;
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .grid_snap_enabled = true;
+            app.host.document.editor.project.grid_settings.snap_mode =
+                crate::grids::GridSnapMode::SnapGrid;
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .snap_spacing_x = 1.;
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .snap_spacing_y = 1.;
+            app.host.document.editor.set_tool(tool);
+            if tool == Tool::Roof {
+                for p in [Point::new(-2., 0.), Point::new(8., 0.), Point::new(0., 2.)] {
+                    app.host.document.editor.click(p, 0.01);
+                }
+                app.host.document.editor.begin_roof_polygon().unwrap();
+            } else {
+                app.host.document.editor.begin_slab_polygon().unwrap();
+            }
+            let first = Point::new(0.37, 0.23);
+            for p in [first, Point::new(3., 0.), Point::new(3., 3.)] {
+                app.host.document.editor.click(p, 0.01);
+            }
+            let before = app.host.document.editor.project.clone();
+            let raw = Point::new(first.x + 5. / scale, first.y);
+            assert_eq!(app.target(raw, false), (first, SnapKind::Endpoint));
+            app.host.document.editor.snap = false;
+            assert_eq!(app.target(raw, false).1, SnapKind::Grid);
+            app.host.document.editor.snap = true;
+            let outside = Point::new(first.x + 11. / scale, first.y);
+            assert_ne!(app.target(outside, false).1, SnapKind::Endpoint);
+            let model_point = Point::new(raw.x + 1. / scale, raw.y);
+            app.host.document.editor.project.add(
+                0,
+                Material::Concrete,
+                Shape::Polyline {
+                    points: vec![model_point, Point::new(8., 8.)],
+                    arcs: vec![],
+                },
+            );
+            assert_eq!(app.target(raw, false), (model_point, SnapKind::Endpoint));
+            app.host.document.editor.project = before.clone();
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            let pos = app.screen(rect, raw);
+            plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
+            assert_eq!(app.hover_point, first);
+            assert_eq!(app.host.document.editor.project, before);
+            click(&ctx, &mut app, pos);
+            let points = if tool == Tool::Slab {
+                app.host
+                    .document
+                    .editor
+                    .slab_polygon_draft()
+                    .unwrap()
+                    .points()
+            } else {
+                app.host
+                    .document
+                    .editor
+                    .roof_polygon_draft()
+                    .unwrap()
+                    .points()
+            };
+            assert_eq!(points.len(), 4);
+            assert_eq!(points[3], first);
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+            assert_ne!(app.target(raw, false).1, SnapKind::Endpoint);
+            assert_eq!(app.host.document.editor.project, before);
+        }
+    }
+}
+
+#[test]
+fn internal_polygon_methods_stay_locked_until_cancel_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for tool in [Tool::Slab, Tool::Roof] {
+            for populated in [false, true] {
+                let (ctx, mut app) = setup();
+                app.language = language;
+                app.host.document.editor.set_tool(tool);
+                if tool == Tool::Roof {
+                    for p in [Point::new(-2., 0.), Point::new(8., 0.), Point::new(0., 2.)] {
+                        app.host.document.editor.click(p, 0.01);
+                    }
+                    app.host.document.editor.begin_roof_polygon().unwrap();
+                } else {
+                    app.host.document.editor.begin_slab_polygon().unwrap();
+                }
+                if populated {
+                    app.host.document.editor.click(Point::new(1., 2.), 0.01);
+                }
+                let slab = app.host.document.editor.slab_polygon_draft().cloned();
+                let roof = app.host.document.editor.roof_polygon_draft().cloned();
+                let before = app.host.document.editor.project.clone();
+                for _ in 0..2 {
+                    layers_frame_output(&ctx, &mut app, vec![]);
+                }
+                let out = layers_frame_output(&ctx, &mut app, vec![]);
+                let button =
+                    text_center(&out.shapes, language.translate("Rotated Rectangle")).unwrap();
+                layers_click(&ctx, &mut app, button);
+                assert_eq!(
+                    app.host.document.editor.slab_method,
+                    crate::slab_creation::SlabGeometryMethod::Rectangular
+                );
+                assert_eq!(
+                    app.host.document.editor.roof_method,
+                    crate::roof::RoofGeometryMethod::Rectangular
+                );
+                assert_eq!(app.host.document.editor.slab_polygon_draft(), slab.as_ref());
+                assert_eq!(app.host.document.editor.roof_polygon_draft(), roof.as_ref());
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+                layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+                assert!(app.host.document.editor.slab_polygon_draft().is_none());
+                assert!(app.host.document.editor.roof_polygon_draft().is_none());
+                // Escape restores the previous tool; re-enter before checking idle methods.
+                app.host.document.editor.set_tool(tool);
+                let out = layers_frame_output(&ctx, &mut app, vec![]);
+                let button =
+                    text_center(&out.shapes, language.translate("Rotated Rectangle")).unwrap();
+                layers_click(&ctx, &mut app, button);
+                if tool == Tool::Slab {
+                    assert_eq!(
+                        app.host.document.editor.slab_method,
+                        crate::slab_creation::SlabGeometryMethod::RotatedRectangle
+                    );
+                } else {
+                    assert_eq!(
+                        app.host.document.editor.roof_method,
+                        crate::roof::RoofGeometryMethod::RotatedRectangle
+                    );
+                }
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+            }
+        }
+    }
+}
+
+#[test]
+fn internal_polygon_pointer_ignores_hidden_rectangle_lock_and_keeps_normal_lock() {
+    for tool in [Tool::Slab, Tool::Roof] {
+        let (ctx, mut app) = setup();
+        app.host.document.editor.snap = false;
+        app.host.document.editor.project.guide_settings.snap_enabled = false;
+        app.plan_scale = 30.;
+        app.host.document.editor.set_tool(tool);
+        if tool == Tool::Roof {
+            for p in [Point::new(-2., 0.), Point::new(8., 0.), Point::new(0., 2.)] {
+                app.host.document.editor.click(p, 0.01);
+            }
+            app.host.document.editor.begin_roof_polygon().unwrap();
+        } else {
+            app.host.document.editor.begin_slab_polygon().unwrap();
+        }
+        app.host.document.editor.click(Point::new(1., 1.), 0.01);
+        let before = app.host.document.editor.project.clone();
+        let target = Point::new(4., 3.);
+        let unlocked = app.target(target, false);
+        app.tracker_locked = true;
+        app.tracker_a = 50.;
+        app.tracker_b = -40.;
+        assert!(!app.tracker_lock_applies());
+        assert_eq!(app.target(target, false), unlocked);
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = true;
+        app.host.document.editor.project.grid_settings.snap_mode =
+            crate::grids::GridSnapMode::SnapGrid;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .snap_spacing_x = 0.5;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .snap_spacing_y = 0.5;
+        let raw = Point::new(4.12, 3.12);
+        app.tracker_locked = false;
+        let snapped = app.target(raw, false);
+        assert_eq!(snapped.0, Point::new(4., 3.));
+        app.tracker_locked = true;
+        assert_eq!(app.target(raw, false), snapped);
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = false;
+        app.host.document.editor.project.grid_settings.snap_mode = crate::grids::GridSnapMode::None;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .snap_spacing_x = before.grid_settings.snap_spacing_x;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .snap_spacing_y = before.grid_settings.snap_spacing_y;
+
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let pos = app.screen(rect, target);
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pos)]);
+        assert!(app.hover_point.distance(target) < 1e-5);
+        click(&ctx, &mut app, pos);
+        assert!(app.host.document.editor.anchor.unwrap().distance(target) < 1e-5);
+        let points = if tool == Tool::Slab {
+            app.host
+                .document
+                .editor
+                .slab_polygon_draft()
+                .unwrap()
+                .points()
+        } else {
+            app.host
+                .document
+                .editor
+                .roof_polygon_draft()
+                .unwrap()
+                .points()
+        };
+        assert_eq!(points.len(), 2);
+        assert!(points[1].distance(target) < 1e-5);
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+    }
+    let (_, mut app) = setup();
+    app.host.document.editor.set_tool(Tool::Slab);
+    app.host.document.editor.click(Point::new(1., 1.), 0.);
+    app.tracker_locked = true;
+    app.tracker_a = 5.;
+    app.tracker_b = 3.;
+    assert!(app.tracker_lock_applies());
+    assert_eq!(
+        app.base_target(Point::new(20., 20.), false).0,
+        Point::new(6., 4.)
+    );
+}
+
+#[test]
+fn model_click_picks_created_opening_and_real_stair_body_without_model_edits() {
+    for stair in [false, true] {
+        let (ctx, mut app) = setup();
+        app.host.document.editor = Editor::new(Project::default());
+        let target = if stair {
+            app.host
+                .document
+                .editor
+                .place_stair(crate::stairs::StairSpec::default())
+                .unwrap()
+        } else {
+            let wall = app
+                .host
+                .document
+                .editor
+                .place_wall_segments(vec![(Point::new(0., 0.), Point::new(6., 0.))])
+                .unwrap()[0];
+            app.host
+                .document
+                .editor
+                .place_opening_on_wall(
+                    crate::model::OpeningKind::Door,
+                    wall,
+                    3.,
+                    crate::model::OpeningKind::Door.defaults(),
+                )
+                .unwrap()
+        };
+        app.host.document.editor.set_tool(Tool::Select);
+        app.host.document.editor.set_selection(vec![]);
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        let revision = app.host.document.editor.revision;
+        app.camera = geometry::Camera {
+            yaw: -std::f64::consts::FRAC_PI_2,
+            pitch: 0.,
+            span: 10.,
+            target: if stair {
+                glam::DVec3::new(0.2, 0.5, 2.)
+            } else {
+                glam::DVec3::new(3., 0., 1.2)
+            },
+        };
+        click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+        assert_eq!(
+            app.host.document.editor.selection_ids(),
+            if stair { vec![] } else { vec![target] }
+        );
+        if stair {
+            app.camera.target = glam::DVec3::new(0.05, 0.5, -0.04);
+            click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+            assert_eq!(app.host.document.editor.selection_ids(), vec![target]);
+        }
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        assert_eq!(app.host.document.editor.revision, revision);
+    }
+}
+
+#[test]
+fn stair_fit_and_selection_fit_enclose_actual_soffit_and_handrails() {
+    let (_ctx, mut app) = setup();
+    app.host.document.editor = Editor::new(Project::default());
+    let spec = crate::stairs::StairSpec {
+        start: Point::new(4., -2.),
+        end: Point::new(4.3, -2.),
+        total_rise: 10.,
+        slab_thickness: 0.5,
+        handrail_height: 1.5,
+        ..Default::default()
+    };
+    let id = app.host.document.editor.place_stair(spec.clone()).unwrap();
+    let mesh = crate::stairs::generate(&spec, 0.).unwrap();
+    let before = app.host.document.editor.project.clone();
+    let revision = app.host.document.editor.revision;
+    let history = app.host.document.editor.undo.len();
+    for selected in [false, true] {
+        for yaw in [-1.05, 0., 2.] {
+            for pitch in [0.3, 0.83, 1.3] {
+                app.camera.yaw = yaw;
+                app.camera.pitch = pitch;
+                if selected {
+                    app.host.document.editor.set_selection(vec![id]);
+                    app.fit_selection();
+                } else {
+                    app.fit();
+                }
+                for aspect in [0.5, 1., 2.] {
+                    if !selected {
+                        app.fit_model_contents_for_aspect(aspect);
+                    }
+                    let matrix = app.camera.matrix(aspect);
+                    for point in mesh
+                        .triangles
+                        .iter()
+                        .flatten()
+                        .chain(mesh.handrails.iter().flatten())
+                    {
+                        let p = matrix.project_point3(*point);
+                        assert!(
+                            p.x.abs() < 1. && p.y.abs() < 1. && p.z > 0. && p.z < 1.,
+                            "{point:?} projects to {p:?}"
+                        );
+                    }
+                }
+            }
+        }
+    }
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, revision);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+}
+
+#[test]
+fn stair_marquee_drag_and_f5_preserve_model_history_and_save_data() {
+    let (ctx, mut app) = setup();
+    let spec = crate::stairs::StairSpec::default();
+    let id = app.host.document.editor.place_stair(spec.clone()).unwrap();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
+    let history = app.host.document.editor.undo.len();
+    let revision = app.host.document.editor.revision;
+    let saved = serde_json::to_string(&before).unwrap();
+    plan_frame(&ctx, &mut app, vec![key(Key::M, Modifiers::NONE)]);
+    // Plan coordinates x=1..3, y=0.2..0.8 cut both the flight and width.
+    let a = pos2(450., 260.);
+    let b = pos2(550., 290.);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![
+            Event::PointerMoved(a),
+            Event::PointerButton {
+                pos: a,
+                button: PointerButton::Primary,
+                pressed: true,
+                modifiers: Modifiers::NONE,
+            },
+        ],
+    );
+    plan_frame(&ctx, &mut app, vec![Event::PointerMoved(b)]);
+    assert!(app.host.document.editor.marquee.is_none());
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![Event::PointerButton {
+            pos: b,
+            button: PointerButton::Primary,
+            pressed: false,
+            modifiers: Modifiers::NONE,
+        }],
+    );
+    let area = app
+        .host
+        .document
+        .editor
+        .marquee
+        .clone()
+        .expect("released drag creates marquee");
+    plan_frame(&ctx, &mut app, vec![key(Key::F5, Modifiers::NONE)]);
+    assert_eq!(app.view, View::Model);
+    assert!(app.show_marquee_3d && !app.marquee_outside);
+    assert_eq!(app.host.document.editor.marquee, Some(area.clone()));
+    let (mesh, rails) =
+        crate::stairs::clipped_geometry(&spec, 0., Some(&area.vertices), area.z_range).unwrap();
+    assert!(!mesh.triangles.is_empty());
+    assert!(rails.is_empty());
+    for v in mesh.triangles.iter().flatten() {
+        assert!((1. - 1e-5..=3. + 1e-5).contains(&v.x));
+        assert!((0.2 - 1e-5..=0.8 + 1e-5).contains(&v.y));
+    }
+    plan_frame(&ctx, &mut app, vec![key(Key::F2, Modifiers::NONE)]);
+    assert_eq!(app.view, View::Plan);
+    // Selection-only F5 retains the whole object when no marquee exists.
+    app.host.document.editor.marquee = None;
+    app.host.document.editor.set_selection(vec![id]);
+    plan_frame(&ctx, &mut app, vec![key(Key::F5, Modifiers::NONE)]);
+    assert!(app.show_marquee_3d && app.host.document.editor.marquee.is_none());
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+    assert_eq!(app.host.document.editor.revision, revision);
+    assert_eq!(
+        serde_json::to_string(&app.host.document.editor.project).unwrap(),
+        saved
+    );
+}
+
+#[test]
+fn model_click_ignores_hidden_front_stair_without_changing_history() {
+    let (ctx, mut app) = setup();
+    let visible = app
+        .host
+        .document
+        .editor
+        .place_stair(crate::stairs::StairSpec::default())
+        .unwrap();
+    let hidden = app
+        .host
+        .document
+        .editor
+        .place_stair(crate::stairs::StairSpec {
+            start: Point::new(0., -2.),
+            end: Point::new(4.8, -2.),
+            ..Default::default()
+        })
+        .unwrap();
+    let layer = app
+        .host
+        .document
+        .editor
+        .project
+        .layers
+        .new_layer("Hidden foreground", None);
+    app.host
+        .document
+        .editor
+        .project
+        .elements
+        .iter_mut()
+        .find(|e| e.id == hidden)
+        .unwrap()
+        .layer = crate::layers::ElementLayer(layer);
+    app.host
+        .document
+        .editor
+        .project
+        .layers
+        .layer_mut(layer)
+        .unwrap()
+        .status
+        .visible = false;
+    app.host.document.editor.set_tool(Tool::Select);
+    app.host.document.editor.set_selection(vec![]);
+    app.camera = geometry::Camera {
+        yaw: -std::f64::consts::FRAC_PI_2,
+        pitch: 0.,
+        span: 10.,
+        target: glam::DVec3::new(2.3, -1., 1.5),
+    };
+    let before = app.host.document.editor.project.clone();
+    let revision = app.host.document.editor.revision;
+    let history = app.host.document.editor.undo.len();
+    click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![visible]);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, revision);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+}
+
+#[test]
+fn model_click_uses_current_selection_only_and_marquee_candidate_set() {
+    let (ctx, mut app) = setup();
+    let rear = app
+        .host
+        .document
+        .editor
+        .place_stair(crate::stairs::StairSpec::default())
+        .unwrap();
+    let front = app
+        .host
+        .document
+        .editor
+        .place_stair(crate::stairs::StairSpec {
+            start: Point::new(0., -2.),
+            end: Point::new(4.8, -2.),
+            ..Default::default()
+        })
+        .unwrap();
+    app.host.document.editor.set_tool(Tool::Select);
+    app.camera = geometry::Camera {
+        yaw: -std::f64::consts::FRAC_PI_2,
+        pitch: 0.,
+        span: 10.,
+        target: glam::DVec3::new(2.3, -1., 1.5),
+    };
+    let before = app.host.document.editor.project.clone();
+    let revision = app.host.document.editor.revision;
+    let history = app.host.document.editor.undo.len();
+    app.show_marquee_3d = true;
+    app.host.document.editor.set_selection(vec![rear]);
+    click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![rear]);
+    app.host.document.editor.marquee = MarqueeArea::new(
+        vec![
+            Point::new(-1., -0.5),
+            Point::new(6., -0.5),
+            Point::new(6., 2.),
+            Point::new(-1., 2.),
+        ],
+        MarqueeScope::CurrentStory,
+        0,
+    );
+    app.host.document.editor.set_selection(vec![]);
+    click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![rear]);
+    app.marquee_outside = true;
+    click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![front]);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, revision);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+}
+
+#[test]
+fn model_click_rejects_clipped_away_stair_but_selects_cut_cap() {
+    let (ctx, mut app) = setup();
+    let id = app
+        .host
+        .document
+        .editor
+        .place_stair(crate::stairs::StairSpec::default())
+        .unwrap();
+    app.host.document.editor.set_tool(Tool::Select);
+    app.host.document.editor.set_selection(vec![]);
+    app.show_marquee_3d = true;
+    app.host.document.editor.marquee = MarqueeArea::new(
+        vec![
+            Point::new(3., -1.),
+            Point::new(6., -1.),
+            Point::new(6., 2.),
+            Point::new(3., 2.),
+        ],
+        MarqueeScope::CurrentStory,
+        0,
+    );
+    let before = app.host.document.editor.project.clone();
+    let history = app.host.document.editor.undo.len();
+    let revision = app.host.document.editor.revision;
+    app.camera = geometry::Camera {
+        yaw: -std::f64::consts::FRAC_PI_2,
+        pitch: 0.,
+        span: 10.,
+        target: glam::DVec3::new(2.3, 0.5, 1.5),
+    };
+    click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+    assert!(app.host.document.editor.selection_ids().is_empty());
+    app.camera = geometry::Camera {
+        yaw: std::f64::consts::PI,
+        pitch: 0.,
+        span: 10.,
+        target: glam::DVec3::new(3., 0.5, 2.),
+    };
+    click_model(&ctx, &mut app, pos2(400., 300.), PointerButton::Primary);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+    assert_eq!(app.host.document.editor.revision, revision);
+}
+
+#[test]
+fn clipped_wall_reference_hits_keep_original_nodes_and_ignore_removed_edges() {
+    let (ctx, mut app) = setup();
+    let id = app
+        .host
+        .document
+        .editor
+        .place_wall_segments(vec![(Point::new(-3., 0.), Point::new(3., 0.))])
+        .unwrap()[0];
+    app.host.document.editor.set_tool(Tool::Select);
+    app.host.document.editor.set_selection(vec![id]);
+    app.camera.target = glam::DVec3::new(0., 0., 1.5);
+    app.camera.span = 12.;
+    app.show_marquee_3d = true;
+    app.host.document.editor.marquee = MarqueeArea::new(
+        vec![
+            Point::new(0., -1.),
+            Point::new(4., -1.),
+            Point::new(4., 1.),
+            Point::new(0., 1.),
+        ],
+        MarqueeScope::CurrentStory,
+        0,
+    );
+    let r = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+    let removed = app.wall_project_point(r, Point::new(-2., 0.), 3.).unwrap();
+    assert!(app.selected_wall_model_edge(r, removed).is_none());
+    let retained = app.wall_project_point(r, Point::new(2., 0.), 3.).unwrap();
+    assert_eq!(app.selected_wall_model_edge(r, retained).unwrap().1, None);
+    let cut = app.wall_project_point(r, Point::new(0., 0.), 3.).unwrap();
+    assert_eq!(app.selected_wall_model_edge(r, cut).unwrap().1, None);
+    let original = app.wall_project_point(r, Point::new(3., 0.), 3.).unwrap();
+    assert_eq!(
+        app.selected_wall_model_edge(r, original).unwrap().1,
+        Some(1)
+    );
+    let output = model_frame_output(&ctx, &mut app, vec![]);
+    let handles=output.shapes.iter().filter(|s|matches!(&s.shape,egui::Shape::Rect(rect) if rect.fill==Color32::BLACK && (rect.rect.width()-WALL_REFERENCE_HANDLE_SIZE).abs()<0.01 && (rect.rect.height()-WALL_REFERENCE_HANDLE_SIZE).abs()<0.01)).count();
+    assert_eq!(
+        handles, 1,
+        "only the retained original endpoint gets a node handle"
+    );
+    let before = app.host.document.editor.project.clone();
+    let history = app.host.document.editor.undo.len();
+    click_model(&ctx, &mut app, removed, PointerButton::Primary);
+    assert!(app.wall_insert.is_none());
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+}
+
+#[test]
+fn clipped_or_hidden_selected_wall_junction_cannot_start_model_edit() {
+    let (_, mut app) = setup();
+    let ids = junction_fixture(&mut app, 3);
+    app.host.document.editor.set_selection(ids.clone());
+    app.camera.target = glam::DVec3::new(0., 0., 1.5);
+    app.camera.span = 12.;
+    let r = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+    let junction = app.wall_project_point(r, Point::default(), 3.).unwrap();
+    assert!(app.selected_wall_junction_model(r, junction).is_some());
+    app.show_marquee_3d = true;
+    app.host.document.editor.marquee = MarqueeArea::new(
+        vec![
+            Point::new(1., -3.),
+            Point::new(6., -3.),
+            Point::new(6., 3.),
+            Point::new(1., 3.),
+        ],
+        MarqueeScope::CurrentStory,
+        0,
+    );
+    assert!(app.selected_wall_junction_model(r, junction).is_none());
+    app.show_marquee_3d = false;
+    let layer = app
+        .host
+        .document
+        .editor
+        .project
+        .layers
+        .new_layer("Hidden junction branches", None);
+    for e in &mut app.host.document.editor.project.elements {
+        if ids[1..].contains(&e.id) {
+            e.layer = crate::layers::ElementLayer(layer);
+        }
+    }
+    app.host
+        .document
+        .editor
+        .project
+        .layers
+        .layer_mut(layer)
+        .unwrap()
+        .status
+        .visible = false;
+    assert!(app.selected_wall_junction_model(r, junction).is_none());
+}
+
+#[test]
+fn polygon_slab_workspace_method_click_closure_and_history_bilingual() {
+    use crate::slab_creation::SlabGeometryMethod;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Slab")).unwrap(),
+        );
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Polygonal")).unwrap(),
+        );
+        assert_eq!(
+            app.host.document.editor.slab_method,
+            SlabGeometryMethod::Polygonal
+        );
+        let before = app.host.document.editor.project.clone();
+        for p in [pos2(550., 500.), pos2(720., 500.), pos2(720., 650.)] {
+            layers_click(&ctx, &mut app, p);
+        }
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .slab_polygon_draft()
+                .unwrap()
+                .points()
+                .len(),
+            3
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let previous = app.host.document.editor.slab_polygon_draft().cloned();
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Rectangular")).unwrap(),
+        );
+        assert_eq!(
+            app.host.document.editor.slab_polygon_draft(),
+            previous.as_ref()
+        );
+        assert_eq!(
+            app.host.document.editor.slab_method,
+            SlabGeometryMethod::Polygonal
+        );
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        assert!(app.host.document.editor.slab_polygon_draft().is_none());
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        let after = app.host.document.editor.project.clone();
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
+        let loaded: Project =
+            serde_json::from_str(&serde_json::to_string(&after).unwrap()).unwrap();
+        assert_eq!(loaded, after);
+    }
+}
+
+#[test]
+fn polygon_slab_numeric_enter_preview_create_and_cancel_bilingual() {
+    use crate::slab_creation::SlabGeometryMethod;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Slab);
+        app.host.document.editor.slab_method = SlabGeometryMethod::Polygonal;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        let before = app.host.document.editor.project.clone();
+        let frozen = app.host.document.editor.slab_polygon_draft().cloned();
+        app.polygon_creation_length = -1.;
+        app.polygon_creation_angle = 0.;
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+        assert_eq!(
+            app.host.document.editor.slab_polygon_draft(),
+            frozen.as_ref()
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        for (length, angle) in [(4.000001, 0.), (3., 90.)] {
+            app.polygon_creation_length = length;
+            app.polygon_creation_angle = angle;
+            app.tracker_locked = true;
+            let target = app.polygon_creation_target(Point::new(99., 99.)).unwrap();
+            assert_eq!(
+                app.base_target(Point::new(99., 99.), false).0,
+                target.model_point()
+            );
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .slab_polygon_draft()
+                    .unwrap()
+                    .precise_points()
+                    .last(),
+                Some(&target)
+            );
+        }
+        assert_eq!(app.host.document.editor.project, before);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Create")).unwrap(),
+        );
+        assert!(app.host.document.editor.slab_polygon_draft().is_none());
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.host.document.editor.undo();
+        let redo = app.host.document.editor.redo.len();
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.host.document.editor.slab_polygon_draft().is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.redo.len(), redo);
+    }
+}
+
+#[test]
+fn polygon_slab_free_mouse_keeps_precise_transform_and_shared_start_order() {
+    use crate::slab_creation::SlabGeometryMethod;
+    for angle in [0., 37.5] {
+        for reverse in [false, true] {
+            let (ctx, mut app) = setup();
+            app.host.document.editor.set_tool(Tool::Slab);
+            app.host.document.editor.slab_method = SlabGeometryMethod::Polygonal;
+            app.host.document.editor.snap = false;
+            app.plan_center = Point::new(f64::from(6.2067575_f32), f64::from(25.858158_f32));
+            app.plan_scale = f64::from(5.216719_f32);
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .orientation_degrees = angle;
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .grid_snap_enabled = false;
+            app.host.document.editor.project.guide_settings.snap_enabled = false;
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            let mut nodes = vec![
+                pos2(400., 300.),
+                pos2(300., 200.),
+                pos2(500., 200.),
+                pos2(300., 400.),
+                pos2(500., 400.),
+            ];
+            if reverse {
+                nodes = vec![nodes[0], nodes[4], nodes[3], nodes[2], nodes[1]];
+            }
+            let expected: Vec<_> = nodes.iter().map(|p| app.world_precise(rect, *p)).collect();
+            plan_frame(&ctx, &mut app, vec![]);
+            for (i, p) in nodes.iter().enumerate() {
+                click(&ctx, &mut app, *p);
+                assert_eq!(
+                    app.host
+                        .document
+                        .editor
+                        .slab_polygon_draft()
+                        .unwrap()
+                        .precise_points(),
+                    &expected[..=i]
+                );
+            }
+            assert!(expected.iter().all(|p| p.x == p.model_point().x));
+            click(&ctx, &mut app, nodes[0]);
+            assert!(app.host.document.editor.slab_polygon_draft().is_none());
+            let contour = app.host.document.editor.project.elements[0]
+                .slab_contour
+                .as_ref()
+                .unwrap();
+            assert!(
+                contour
+                    .points
+                    .iter()
+                    .any(|p| p.distance(expected[1].model_point()) < 1e-7),
+                "angle={angle} reverse={reverse}"
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+        }
+    }
+}
+
+#[test]
+fn polygon_slab_concave_canvas_creation_and_locked_failure_recovery() {
+    use crate::slab_creation::SlabGeometryMethod;
+    use geo::Intersects;
+    for locked in [false, true] {
+        let (ctx, mut app) = setup();
+        app.host.document.editor.set_tool(Tool::Slab);
+        app.host.document.editor.slab_method = SlabGeometryMethod::Polygonal;
+        app.host.document.editor.snap = false;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = false;
+        app.host.document.editor.project.guide_settings.snap_enabled = false;
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let nodes = [
+            pos2(300., 200.),
+            pos2(500., 200.),
+            pos2(500., 300.),
+            pos2(400., 300.),
+            pos2(400., 400.),
+            pos2(300., 400.),
+        ];
+        plan_frame(&ctx, &mut app, vec![]);
+        for p in nodes {
+            click(&ctx, &mut app, p);
+        }
+        let layer = app
+            .host
+            .document
+            .editor
+            .project
+            .layers
+            .new_layer("Polygon layer", None);
+        app.host.document.editor.slab_layer = crate::layers::ElementLayer(layer);
+        if locked {
+            app.host
+                .document
+                .editor
+                .project
+                .layers
+                .layers
+                .iter_mut()
+                .find(|l| l.id == layer)
+                .unwrap()
+                .status
+                .locked = true;
+        }
+        let before = app.host.document.editor.project.clone();
+        let frozen = app.host.document.editor.slab_polygon_draft().cloned();
+        click(&ctx, &mut app, nodes[0]);
+        if locked {
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(
+                app.host.document.editor.slab_polygon_draft(),
+                frozen.as_ref()
+            );
+            assert!(app.host.document.editor.undo.is_empty());
+            app.host
+                .document
+                .editor
+                .project
+                .layers
+                .layers
+                .iter_mut()
+                .find(|l| l.id == layer)
+                .unwrap()
+                .status
+                .locked = false;
+            click(&ctx, &mut app, nodes[0]);
+        }
+        assert!(app.host.document.editor.slab_polygon_draft().is_none());
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        let e = &app.host.document.editor.project.elements[0];
+        assert!(!{
+            let p = app.world(rect, pos2(450., 350.));
+            crate::slab_geometry::polygon(e).intersects(&geo::Point::new(p.x as f64, p.y as f64))
+        });
+        assert!({
+            let p = app.world(rect, pos2(350., 350.));
+            crate::slab_geometry::polygon(e).intersects(&geo::Point::new(p.x as f64, p.y as f64))
+        });
+    }
+}
+
+#[test]
+fn polygon_slab_two_node_closure_preserves_draft_then_recovers() {
+    use crate::slab_creation::SlabGeometryMethod;
+    let (ctx, mut app) = setup();
+    app.host.document.editor.set_tool(Tool::Slab);
+    app.host.document.editor.slab_method = SlabGeometryMethod::Polygonal;
+    app.host.document.editor.snap = false;
+    app.host
+        .document
+        .editor
+        .project
+        .grid_settings
+        .grid_snap_enabled = false;
+    app.host.document.editor.project.guide_settings.snap_enabled = false;
+    plan_frame(&ctx, &mut app, vec![]);
+    let before = app.host.document.editor.project.clone();
+    for p in [pos2(300., 200.), pos2(500., 200.)] {
+        click(&ctx, &mut app, p);
+    }
+    let frozen = app.host.document.editor.slab_polygon_draft().cloned();
+    click(&ctx, &mut app, pos2(300., 200.));
+    assert_eq!(
+        app.host.document.editor.slab_polygon_draft(),
+        frozen.as_ref()
+    );
+    assert_eq!(app.host.document.editor.project, before);
+    assert!(app.host.document.editor.undo.is_empty());
+    assert_eq!(
+        app.host.document.editor.status,
+        "Slab polygon needs at least three nodes"
+    );
+    click(&ctx, &mut app, pos2(400., 400.));
+    click(&ctx, &mut app, pos2(300., 200.));
+    assert!(app.host.document.editor.slab_polygon_draft().is_none());
+    assert_eq!(app.host.document.editor.project.elements.len(), 1);
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+}
+
+#[test]
+fn polygon_slab_zero_and_cancelled_winding_restore_start_and_preserve_real_redo() {
+    use crate::slab_creation::SlabGeometryMethod;
+    let cases = vec![
+        vec![pos2(300., 200.), pos2(400., 200.), pos2(500., 200.)],
+        vec![
+            pos2(250., 150.),
+            pos2(350., 250.),
+            pos2(550., 250.),
+            pos2(550., 450.),
+            pos2(350., 450.),
+            pos2(350., 250.),
+            pos2(350., 450.),
+            pos2(550., 450.),
+            pos2(550., 250.),
+            pos2(350., 250.),
+        ],
+    ];
+    for nodes in cases {
+        let (ctx, mut app) = setup();
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(20., 20.))
+            .unwrap();
+        app.host.document.editor.undo();
+        let before = app.host.document.editor.project.clone();
+        let redo = app.host.document.editor.redo.len();
+        assert!(redo > 0);
+        app.host.document.editor.set_tool(Tool::Slab);
+        app.host.document.editor.slab_method = SlabGeometryMethod::Polygonal;
+        app.host.document.editor.snap = false;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = false;
+        app.host.document.editor.project.guide_settings.snap_enabled = false;
+        let before = {
+            let _ = before;
+            app.host.document.editor.project.clone()
+        };
+        plan_frame(&ctx, &mut app, vec![]);
+        for &p in &nodes {
+            click(&ctx, &mut app, p);
+        }
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .slab_polygon_draft()
+                .unwrap()
+                .points()
+                .len(),
+            nodes.len()
+        );
+        click(&ctx, &mut app, nodes[0]);
+        assert!(app.host.document.editor.slab_polygon_draft().is_none());
+        assert!(app.host.document.editor.anchor.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert_eq!(app.host.document.editor.redo.len(), redo);
+        for p in [
+            pos2(300., 200.),
+            pos2(500., 200.),
+            pos2(400., 400.),
+            pos2(300., 200.),
+        ] {
+            click(&ctx, &mut app, p);
+        }
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert!(app.host.document.editor.redo.is_empty());
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+    }
+}
+
+#[test]
+fn polygon_slab_normal_cancel_escape_and_tool_exit_preserve_redo_bilingual() {
+    use crate::slab_creation::SlabGeometryMethod;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for exit in 0..3 {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host
+                .document
+                .editor
+                .place_column(Point::new(20., 20.))
+                .unwrap();
+            let redo_project = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            let before = app.host.document.editor.project.clone();
+            app.host.document.editor.set_tool(Tool::Slab);
+            app.host.document.editor.slab_method = SlabGeometryMethod::Polygonal;
+            layers_frame_output(&ctx, &mut app, vec![]);
+            layers_click(&ctx, &mut app, pos2(550., 500.));
+            layers_click(&ctx, &mut app, pos2(700., 550.));
+            app.tracker_locked = true;
+            app.polygon_creation_length = 1.;
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            match exit {
+                0 => layers_click(
+                    &ctx,
+                    &mut app,
+                    text_center(&output.shapes, language.translate("Cancel")).unwrap(),
+                ),
+                1 => {
+                    layers_frame_output(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+                }
+                _ => layers_click(
+                    &ctx,
+                    &mut app,
+                    text_center(&output.shapes, language.translate("Wall")).unwrap(),
+                ),
+            }
+            assert!(app.host.document.editor.slab_polygon_draft().is_none());
+            assert!(app.host.document.editor.anchor.is_none());
+            assert!(!app.tracker_locked);
+            assert_eq!(app.host.document.editor.project, before);
+            assert!(app.host.document.editor.undo.is_empty());
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, redo_project);
+        }
+    }
+}
+
+#[test]
+fn polygon_roof_workspace_entry_closure_and_history_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.snap = false;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Roof")).unwrap(),
+        );
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Polygonal")).unwrap(),
+        );
+        assert_eq!(
+            app.host.document.editor.roof_method,
+            crate::roof::RoofGeometryMethod::Polygonal
+        );
+        let before = app.host.document.editor.project.clone();
+        for p in [pos2(550., 700.), pos2(750., 700.), pos2(650., 600.)] {
+            layers_click(&ctx, &mut app, p);
+        }
+        assert!(
+            app.host
+                .document
+                .editor
+                .roof_polygon_draft()
+                .unwrap()
+                .points()
+                .is_empty()
+        );
+        let pivot = app.host.document.editor.roof_draft.unwrap().pivot();
+        for p in [
+            pos2(550., 500.),
+            pos2(750., 500.),
+            pos2(750., 600.),
+            pos2(650., 550.),
+            pos2(550., 600.),
+        ] {
+            layers_click(&ctx, &mut app, p);
+        }
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .roof_polygon_draft()
+                .unwrap()
+                .points()
+                .len(),
+            5
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let frozen = app.host.document.editor.roof_polygon_draft().cloned();
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Rectangular")).unwrap(),
+        );
+        assert_eq!(
+            app.host.document.editor.roof_polygon_draft(),
+            frozen.as_ref()
+        );
+        assert_eq!(
+            app.host.document.editor.roof_method,
+            crate::roof::RoofGeometryMethod::Polygonal
+        );
+        layers_click(&ctx, &mut app, pos2(550., 500.));
+        assert!(app.host.document.editor.roof_polygon_draft().is_none());
+        assert!(app.host.document.editor.roof_draft.is_none());
+        assert_eq!(app.host.document.editor.project.elements.len(), 1);
+        let Shape::Roof { spec } = &app.host.document.editor.project.elements[0].shape else {
+            panic!("roof")
+        };
+        assert_eq!(spec.contour.as_ref().unwrap().outer.len(), 5);
+        assert_eq!((spec.pivot_start, Some(spec.pivot_end)), pivot);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let after = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, after);
+        assert_eq!(
+            serde_json::from_str::<Project>(&serde_json::to_string(&after).unwrap()).unwrap(),
+            after
+        );
+    }
+}
+
+#[test]
+fn polygon_roof_numeric_preview_failure_recovery_and_create_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.set_tool(Tool::Roof);
+        app.host.document.editor.roof_method = crate::roof::RoofGeometryMethod::Polygonal;
+        layers_frame_output(&ctx, &mut app, vec![]);
+        for p in [
+            pos2(550., 700.),
+            pos2(750., 700.),
+            pos2(650., 600.),
+            pos2(550., 500.),
+        ] {
+            layers_click(&ctx, &mut app, p);
+        }
+        let frozen = app.host.document.editor.roof_polygon_draft().cloned();
+        app.polygon_creation_length = -1.;
+        layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+        assert_eq!(
+            app.host.document.editor.roof_polygon_draft(),
+            frozen.as_ref()
+        );
+        let mut final_preview = None;
+        for (length, angle) in [(4.000001, 0.), (3., 90.)] {
+            app.polygon_creation_length = length;
+            app.polygon_creation_angle = angle;
+            app.tracker_locked = true;
+            let target = app.polygon_creation_target(Point::new(99., 99.)).unwrap();
+            assert_eq!(
+                app.base_target(Point::new(99., 99.), false).0,
+                target.model_point()
+            );
+            let preview = app
+                .host
+                .document
+                .editor
+                .roof_polygon_draft()
+                .unwrap()
+                .precise_region_analysis(Some(target), app.host.document.editor.roof_size);
+            if app
+                .host
+                .document
+                .editor
+                .roof_polygon_draft()
+                .unwrap()
+                .points()
+                .len()
+                < 2
+            {
+                assert!(preview.is_err(), "two points do not define a roof region");
+            } else {
+                final_preview = Some(preview.unwrap());
+            }
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Enter, Modifiers::NONE)]);
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .roof_polygon_draft()
+                    .unwrap()
+                    .precise_points()
+                    .last(),
+                Some(&target)
+            );
+        }
+        let preview = final_preview.unwrap();
+        let crate::slab_geometry::CreationRegionChoice::Unique(index) = *preview.choice() else {
+            panic!("unique")
+        };
+        let layer = app
+            .host
+            .document
+            .editor
+            .project
+            .layers
+            .new_layer("Roof polygon layer", None);
+        app.host.document.editor.roof_layer = crate::layers::ElementLayer(layer);
+        app.host
+            .document
+            .editor
+            .project
+            .layers
+            .layers
+            .iter_mut()
+            .find(|l| l.id == layer)
+            .unwrap()
+            .status
+            .locked = true;
+        let before = app.host.document.editor.project.clone();
+        let frozen = app.host.document.editor.roof_polygon_draft().cloned();
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Create")).unwrap(),
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(
+            app.host.document.editor.roof_polygon_draft(),
+            frozen.as_ref()
+        );
+        assert!(app.host.document.editor.undo.is_empty());
+        app.host
+            .document
+            .editor
+            .project
+            .layers
+            .layers
+            .iter_mut()
+            .find(|l| l.id == layer)
+            .unwrap()
+            .status
+            .locked = false;
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        layers_click(
+            &ctx,
+            &mut app,
+            text_center(&output.shapes, language.translate("Create")).unwrap(),
+        );
+        assert!(app.host.document.editor.roof_polygon_draft().is_none());
+        let Shape::Roof { spec } = &app.host.document.editor.project.elements[0].shape else {
+            panic!("roof")
+        };
+        assert_eq!(spec, &preview.candidates()[index]);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+    }
+}
+
+#[test]
+fn polygon_roof_precise_mouse_shared_start_order_and_zero_reset() {
+    for reverse in [false, true] {
+        let (ctx, mut app) = setup();
+        app.host.document.editor.set_tool(Tool::Roof);
+        app.host.document.editor.roof_method = crate::roof::RoofGeometryMethod::Polygonal;
+        app.host.document.editor.snap = false;
+        app.host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled = false;
+        app.host.document.editor.project.guide_settings.snap_enabled = false;
+        app.plan_center = Point::new(f64::from(6.2067575_f32), f64::from(25.858158_f32));
+        app.plan_scale = f64::from(5.216719_f32);
+        plan_frame(&ctx, &mut app, vec![]);
+        for p in [pos2(300., 500.), pos2(500., 500.), pos2(400., 450.)] {
+            click(&ctx, &mut app, p);
+        }
+        let mut nodes = vec![
+            pos2(400., 300.),
+            pos2(300., 200.),
+            pos2(500., 200.),
+            pos2(300., 400.),
+            pos2(500., 400.),
+        ];
+        if reverse {
+            nodes = vec![nodes[0], nodes[4], nodes[3], nodes[2], nodes[1]];
+        }
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let expected: Vec<_> = nodes.iter().map(|p| app.world_precise(rect, *p)).collect();
+        for (i, p) in nodes.iter().enumerate() {
+            click(&ctx, &mut app, *p);
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .roof_polygon_draft()
+                    .unwrap()
+                    .precise_points(),
+                &expected[..=i]
+            );
+        }
+        click(&ctx, &mut app, nodes[0]);
+        let Shape::Roof { spec } = &app.host.document.editor.project.elements[0].shape else {
+            panic!("roof")
+        };
+        assert!(
+            spec.contour
+                .as_ref()
+                .unwrap()
+                .outer
+                .iter()
+                .any(|p| p.distance(expected[1].model_point()) < 1e-7)
+        );
+        let redo = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        let before = app.host.document.editor.project.clone();
+        for p in [
+            pos2(300., 500.),
+            pos2(500., 500.),
+            pos2(400., 450.),
+            pos2(300., 200.),
+            pos2(400., 200.),
+            pos2(500., 200.),
+            pos2(300., 200.),
+        ] {
+            click(&ctx, &mut app, p);
+        }
+        assert!(app.host.document.editor.roof_polygon_draft().is_none());
+        assert!(app.host.document.editor.roof_draft.is_none());
+        assert!(app.host.document.editor.anchor.is_none());
+        assert_eq!(app.host.document.editor.project, before);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, redo);
+    }
+}
+
+#[test]
+fn polygon_roof_cancel_empty_and_partial_draft_preserves_real_redo_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for count in [0, 2] {
+            for exit in 0..3 {
+                let (ctx, mut app) = setup();
+                app.language = language;
+                app.host
+                    .document
+                    .editor
+                    .place_column(Point::new(20., 20.))
+                    .unwrap();
+                let redo = app.host.document.editor.project.clone();
+                app.host.document.editor.undo();
+                app.host.document.editor.set_tool(Tool::Roof);
+                app.host.document.editor.roof_method = crate::roof::RoofGeometryMethod::Polygonal;
+                layers_frame_output(&ctx, &mut app, vec![]);
+                for p in [pos2(550., 700.), pos2(750., 700.), pos2(650., 600.)] {
+                    layers_click(&ctx, &mut app, p);
+                }
+                for p in [pos2(550., 500.), pos2(700., 550.)].into_iter().take(count) {
+                    layers_click(&ctx, &mut app, p);
+                }
+                let before = app.host.document.editor.project.clone();
+                let frozen = app.host.document.editor.roof_polygon_draft().cloned();
+                if count == 2 {
+                    layers_click(&ctx, &mut app, pos2(550., 500.));
+                    assert_eq!(
+                        app.host.document.editor.roof_polygon_draft(),
+                        frozen.as_ref()
+                    );
+                    assert_eq!(
+                        app.host.document.editor.status,
+                        "Roof polygon needs at least three nodes"
+                    );
+                    app.tracker_locked = true;
+                }
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                match exit {
+                    0 => layers_click(
+                        &ctx,
+                        &mut app,
+                        text_center(&output.shapes, language.translate("Cancel")).unwrap(),
+                    ),
+                    1 => {
+                        layers_frame_output(
+                            &ctx,
+                            &mut app,
+                            vec![key(Key::Escape, Modifiers::NONE)],
+                        );
+                    }
+                    _ => layers_click(
+                        &ctx,
+                        &mut app,
+                        text_center(&output.shapes, language.translate("Wall")).unwrap(),
+                    ),
+                }
+                assert!(app.host.document.editor.roof_polygon_draft().is_none());
+                assert!(app.host.document.editor.roof_draft.is_none());
+                assert!(app.host.document.editor.anchor.is_none());
+                assert!(!app.tracker_locked);
+                assert_eq!(app.host.document.editor.project, before);
+                assert!(app.host.document.editor.undo.is_empty());
+                app.host.document.editor.redo();
+                assert_eq!(app.host.document.editor.project, redo);
+            }
+        }
+    }
+}
+
+#[test]
+fn roof_settings_derived_bounds_and_offset_apply_preserve_contour_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for explicit in [false, true] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let contour = crate::roof_contour::RoofContour {
+                outer: vec![
+                    Point::new(0., 0.),
+                    Point::new(6.375, 0.),
+                    Point::new(6.375, 2.),
+                    Point::new(2., 2.),
+                    Point::new(2., 5.),
+                    Point::new(0., 5.),
+                ],
+                holes: vec![vec![
+                    Point::new(0.5, 0.5),
+                    Point::new(1.5, 0.5),
+                    Point::new(1.5, 1.5),
+                    Point::new(0.5, 1.5),
+                ]],
+            };
+            let id = app
+                .host
+                .document
+                .editor
+                .place_roof(crate::roof::RoofSpec {
+                    contour: explicit.then_some(contour),
+                    pivot_start: Point::default(),
+                    pivot_end: Point::new(4., 0.),
+                    rise_left: true,
+                    min: Point::default(),
+                    max: Point::new(6.375, 5.),
+                    pitch: 30.,
+                    thickness: 0.2,
+                    pivot_offset: 1.25,
+                })
+                .unwrap();
+            app.host.document.editor.set_selection(vec![id]);
+            app.show_right = false;
+            app.open_element_settings();
+            let before = app.host.document.editor.project.clone();
+            let undo = app.host.document.editor.undo.len();
+            for _ in 0..3 {
+                layers_frame_output(&ctx, &mut app, vec![]);
+            }
+            let out = layers_frame_output(&ctx, &mut app, vec![]);
+            let field = text_center(&out.shapes, "6.375").expect("Max X");
+            layers_click(&ctx, &mut app, field);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("7.375".into())],
+            );
+            let out = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            let Shape::Roof { spec } = &app.element_settings.as_ref().unwrap().shape else {
+                panic!()
+            };
+            assert_eq!(spec.max.x, if explicit { 6.375 } else { 7.375 });
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.undo.len(), undo);
+            let field = text_center(&out.shapes, "1.250").expect("Pivot offset");
+            layers_click(&ctx, &mut app, field);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![key(Key::A, Modifiers::COMMAND), Event::Text("-0.75".into())],
+            );
+            let out = layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert_eq!(app.host.document.editor.project, before);
+            let apply = text_center(&out.shapes, language.translate("Apply")).unwrap();
+            layers_click(&ctx, &mut app, apply);
+            let mut expected = before.clone();
+            let Shape::Roof { spec } = &mut expected.elements[0].shape else {
+                panic!()
+            };
+            spec.pivot_offset = -0.75;
+            if !explicit {
+                spec.max.x = 7.375;
+            }
+            assert_eq!(app.host.document.editor.project, expected);
+            assert_eq!(app.host.document.editor.undo.len(), undo + 1);
+            app.host.document.editor.project.validate().unwrap();
+            let roundtrip: Project =
+                serde_json::from_str(&serde_json::to_string(&expected).unwrap()).unwrap();
+            assert_eq!(roundtrip, expected);
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, expected);
+        }
+    }
+}
+
+#[test]
+fn fit_large_diagonal_roof_keeps_real_vertices_inside_depth_clip() {
+    let (_ctx, mut app) = setup();
+    let raw =
+        include_str!("../../tests/fixtures/geometry/roof-consumer-delivery--diagonal-fixture.json");
+    app.host.document.editor.project =
+        crate::model::ModelAdapter::import(&storage::JsonAdapter, raw.as_bytes()).unwrap();
+    app.host.document.editor.project.validate().unwrap();
+    let before = app.host.document.editor.project.clone();
+    for yaw in [-1.05, 0., 2.] {
+        app.camera.yaw = yaw;
+        app.fit();
+        for aspect in [0.5, 1., 2.] {
+            app.fit_model_contents_for_aspect(aspect);
+            let matrix = app.camera.matrix(aspect);
+            let Shape::Roof { spec } = &app.host.document.editor.project.elements[0].shape else {
+                panic!()
+            };
+            let mesh = crate::roof::mesh(spec, 0., None, None).unwrap();
+            for v in mesh.triangles.iter().flatten() {
+                let p = matrix.project_point3(*v);
+                assert!(
+                    p.x.abs() < 1. && p.y.abs() < 1. && p.z > 0. && p.z < 1.,
+                    "{p:?} aspect={aspect}"
+                );
+            }
+        }
+    }
+    assert_eq!(app.host.document.editor.project, before);
+}
+
+#[test]
+fn roof_marquee_stretch_button_bilingual_commits_real_contour_and_preserves_redo_on_lock() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.project = crate::model::ModelAdapter::import(
+            &storage::JsonAdapter,
+            include_bytes!(
+                "../../tests/fixtures/geometry/roof-consumer-final--concave-hole-fixture.json"
+            ),
+        )
+        .unwrap();
+        app.host.document.editor.set_tool(Tool::Marquee);
+        app.show_right = false;
+        app.host.document.editor.marquee = MarqueeArea::new(
+            vec![
+                Point::new(-0.2, -0.2),
+                Point::new(6.2, -0.2),
+                Point::new(6.2, 2.2),
+                Point::new(2.2, 2.2),
+                Point::new(2.2, 6.2),
+                Point::new(-0.2, 6.2),
+            ],
+            MarqueeScope::CurrentStory,
+            0,
+        );
+        app.marquee_dx = 1.25;
+        app.marquee_dy = -0.75;
+        let before = app.host.document.editor.project.clone();
+        let undo = app.host.document.editor.undo.len();
+        for _ in 0..3 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let button = text_center(&out.shapes, language.translate("Stretch enclosed nodes"))
+            .expect("normal Marquee button");
+        layers_click(&ctx, &mut app, button);
+        let mut expected = before.clone();
+        expected.elements[0].translate(Point::new(1.25, -0.75));
+        assert_eq!(app.host.document.editor.project, expected);
+        assert_eq!(app.host.document.editor.undo.len(), undo + 1);
+        app.host.document.editor.undo();
+        assert_eq!(app.host.document.editor.project, before);
+        let id = app.host.document.editor.project.elements[0].id;
+        app.host
+            .document
+            .editor
+            .project
+            .edit_state
+            .locked
+            .insert(id);
+        let locked = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let button =
+            text_center(&out.shapes, language.translate("Stretch enclosed nodes")).unwrap();
+        layers_click(&ctx, &mut app, button);
+        assert_eq!(app.host.document.editor.project, locked);
+        assert_eq!(app.host.document.editor.revision, revision);
+        app.host
+            .document
+            .editor
+            .project
+            .edit_state
+            .locked
+            .remove(&id);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, expected);
+    }
+}
+
+#[test]
+fn exact_minimum_wall_pointer_recovers_from_undersize_at_large_origins_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for origin in [0., 99900., -99900.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            app.host.document.editor = Editor::new(Project::default());
+            app.host.document.editor.set_tool(Tool::Wall);
+            app.host.document.editor.snap = false;
+            app.host
+                .document
+                .editor
+                .project
+                .grid_settings
+                .grid_snap_enabled = false;
+            app.host.document.editor.project.guide_settings.snap_enabled = false;
+            app.host
+                .document
+                .editor
+                .project
+                .guide_settings
+                .guide_lines_enabled = false;
+            app.plan_center = Point::new(origin, origin);
+            app.plan_scale = 400.;
+            let before = app.host.document.editor.project.clone();
+            plan_frame(&ctx, &mut app, vec![]);
+            click(&ctx, &mut app, pos2(400., 300.));
+            click(&ctx, &mut app, pos2(403.9996, 300.));
+            assert_eq!(
+                app.host.document.editor.project, before,
+                "undersize {origin}"
+            );
+            assert!(app.host.document.editor.anchor.is_some());
+            click(&ctx, &mut app, pos2(404., 300.));
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                1,
+                "exact minimum {origin}"
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            app.host.document.editor.project.validate().unwrap();
+            let after = app.host.document.editor.project.clone();
+            app.host.document.editor.undo();
+            assert_eq!(app.host.document.editor.project, before);
+            app.host.document.editor.redo();
+            assert_eq!(app.host.document.editor.project, after);
+        }
+    }
+}
+
+#[test]
+fn kernel_wall_batch_preview_miters_whole_chain_without_committing_or_reserving_ids_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.thickness = 0.4;
+        app.host.document.editor.height = 3.;
+        let segments = vec![
+            (Point::new(0., 0.), Point::new(4., 0.)),
+            (Point::new(4., 0.), Point::new(4., 3.)),
+        ];
+        let before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(rect),
+                ..Default::default()
+            },
+            |ui| app.paint_wall_batch_preview(ui.painter(), rect, segments.clone()),
+        );
+        output.textures_delta.clear();
+        let meshes: Vec<_> = output
+            .shapes
+            .iter()
+            .filter_map(|s| {
+                if let egui::Shape::Mesh(m) = &s.shape {
+                    Some(m)
+                } else {
+                    None
+                }
+            })
+            .collect();
+        assert_eq!(meshes.len(), 2);
+        // A separately previewed butt-ended wall never contains this shared outside miter.
+        let miter = app.screen(rect, Point::new(4.2, -0.2));
+        assert!(
+            meshes
+                .iter()
+                .flat_map(|m| &m.vertices)
+                .any(|v| v.pos.distance(miter) < 0.001)
+        );
+        let area: f64 = meshes
+            .iter()
+            .flat_map(|m| {
+                m.indices.chunks_exact(3).map(|t| {
+                    let [a, b, c] = [t[0], t[1], t[2]].map(|i| m.vertices[i as usize].pos);
+                    f64::from((b - a).rot90().dot(c - a).abs()) / 2. / app.plan_scale.powi(2)
+                })
+            })
+            .sum();
+        assert!((area - 2.8).abs() < 1e-5, "{area}");
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert!(app.host.document.editor.undo.is_empty());
+        let mut invalid = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(rect),
+                ..Default::default()
+            },
+            |ui| {
+                app.paint_wall_batch_preview(
+                    ui.painter(),
+                    rect,
+                    vec![(Point::default(), Point::new(0.005, 0.))],
+                )
+            },
+        );
+        invalid.textures_delta.clear();
+        assert!(
+            !invalid
+                .shapes
+                .iter()
+                .any(|s| matches!(s.shape, egui::Shape::Mesh(_)))
+        );
+        app.host
+            .document
+            .editor
+            .place_wall_segments(segments)
+            .unwrap();
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .elements
+                .iter()
+                .map(|e| e.id)
+                .collect::<Vec<_>>(),
+            vec![before.next_id, before.next_id + 1]
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+    }
+}
+
+#[test]
+fn kernel_wall_curved_trace_shared_fill_keeps_empty_center_and_readonly_state_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor.thickness = 0.3;
+        app.host.document.editor.height = 3.;
+        app.host
+            .document
+            .editor
+            .place_wall_segments(vec![(Point::new(4., 0.), Point::new(0., 4.))])
+            .unwrap();
+        let mut wall = app.host.document.editor.project.elements[0].clone();
+        wall.wall_contour = Some(crate::model::WallContour::Arc {
+            arc: crate::model::ArcSegment {
+                radius: 4.,
+                clockwise: false,
+                large_arc: false,
+            },
+        });
+        app.host.document.editor.replace_element(wall).unwrap();
+        app.host
+            .document
+            .editor
+            .place_opening_on_wall(OpeningKind::Window, 1, 3., OpeningKind::Window.defaults())
+            .unwrap();
+        app.trace.enabled = true;
+        app.trace.reference = TraceReference::Story(0);
+        app.trace.rotation_deg = -25.;
+        app.trace.offset = Point::new(0.7, -0.2);
+        let before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let history = app.host.document.editor.undo.len();
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+        let pivot = app.trace_reference_pivot(TraceSelection::Story(0), &[&before.elements[0]]);
+        let center = app.screen(rect, app.trace.transform(Point::default(), pivot));
+        for transparent in [false, true] {
+            app.trace.transparent_fills = transparent;
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(rect),
+                    ..Default::default()
+                },
+                |ui| app.paint_trace_reference(ui.painter(), rect, None),
+            );
+            output.textures_delta.clear();
+            let meshes: Vec<_> = output
+                .shapes
+                .iter()
+                .filter_map(|s| {
+                    if let egui::Shape::Mesh(m) = &s.shape {
+                        Some(m)
+                    } else {
+                        None
+                    }
+                })
+                .collect();
+            assert_eq!(meshes.len(), 1);
+            let mut area = 0.;
+            for t in meshes[0].indices.chunks_exact(3) {
+                let [a, b, c] = [t[0], t[1], t[2]].map(|i| meshes[0].vertices[i as usize].pos);
+                assert!(!geometry::point_in_polygon(
+                    Point::new(center.x.into(), center.y.into()),
+                    &[a, b, c].map(|q| Point::new(q.x.into(), q.y.into()))
+                ));
+                area += f64::from((b - a).rot90().dot(c - a).abs()) / 2. / app.plan_scale.powi(2);
+            }
+            let analytic = 4. * std::f64::consts::FRAC_PI_2 * 0.3;
+            assert!(
+                (area - analytic).abs() < 0.003,
+                "gross symbolic footprint {area} vs {analytic}"
+            );
+            assert!(
+                meshes[0]
+                    .vertices
+                    .iter()
+                    .all(|v| (v.color.a() == 0) == transparent)
+            );
+        }
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn kernel_polyline_fit_and_trace_use_curve_extrema_and_sampled_path_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for origin in [0., 99900., -99900.] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let at = |degrees: f64| {
+                Point::new(
+                    origin + 4. * degrees.to_radians().cos(),
+                    origin + 4. * degrees.to_radians().sin(),
+                )
+            };
+            let id = app
+                .host
+                .document
+                .editor
+                .place_polyline(
+                    vec![at(11.), at(107.)],
+                    vec![Some(crate::model::ArcSegment {
+                        radius: 4.,
+                        clockwise: false,
+                        large_arc: false,
+                    })],
+                )
+                .unwrap();
+            let before = app.host.document.editor.project.clone();
+            let revision = app.host.document.editor.revision;
+            let history = app.host.document.editor.undo.len();
+            let selection = app.host.document.editor.selection_ids();
+            app.fit();
+            assert!((app.plan_center.y - (at(11.).y + origin + 4.) / 2.).abs() < 1e-9);
+            assert!((app.plan_center.x - (at(107.).x + at(11.).x) / 2.).abs() < 1e-9);
+            app.trace.enabled = true;
+            app.trace.reference = TraceReference::Story(0);
+            app.trace.rotation_deg = -17.;
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            let pivot = app.trace_reference_pivot(TraceSelection::Story(0), &[&before.elements[0]]);
+            let g = app.host.document.editor.polyline_geometry(id).unwrap();
+            let expected: Vec<_> = g
+                .geometry
+                .plan_path
+                .iter()
+                .map(|p| app.screen(rect, app.trace.transform(*p, pivot)))
+                .collect();
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(rect),
+                    ..Default::default()
+                },
+                |ui| app.paint_trace_reference(ui.painter(), rect, None),
+            );
+            output.textures_delta.clear();
+            assert!(
+                output
+                    .shapes
+                    .iter()
+                    .any(|s| matches!(&s.shape,egui::Shape::Path(p) if p.points==expected))
+            );
+            assert!(
+                !output
+                    .shapes
+                    .iter()
+                    .any(|s| matches!(s.shape, egui::Shape::Mesh(_)))
+            );
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.document.editor.revision, revision);
+            assert_eq!(app.host.document.editor.undo.len(), history);
+            assert_eq!(app.host.document.editor.selection_ids(), selection);
+        }
+    }
+}
+
+#[test]
+fn checked_geometry_errors_are_bilingual_in_status_canvas_and_plan_without_model_edits() {
+    use crate::{derived_geometry::GeometryDiagnostic, geometry_validation::compatibility_message};
+    let (ctx, mut app) = setup();
+    let before = app.host.document.editor.project.clone();
+    let revision = app.host.document.editor.revision;
+    let undo = app.host.document.editor.undo.len();
+    let selection = app.host.document.editor.selection_ids();
+    let diagnostic = GeometryDiagnostic::error(
+        42,
+        "INVALID_POLYLINE_GEOMETRY",
+        "curve",
+        "Nonfinite intermediate radius",
+    );
+    app.host.document.editor.status = compatibility_message(&diagnostic);
+    for language in [
+        UiLanguage::English,
+        UiLanguage::SimplifiedChinese,
+        UiLanguage::English,
+    ] {
+        app.language = language;
+        let reason = language.geometry_diagnostic_message(&diagnostic);
+        assert_eq!(app.status_text(), reason);
+        assert_eq!(
+            localized_error(language, &app.host.document.editor.status),
+            reason
+        );
+        assert!(!reason.contains("INVALID_POLYLINE"));
+        assert!(!reason.contains("Nonfinite"));
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 600.))),
+                ..Default::default()
+            },
+            |ui| {
+                let r = ui.available_rect_before_wrap();
+                AtelierApp::show_geometry_diagnostics(
+                    ui,
+                    r,
+                    std::slice::from_ref(&diagnostic),
+                    language,
+                );
+            },
+        );
+        let mut labels = Vec::new();
+        collect_text(&output.shapes, &mut labels);
+        assert!(
+            labels.iter().any(|s| s
+                == &language
+                    .translate("Geometry display errors: {count}")
+                    .replace("{count}", "1")),
+            "{labels:?}"
+        );
+        assert!(labels.iter().any(|s| s == &reason), "{labels:?}");
+        output.textures_delta.clear();
+        let mut output = ctx.run_ui(RawInput::default(), |ui| {
+            AtelierApp::paint_geometry_error(ui.painter(), language, &diagnostic)
+        });
+        let mut labels = Vec::new();
+        collect_text(&output.shapes, &mut labels);
+        assert!(labels.iter().any(|s| s == &reason));
+        output.textures_delta.clear();
+        app.file_action = Some(FileAction::Open);
+        app.file_error = app.host.document.editor.status.clone();
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&output.shapes, &reason).is_some());
+        app.file_action = None;
+    }
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, revision);
+    assert_eq!(app.host.document.editor.undo.len(), undo);
+    assert_eq!(app.host.document.editor.selection_ids(), selection);
+}
+
+#[test]
+fn cached_inspector_quantity_is_bilingual_and_keeps_parameter_draft_measure_current() {
+    let (ctx, mut app) = setup();
+    let id = app
+        .host
+        .document
+        .editor
+        .place_polyline(vec![Point::new(0., 0.), Point::new(2., 0.)], vec![])
+        .unwrap();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
+    let revision = app.host.document.editor.revision;
+    let history = app.host.document.editor.undo.len();
+    let original = app
+        .host
+        .document
+        .editor
+        .project
+        .elements
+        .iter()
+        .find(|e| e.id == id)
+        .unwrap()
+        .clone();
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        app.language = language;
+        app.draft_id = Some(id);
+        app.draft_source = Some(original.clone());
+        app.draft = Some(original.clone());
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 1200.))),
+                ..Default::default()
+            },
+            |ui| app.properties(ui),
+        );
+        let label = format!("{} · 2.00 m", language.translate(original.material.name()));
+        assert!(text_center(&output.shapes, &label).is_some());
+        output.textures_delta.clear();
+        if let Shape::Polyline { points, .. } = &mut app.draft.as_mut().unwrap().shape {
+            points[1] = Point::new(3., 0.);
+        }
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(800., 1200.))),
+                ..Default::default()
+            },
+            |ui| app.properties(ui),
+        );
+        let label = format!("{} · 3.00 m", language.translate(original.material.name()));
+        assert!(text_center(&output.shapes, &label).is_some());
+        output.textures_delta.clear();
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn rejected_open_and_cancelled_save_as_keep_active_path_and_protect_target_bilingual() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let id = shortcut_test_wall(&mut app);
+        let dir =
+            std::env::temp_dir().join(format!("oa-file-draft-{}-{language:?}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let source = dir.join("active.json");
+        let rejected = dir.join("rejected.json");
+        app.path = source.display().to_string();
+        app.save_project().unwrap();
+        let mut bad = app.host.document.editor.project.clone();
+        bad.schema_version = 999;
+        let rejected_bytes = serde_json::to_vec_pretty(&bad).unwrap();
+        std::fs::write(&rejected, &rejected_bytes).unwrap();
+        let initial = app.host.document.editor.project.clone();
+        app.host.document.editor.project.name = "unsaved source edit".into();
+        app.host.document.editor.commit(initial);
+        let expected = app.host.document.editor.project.clone();
+        app.host.document.editor.project.name = "actual redo result".into();
+        app.host.document.editor.commit(expected.clone());
+        let redo_result = app.host.document.editor.project.clone();
+        app.host.document.editor.undo();
+        app.host.document.editor.set_selection(vec![id]);
+        let session = app.host.document.editor.document_session();
+        let revision = app.host.document.editor.revision;
+        let baseline = app.file_baseline.clone();
+        let saved = app.host.document.editor.saved.clone();
+        let undo = app.host.document.editor.undo[0].delta.clone();
+        let redo = app.host.document.editor.redo[0].delta.clone();
+        open_test_project(&ctx, &mut app, &rejected);
+        assert_eq!(app.path, source.display().to_string());
+        assert_eq!(app.document_title(), "active");
+        assert!(matches!(app.file_action, Some(FileAction::Open)));
+        assert!(!app.file_error.is_empty());
+        assert_eq!(app.host.document.editor.project, expected);
+        assert_eq!(app.path, source.display().to_string());
+        assert_eq!(app.document_title(), "active");
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let cancel = text_center(&out.shapes, language.translate("Cancel")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert!(app.file_action.is_none());
+        assert!(app.file_dialog_path.is_none());
+        assert_eq!(app.file_baseline, baseline);
+        assert_eq!(app.host.document.editor.saved, saved);
+        assert!(app.host.document.editor.dirty());
+        assert_eq!(app.host.document.editor.document_session(), session);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert_eq!(
+            (
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            (1, 1)
+        );
+        assert_eq!(app.host.document.editor.undo[0].delta, undo);
+        assert_eq!(app.host.document.editor.redo[0].delta, redo);
+        app.file_action = Some(FileAction::Save);
+        layers_frame_output(&ctx, &mut app, vec![]);
+        app.file_dialog_path = Some(rejected.display().to_string());
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let cancel = text_center(&out.shapes, language.translate("Cancel")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert_eq!(app.path, source.display().to_string());
+        assert_eq!(app.document_title(), "active");
+        app.save_project().unwrap();
+        assert_eq!(std::fs::read(&rejected).unwrap(), rejected_bytes);
+        assert_eq!(storage::load(&source).unwrap(), expected);
+        app.host.document.editor.redo();
+        assert_eq!(app.host.document.editor.project, redo_result);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn automation_file_default_path_is_not_a_confirmed_overwrite_binding() {
+    let (_ctx, mut app) = setup();
+    let root = std::env::temp_dir().join(format!(
+        "oa-automation-file-{}",
+        storage::new_document_identity()
+    ));
+    std::fs::create_dir(&root).unwrap();
+    let path = root.join("existing.json");
+    storage::save(&Project::default(), &path).unwrap();
+    let original = std::fs::read(&path).unwrap();
+    app.path = path.to_string_lossy().into_owned();
+    app.path_confirmed = false;
+    app.file_baseline = None;
+    let params = |app: &AtelierApp, filename: &str| crate::automation_ipc::FileParams {
+        target: crate::automation::ReadService::new("test".into())
+            .target(&app.host.document.editor),
+        expected_revision: app.host.document.editor.revision,
+        filename: filename.into(),
+    };
+    let result = app.automation_file_in_scope(params(&app, "existing.json"), false, &root);
+    assert_eq!(result["error"]["code"], "FILE_EXISTS");
+    assert_eq!(std::fs::read(&path).unwrap(), original);
+    app.path_confirmed = true;
+    let result = app.automation_file_in_scope(params(&app, "existing.json"), false, &root);
+    assert_eq!(result["error"]["code"], "FILE_EXISTS");
+    app.path = root.join("bound.json").to_string_lossy().into_owned();
+    app.save_project().unwrap();
+    let before = app.host.document.editor.project.clone();
+    let result = app.automation_file_in_scope(params(&app, "bound.json"), false, &root);
+    assert_eq!(result["result"]["status"], "saved");
+    let result = app.automation_file_in_scope(params(&app, "existing.json"), true, &root);
+    assert_eq!(result["error"]["code"], "FILE_SCOPE_VIOLATION");
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(std::fs::read(path).unwrap(), original);
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn automation_recovered_document_runs_on_application_queue_and_keeps_old_file() {
+    use crate::automation_change::{ChangeService, Commit, Prepare};
+    use crate::model_service::{BatchChange, ElementTemplate, NamedElement};
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+        sync::mpsc,
+        time::{Duration, Instant},
+    };
+    let root = std::path::PathBuf::from("/tmp")
+        .join(format!("oa-m2-{}", &storage::new_document_identity()[..16]));
+    std::fs::create_dir(&root).unwrap();
+    let file = root.join("original.json");
+    let original = Editor::new(Project::default());
+    storage::save_document(&original.project, &file, original.project_identity()).unwrap();
+    let mut original = Editor::from_stored_document(&file).unwrap();
+    let original_bytes = std::fs::read(&file).unwrap();
+    let original_target =
+        crate::automation::ReadService::new("original-instance".into()).target(&original);
+    let mut service = ChangeService::new("original-instance".into(), true)
+        .with_journal_directory(root.join("journal"));
+    let mut wall = original
+        .wall_creation_candidates(vec![(Point::new(0., 0.), Point::new(6., 0.))])
+        .unwrap()
+        .remove(0);
+    wall.id = 0;
+    let preview = service.prepare(
+        &original,
+        Prepare {
+            target: original_target.clone(),
+            expected_revision: 0,
+            change: BatchChange {
+                creates: vec![NamedElement {
+                    name: "wall".into(),
+                    template: ElementTemplate {
+                        element: wall,
+                        host: None,
+                    },
+                }],
+                ..Default::default()
+            },
+        },
+    );
+    assert_eq!(
+        service.commit(
+            &mut original,
+            Commit {
+                target: original_target.clone(),
+                preview_id: preview["result"]["preview_id"].as_str().unwrap().into(),
+                request_id: "queue-operation".into()
+            }
+        )["result"]["status"],
+        "committed"
+    );
+    let expected = original.project.clone();
+    drop(service);
+    let socket = root.join("ipc/app.sock");
+    let endpoint = crate::automation_ipc::Endpoint::bind_configured(
+        socket.clone(),
+        true,
+        Some(root.join("journal")),
+    )
+    .unwrap();
+    let (ctx, mut app) = setup();
+    app.automation = Some(endpoint);
+    app.path_confirmed = false;
+    app.recovery_open = true;
+    let (tx, rx) = mpsc::channel();
+    let client = std::thread::spawn(move || {
+        let call = |request: serde_json::Value| {
+            let mut stream = UnixStream::connect(&socket).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            writeln!(stream, "{request}").unwrap();
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line).unwrap();
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()
+        };
+        let target = call(serde_json::json!({"method":"get_target"}))["result"]["target"].clone();
+        let result = call(
+            serde_json::json!({"method":"recover_document","params":{"target":target,"expected_revision":0,"original_target":original_target,"request_id":"queue-operation"}}),
+        );
+        tx.send(result).unwrap();
+    });
+    let start = Instant::now();
+    let result = loop {
+        // Hidden viewports receive App::logic without an egui UI pass.
+        eframe::App::logic(&mut app, &ctx, &mut eframe::Frame::_new_kittest());
+        if let Ok(result) = rx.try_recv() {
+            break result;
+        }
+        assert!(start.elapsed() < Duration::from_secs(5));
+        std::thread::sleep(Duration::from_millis(5));
+    };
+    client.join().unwrap();
+    assert_eq!(result["result"]["recovered_document"], true, "{result}");
+    assert_eq!(app.host.document.editor.project, expected);
+    assert!(app.host.document.editor.dirty());
+    assert_eq!(app.host.document.editor.undo.len(), 1);
+    assert!(!app.path_confirmed);
+    assert!(app.file_baseline.is_none());
+    assert!(!app.recovery_open);
+    assert_eq!(std::fs::read(file).unwrap(), original_bytes);
+    app.automation = None;
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn automation_operations_window_cancels_and_undoes_through_shared_service_bilingual() {
+    use crate::automation_change::{Commit, Prepare};
+    use crate::model_service::{BatchChange, ElementTemplate, NamedElement};
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let root = PathBuf::from("/tmp")
+            .join(format!("oa-ui-{}", &storage::new_document_identity()[..16]));
+        std::fs::create_dir(&root).unwrap();
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.automation = Some(
+            crate::automation_ipc::Endpoint::bind_for_host(
+                root.join("ipc/app.sock"),
+                true,
+                Some(root.join("journal")),
+                &mut app.host,
+            )
+            .unwrap(),
+        );
+        let baseline = app.host.document.editor.project.clone();
+        let selection = app.host.document.editor.selection_ids();
+        let mut wall = app
+            .host
+            .document
+            .editor
+            .wall_creation_candidates(vec![(Point::new(30., 30.), Point::new(36., 30.))])
+            .unwrap()
+            .remove(0);
+        wall.id = 0;
+        let batch = BatchChange {
+            creates: vec![NamedElement {
+                name: "wall".into(),
+                template: ElementTemplate {
+                    element: wall,
+                    host: None,
+                },
+            }],
+            ..Default::default()
+        };
+        let mut service = app.automation.as_mut().unwrap().changes();
+        let target = service.current_target(&app.host.document.editor);
+        let preview = service.prepare(
+            &app.host.document.editor,
+            Prepare {
+                target: target.clone(),
+                expected_revision: app.host.document.editor.revision,
+                change: batch.clone(),
+            },
+        );
+        let id = preview["result"]["preview_id"].as_str().unwrap().to_owned();
+        drop(service);
+        app.open_command_preview("AI Operations…".into());
+        for _ in 0..2 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, language.translate("AI Operations…")).is_some());
+        assert_eq!(app.host.document.editor.project, baseline);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(app.host.document.editor.revision, 0);
+        let cancel = text_center(&out.shapes, language.translate("Cancel preview")).unwrap();
+        layers_click(&ctx, &mut app, cancel);
+        assert_eq!(app.automation_feedback, "cancelled");
+        let mut service = app.automation.as_mut().unwrap().changes();
+        assert_eq!(
+            service.commit(
+                &mut app.host.document.editor,
+                Commit {
+                    target: target.clone(),
+                    preview_id: id,
+                    request_id: "cancelled-preview".into()
+                }
+            )["error"]["code"],
+            "PREVIEW_NOT_FOUND"
+        );
+        let preview = service.prepare(
+            &app.host.document.editor,
+            Prepare {
+                target: target.clone(),
+                expected_revision: 0,
+                change: batch.clone(),
+            },
+        );
+        assert_eq!(
+            service.commit(
+                &mut app.host.document.editor,
+                Commit {
+                    target: target.clone(),
+                    preview_id: preview["result"]["preview_id"].as_str().unwrap().into(),
+                    request_id: "ui-operation".into()
+                }
+            )["result"]["status"],
+            "committed"
+        );
+        drop(service);
+        for _ in 0..2 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let inspect = text_center(&out.shapes, language.translate("Inspect operation")).unwrap();
+        layers_click(&ctx, &mut app, inspect);
+        assert_eq!(app.automation_feedback, "committed");
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let undo = text_center(&out.shapes, language.translate("Safe Undo")).unwrap();
+        layers_click(&ctx, &mut app, undo);
+        assert_eq!(app.automation_feedback, "undone");
+        assert_eq!(app.host.document.editor.project, baseline);
+        assert_eq!(app.host.document.editor.selection_ids(), selection);
+        assert_eq!(app.host.document.editor.redo.len(), 1);
+        let mut service = app.automation.as_mut().unwrap().changes();
+        assert_eq!(
+            service
+                .write_authorization(&app.host.document.editor)
+                .unwrap_err()["error"]["code"],
+            "WRITE_AUTHORIZATION_SUSPENDED"
+        );
+        // Deliberate local regrant before a new, separately authorized fixture task.
+        service.authorize_current(&app.host.document.editor);
+        let preview = service.prepare(
+            &app.host.document.editor,
+            Prepare {
+                target: target.clone(),
+                expected_revision: app.host.document.editor.revision,
+                change: batch,
+            },
+        );
+        assert_eq!(
+            service.commit(
+                &mut app.host.document.editor,
+                Commit {
+                    target,
+                    preview_id: preview["result"]["preview_id"].as_str().unwrap().into(),
+                    request_id: "ui-protect-user".into()
+                }
+            )["result"]["status"],
+            "committed"
+        );
+        drop(service);
+        let id = app.host.document.editor.project.elements.last().unwrap().id;
+        app.host
+            .document
+            .editor
+            .apply(crate::command::ModelCommand::MoveElements {
+                ids: vec![id],
+                offset: Point::new(1., 0.),
+            })
+            .unwrap();
+        let user_state = (
+            app.host.document.editor.project.clone(),
+            app.host.document.editor.revision,
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        for _ in 0..2 {
+            layers_frame_output(&ctx, &mut app, vec![]);
+        }
+        let out = layers_frame_output(&ctx, &mut app, vec![]);
+        let undo = text_center(&out.shapes, language.translate("Safe Undo")).unwrap();
+        layers_click(&ctx, &mut app, undo);
+        assert_eq!(app.automation_feedback, "UNDO_CONFLICT");
+        assert_eq!(
+            (
+                app.host.document.editor.project.clone(),
+                app.host.document.editor.revision,
+                app.host.document.editor.undo.len(),
+                app.host.document.editor.redo.len()
+            ),
+            user_state
+        );
+        app.automation = None;
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn automation_context_guard_tracks_canvas_selection_but_not_ui_language() {
+    use crate::{
+        automation::ReadService,
+        automation_change::{ChangeService, Commit, PrepareNative},
+    };
+    let (ctx, mut app) = setup();
+    app.host.document.editor = Editor::new(Project::demo());
+    app.host.document.editor.selected_ids = vec![app.host.document.editor.project.elements[0].id];
+    let read = ReadService::new("ui-context".into());
+    let target = read.target(&app.host.document.editor);
+    let token = read.context_revision(&app.host.document.editor);
+    let mut changes = ChangeService::new("ui-context".into(), true);
+    let preview = changes.prepare_native(&app.host.document.editor, PrepareNative {
+        target: target.clone(), expected_revision: app.host.document.editor.revision,
+        expected_context_revision: Some(token.clone()),
+        change: serde_json::from_value(serde_json::json!({"version":1,"edits":[{"operation":"remove","targets":[{"kind":"existing","value":app.host.document.editor.selected_ids[0]}]}]})).unwrap(),
+    });
+    assert!(preview.get("result").is_some(), "{preview}");
+    app.language = UiLanguage::SimplifiedChinese;
+    plan_frame(&ctx, &mut app, vec![]);
+    assert_eq!(read.context_revision(&app.host.document.editor), token);
+    app.language = UiLanguage::English;
+    let before = app.host.document.editor.project.clone();
+    click(&ctx, &mut app, pos2(790., 590.));
+    assert!(app.host.document.editor.selected_ids.is_empty());
+    assert_ne!(read.context_revision(&app.host.document.editor), token);
+    let result = changes.commit(
+        &mut app.host.document.editor,
+        Commit {
+            target,
+            preview_id: preview["result"]["preview_id"].as_str().unwrap().into(),
+            request_id: "stale-selection".into(),
+        },
+    );
+    assert_eq!(result["error"]["code"], "CONTEXT_CONFLICT");
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.document.editor.revision, 0);
+    assert!(app.host.document.editor.undo.is_empty());
+}
+
+#[test]
+fn v4_workbench_modes_and_command_buttons_preserve_session_bilingual() {
+    use crate::workbench::{WorkMode, WorkbenchCommand};
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        app.workbench.environment.switch_mode(WorkMode::SiteConcept);
+        let mut output = ctx.run_ui(RawInput::default(), |ui| app.workbench_ui(ui));
+        let mut texts = vec![];
+        collect_text(&output.shapes, &mut texts);
+        assert!(
+            texts
+                .iter()
+                .any(|s| s == language.translate("Site and concept"))
+        );
+        assert!(
+            texts
+                .iter()
+                .any(|s| s == language.translate("Tasks and settings"))
+        );
+        output.textures_delta.clear();
+        app.dispatch_workbench(WorkbenchCommand::Zone);
+        assert_eq!(app.host.document.editor.tool, Tool::Zone);
+        app.dispatch_workbench(WorkbenchCommand::Spaces);
+        assert!(app.zone_analysis_open);
+        app.dispatch_workbench(WorkbenchCommand::Save);
+        assert!(matches!(app.file_action, Some(FileAction::Save)));
+        app.workbench
+            .environment
+            .switch_mode(WorkMode::Architecture);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert!(app.host.document.editor.undo.is_empty());
+    }
+}
+
+#[test]
+fn v4_project_navigation_selects_real_space_and_preserves_model_history_bilingual() {
+    use crate::workbench::WorkMode;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let space = app
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .find(|e| {
+                matches!(e.shape, Shape::Zone { .. })
+                    && e.design_option
+                        == app
+                            .host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .active_design_option
+            })
+            .unwrap()
+            .clone();
+        app.host.document.editor.switch_story(space.story);
+        app.workbench.environment.switch_mode(WorkMode::SiteConcept);
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let navigation = text_center(&output.shapes, language.translate("Project and spaces"))
+            .expect("existing navigation expand entry");
+        layers_click(&ctx, &mut app, navigation);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let position = text_center(
+            &output.shapes,
+            &format!("Z{:03} · {}", space.id, space.name),
+        )
+        .expect("real space in project navigation");
+        layers_click(&ctx, &mut app, position);
+        assert_eq!(app.host.document.editor.selection_ids(), vec![space.id]);
+        let output = layers_frame_output(&ctx, &mut app, vec![]);
+        let mut texts = vec![];
+        collect_text(&output.shapes, &mut texts);
+        assert!(
+            texts
+                .iter()
+                .any(|s| s.starts_with(language.translate("Space area")))
+        );
+        app.workbench
+            .environment
+            .switch_mode(WorkMode::Architecture);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert!(!app.host.document.editor.dirty());
+    }
+}
+
+#[test]
+fn v4_mode_restart_and_bad_preference_preserve_dirty_selected_model_bilingual() {
+    use crate::workbench::WorkMode;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let id = app
+            .host
+            .document
+            .editor
+            .place_column(Point::new(30., 30.))
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        let undo = app.host.document.editor.undo.len();
+        let directory = std::env::temp_dir().join(format!(
+            "oa-work-mode-ui-{}-{}",
+            std::process::id(),
+            context.session
+        ));
+        app.initialize_work_mode(&directory);
+        app.switch_work_mode(WorkMode::SiteConcept);
+        app.workbench
+            .environment
+            .switch_mode(WorkMode::Architecture);
+        app.initialize_work_mode(&directory);
+        assert_eq!(app.workbench.environment.mode, WorkMode::SiteConcept);
+        let preference = directory.join("work-mode.json");
+        std::fs::write(&preference, b"broken input").unwrap();
+        app.initialize_work_mode(&directory);
+        assert_eq!(app.workbench.environment.mode, WorkMode::Architecture);
+        app.switch_work_mode(WorkMode::SiteConcept);
+        assert_eq!(std::fs::read(&preference).unwrap(), b"broken input");
+        let mut output = ctx.run_ui(RawInput::default(), |ui| app.workbench_ui(ui));
+        let mut texts = vec![];
+        collect_text(&output.shapes, &mut texts);
+        assert!(texts.iter().any(
+            |s| s == language.translate("Work mode preference could not be saved or restored.")
+        ));
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert!(app.host.document.editor.dirty());
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert_eq!(app.host.document.editor.undo.len(), undo);
+        output.textures_delta.clear();
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn v4_real_ipc_invocation_uses_shared_dispatch_and_preserves_original_receipt() {
+    use serde_json::{Value, json};
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
+    let (ctx, mut app) = setup();
+    app.host.document.editor = Editor::new(storage::startup_example());
+    let id = app
+        .host
+        .document
+        .editor
+        .place_column(Point::new(30., 30.))
+        .unwrap();
+    app.host.document.editor.set_selection(vec![id]);
+    let before = app.host.document.editor.project.clone();
+    let context = app.host.context();
+    let history = app.host.document.editor.undo.len();
+    #[cfg(target_os = "macos")]
+    app.perform_menu_action(native_menu::MenuAction::Tool("Zone"), &ctx);
+    #[cfg(not(target_os = "macos"))]
+    app.activate_named_tool("Zone");
+    assert_eq!(app.host.document.editor.tool, Tool::Zone);
+    app.activate_named_tool("Arrow");
+    let directory = std::env::temp_dir().join(format!(
+        "oa-v4-invoke-{}-{}",
+        std::process::id(),
+        context.session
+    ));
+    let path = directory.join("socket/app.sock");
+    std::fs::create_dir_all(&directory).unwrap();
+    let mut endpoint = crate::automation_ipc::Endpoint::bind_configured(
+        path.clone(),
+        true,
+        Some(directory.join("journal")),
+    )
+    .unwrap();
+    let (tx, rx) = mpsc::channel();
+    let client = thread::spawn(move || {
+        fn request(path: &std::path::Path, payload: Value) -> Value {
+            let mut socket = UnixStream::connect(path).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            writeln!(socket, "{}", payload).unwrap();
+            let mut line = String::new();
+            BufReader::new(socket).read_line(&mut line).unwrap();
+            serde_json::from_str(&line).unwrap()
+        }
+        let target = request(&path, json!({"method":"get_target"}))["result"]["target"].clone();
+        let params = json!({"target":target,"expected_revision":context.revision,"request_id":"zone-original","command_id":"tool.zone","parameters":{}});
+        // Lose the first response on purpose; recover only with the original identity.
+        let mut lost = UnixStream::connect(&path).unwrap();
+        writeln!(
+            lost,
+            "{}",
+            json!({"method":"invoke_workbench_command","params":params})
+        )
+        .unwrap();
+        drop(lost);
+        let good = request(
+            &path,
+            json!({"method":"get_workbench_operation","params":{"target":target,"request_id":"zone-original"}}),
+        );
+        let duplicate = request(
+            &path,
+            json!({"method":"invoke_workbench_command","params":params}),
+        );
+        let status = request(
+            &path,
+            json!({"method":"get_workbench_operation","params":{"target":target,"request_id":"zone-original"}}),
+        );
+        let mut conflict = params.clone();
+        conflict["command_id"] = json!("view.model");
+        let conflict = request(
+            &path,
+            json!({"method":"invoke_workbench_command","params":conflict}),
+        );
+        let mut model = params.clone();
+        model["request_id"] = json!("model-view");
+        model["command_id"] = json!("view.model");
+        let model = request(
+            &path,
+            json!({"method":"invoke_workbench_command","params":model}),
+        );
+        let unknown = request(
+            &path,
+            json!({"method":"get_workbench_operation","params":{"target":target,"request_id":"missing-original"}}),
+        );
+        tx.send((params, good, duplicate, status, conflict, model, unknown))
+            .unwrap();
+    });
+    let start = Instant::now();
+    let mut executions = 0;
+    let (params, good, duplicate, status, conflict, model, unknown) = loop {
+        endpoint.poll(&mut app.host.document.editor);
+        for pending in std::mem::take(&mut endpoint.workbench_pending) {
+            executions += 1;
+            let result = app.execute_remote_workbench(&endpoint, &pending.params);
+            endpoint.finish_workbench(pending, result);
+        }
+        if let Ok(result) = rx.try_recv() {
+            break result;
+        }
+        assert!(start.elapsed() < Duration::from_secs(10));
+        thread::sleep(Duration::from_millis(5));
+    };
+    client.join().unwrap();
+    assert_eq!(good["result"]["status"], "completed");
+    assert_eq!(good, duplicate);
+    assert_eq!(good, status);
+    assert_eq!(conflict["error"]["code"], "REQUEST_ID_CONFLICT");
+    assert_eq!(model["result"]["status"], "completed");
+    assert_eq!(executions, 2);
+    assert_eq!(app.view, View::Model);
+    // Entering 3D uses the same default Select mode through UI and MCP.
+    assert_eq!(app.host.document.editor.tool, Tool::Select);
+    assert_eq!(unknown["error"]["code"], "OPERATION_UNKNOWN");
+    assert_eq!(unknown["error"]["retry_safe"], false);
+    let mut p: crate::automation_ipc::WorkbenchInvoke = serde_json::from_value(params).unwrap();
+    app.host.document.editor.anchor = Some(Point::new(1., 1.));
+    assert_eq!(
+        app.execute_remote_workbench(&endpoint, &p)["error"]["code"],
+        "USER_INTERACTION_ACTIVE"
+    );
+    app.host.document.editor.anchor = None;
+    app.file_action = Some(FileAction::Save);
+    assert_eq!(
+        app.execute_remote_workbench(&endpoint, &p)["error"]["code"],
+        "COMMAND_BLOCKED"
+    );
+    app.file_action = None;
+    p.expected_revision += 1;
+    assert_eq!(
+        app.execute_remote_workbench(&endpoint, &p)["error"]["code"],
+        "REVISION_CONFLICT"
+    );
+    p.expected_revision -= 1;
+    p.parameters = json!({"unexpected":true});
+    assert_eq!(
+        app.execute_remote_workbench(&endpoint, &p)["error"]["code"],
+        "INVALID_PARAMETERS"
+    );
+    p.parameters = json!({});
+    p.command_id = "model.undo".into();
+    assert_eq!(
+        app.execute_remote_workbench(&endpoint, &p)["error"]["code"],
+        "USE_TRANSACTION_ADAPTER"
+    );
+    p.command_id = "tool.zone".into();
+    endpoint.set_write_enabled(false, &app.host.document.editor);
+    assert_eq!(
+        app.execute_remote_workbench(&endpoint, &p)["error"]["code"],
+        "WRITE_NOT_AUTHORIZED"
+    );
+    assert_eq!(app.host.document.editor.project, before);
+    assert_eq!(app.host.context(), context);
+    assert_eq!(app.host.document.editor.undo.len(), history);
+    assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+    assert!(app.host.document.editor.dirty());
+    drop(endpoint);
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[test]
+fn v4_two_modes_real_zone_task_matches_ai_transaction_and_saved_document_bilingual() {
+    use crate::{
+        automation::ReadService,
+        automation_change::{ChangeService, Commit, Operation, PrepareNative},
+        workbench::{WorkMode, WorkbenchCommand},
+    };
+    use serde_json::json;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for mode in [WorkMode::Architecture, WorkMode::SiteConcept] {
+            let (ctx, mut app) = setup();
+            app.language = language;
+            let baseline = storage::startup_example();
+            app.host.document.editor = Editor::new(baseline.clone());
+            app.switch_work_mode(mode);
+            app.plan_center = Point::new(22., 21.5);
+            app.plan_scale = 40.;
+            app.host.document.editor.snap = false;
+            app.host.document.editor.material = Material::Concrete;
+            app.host.document.editor.wall_layer = crate::layers::ElementLayer(1);
+            app.host.document.editor.zone_name = "V4空间验收".into();
+            app.host.document.editor.zone_purpose = "general".into();
+            app.host.document.editor.zone_height = 3.;
+            app.dispatch_workbench(WorkbenchCommand::Zone);
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(800., 600.));
+            let a = app.screen(rect, Point::new(20., 20.));
+            let b = app.screen(rect, Point::new(24., 23.));
+            plan_frame(&ctx, &mut app, vec![]);
+            click(&ctx, &mut app, a);
+            click(&ctx, &mut app, b);
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                baseline.elements.len() + 1
+            );
+            assert_eq!(app.host.document.editor.undo.len(), 1);
+            let authored = app.host.document.editor.project.clone();
+            let created = authored
+                .elements
+                .iter()
+                .find(|e| e.id == baseline.next_id)
+                .unwrap();
+            assert_eq!(created.name, "V4空间验收");
+            assert!((created.area() - 12.).abs() < 1e-9);
+            let mut ai = Editor::new(baseline.clone());
+            let mut service = ChangeService::new("v4-zone-adapter".into(), true);
+            let target = ReadService::new("v4-zone-adapter".into()).target(&ai);
+            let change=serde_json::from_value(json!({"version":1,"creates":[{"name":"v4_space","story":0,"layer":1,"material":"concrete","geometry":{"type":"zone","space_name":"V4空间验收","purpose":"general","outline":[{"x":20.,"y":20.},{"x":24.,"y":20.},{"x":24.,"y":23.},{"x":20.,"y":23.}],"height":3.,"bottom_offset":0.}}]})).unwrap();
+            let preview = service.prepare_native(
+                &ai,
+                PrepareNative {
+                    target: target.clone(),
+                    expected_revision: 0,
+                    expected_context_revision: None,
+                    change,
+                },
+            );
+            assert!(preview.get("error").is_none(), "{preview}");
+            assert_eq!(ai.project, baseline);
+            let receipt = service.commit(
+                &mut ai,
+                Commit {
+                    target: target.clone(),
+                    request_id: "v4-zone-create".into(),
+                    preview_id: preview["result"]["preview_id"].as_str().unwrap().into(),
+                },
+            );
+            assert_eq!(receipt["result"]["status"], "committed");
+            assert_eq!(ai.project, authored);
+            assert_eq!(ai.undo.len(), app.host.document.editor.undo.len());
+            let session = app.host.context();
+            let selection = app.host.document.editor.selection_ids();
+            app.switch_work_mode(if mode == WorkMode::Architecture {
+                WorkMode::SiteConcept
+            } else {
+                WorkMode::Architecture
+            });
+            assert_eq!(app.host.context(), session);
+            assert_eq!(app.host.document.editor.selection_ids(), selection);
+            assert!(app.host.document.editor.dirty());
+            let directory = std::env::temp_dir().join(format!(
+                "oa-v4-task-{}-{}",
+                std::process::id(),
+                session.session
+            ));
+            std::fs::create_dir_all(&directory).unwrap();
+            let path = directory.join("case.json");
+            app.path = path.display().to_string();
+            app.save_project().unwrap();
+            assert!(!app.host.document.editor.dirty());
+            let restored = Editor::from_stored_document(&path).unwrap();
+            assert_eq!(restored.project, authored);
+            assert_eq!(
+                restored.project_identity(),
+                app.host.document.editor.project_identity()
+            );
+            app.dispatch_workbench(WorkbenchCommand::Undo);
+            assert_eq!(app.host.document.editor.project, baseline);
+            assert!(app.host.document.editor.dirty());
+            app.dispatch_workbench(WorkbenchCommand::Redo);
+            assert_eq!(app.host.document.editor.project, authored);
+            assert!(!app.host.document.editor.dirty());
+            let undone = service.undo(
+                &mut ai,
+                Operation {
+                    target,
+                    request_id: "v4-zone-create".into(),
+                    original_target: None,
+                },
+            );
+            assert!(undone.get("error").is_none(), "{undone}");
+            assert_eq!(ai.project, baseline);
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+}
+
+#[test]
+fn v4_sources_native_entry_background_admission_and_late_result_protect_document_bilingual() {
+    use super::project_sources_ui::SourceAction;
+    use crate::workbench::{WorkMode, WorkbenchCommand};
+    fn finish(app: &mut AtelierApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < deadline, "source job timed out");
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(30., 30.))
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        let undo = app.host.document.editor.undo.len();
+        let dirty = app.host.document.editor.dirty();
+        let directory =
+            std::env::temp_dir().join(format!("oa-source-ui-{}", storage::new_document_identity()));
+        std::fs::create_dir(&directory).unwrap();
+        for mode in [WorkMode::Architecture, WorkMode::SiteConcept] {
+            app.workbench.environment.switch_mode(mode);
+            assert!(
+                mode.profile()
+                    .commands
+                    .contains(&WorkbenchCommand::Conditions)
+            );
+            app.execute_workbench(WorkbenchCommand::Sources).unwrap();
+            assert!(app.source_ui.open);
+            let mut frame = ctx.run_ui(RawInput::default(), |ui| {
+                app.project_sources_ui(ui.ctx());
+                app.project_conditions_window(ui.ctx());
+            });
+            frame.textures_delta.clear();
+        }
+        app.source_ui.root = directory.join("project").display().to_string();
+        app.start_source_action(SourceAction::Create);
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        let source = directory.join("unconverted.dwg");
+        std::fs::write(&source, b"preserved raw DWG fixture").unwrap();
+        app.source_ui.source_path = source.display().to_string();
+        app.start_source_action(SourceAction::Add);
+        finish(&mut app);
+        let repository = app.source_ui.repository.as_ref().unwrap();
+        assert_eq!(repository.manifest.sources.len(), 1);
+        assert!(repository.manifest.sources[0].inventory_error.is_some());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let converter = directory.join("test converter");
+            std::fs::write(&converter,"#!/bin/sh\nif [ \"$1\" = '--version' ]; then echo fixture-tool; exit 0; fi\nprintf '0\\nSECTION\\n2\\nENTITIES\\n0\\nENDSEC\\n0\\nEOF\\n' > output.dxf\n").unwrap();
+            std::fs::set_permissions(&converter, std::fs::Permissions::from_mode(0o700)).unwrap();
+            app.source_ui.converter_path = converter.display().to_string();
+            let source_id = app.source_ui.repository.as_ref().unwrap().manifest.sources[0]
+                .id
+                .clone();
+            app.start_source_action(SourceAction::Convert(source_id));
+            finish(&mut app);
+            assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+            let repository = app.source_ui.repository.as_ref().unwrap();
+            assert_eq!(repository.manifest.sources.len(), 2);
+            assert_eq!(
+                repository.latest_conversion().unwrap().unwrap().status,
+                "converted_unverified"
+            );
+            let derived = repository
+                .latest_conversion()
+                .unwrap()
+                .unwrap()
+                .derived_source_id
+                .unwrap();
+            app.start_source_action(SourceAction::Reject(
+                derived.clone(),
+                "fixture handle mismatch".into(),
+            ));
+            finish(&mut app);
+            assert!(matches!(
+                &app.source_ui
+                    .repository
+                    .as_ref()
+                    .unwrap()
+                    .manifest
+                    .sources
+                    .iter()
+                    .find(|s| s.id == derived)
+                    .unwrap()
+                    .quality,
+                crate::project_repository::SourceQuality::Rejected { .. }
+            ));
+        }
+        let mut frame = ctx.run_ui(RawInput::default(), |ui| {
+            app.project_sources_ui(ui.ctx());
+            app.project_conditions_window(ui.ctx());
+        });
+        frame.textures_delta.clear();
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert_eq!(app.host.document.editor.undo.len(), undo);
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+        app.start_source_action(SourceAction::Checkpoint);
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert_eq!(
+            app.source_ui
+                .repository
+                .as_ref()
+                .unwrap()
+                .manifest
+                .model_revision,
+            context.revision
+        );
+        assert_eq!(app.host.context(), context);
+        assert_eq!(app.host.document.editor.undo.len(), undo);
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+        app.start_source_action(SourceAction::OpenModel);
+        finish(&mut app);
+        assert!(matches!(app.file_action, Some(FileAction::Open)));
+        assert!(app.file_dialog_path.as_ref().unwrap().contains("working"));
+        app.file_action = None;
+        app.start_source_action(SourceAction::OpenModel);
+        app.file_action = Some(FileAction::Save);
+        finish(&mut app);
+        assert!(matches!(app.file_action, Some(FileAction::Save)));
+        assert!(app.source_ui.error.starts_with("Model copy created"));
+        app.file_action = None;
+        let original_root = app.source_ui.repository.as_ref().unwrap().root().to_owned();
+        app.start_source_action(SourceAction::Open);
+        app.host.document.editor = Editor::new(Project::default());
+        finish(&mut app);
+        assert!(app.source_ui.error.starts_with("Document changed"));
+        assert_eq!(
+            app.source_ui.repository.as_ref().unwrap().root(),
+            original_root
+        );
+        assert!(app.host.document.editor.project.elements.is_empty());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_legacy_component_site_reference_modal_apply_cancel_stale_and_bilingual_keep_geometry_unchanged()
+ {
+    use crate::site::*;
+    use crate::workbench::{WorkMode, WorkbenchCommand};
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let original = app.host.document.editor.project.clone();
+        for mode in [WorkMode::Architecture, WorkMode::SiteConcept] {
+            app.workbench.environment.switch_mode(mode);
+            assert!(
+                mode.profile()
+                    .commands
+                    .contains(&WorkbenchCommand::Conditions)
+            );
+            // Preserved legacy component semantics; unified default routing is covered separately.
+            app.open_site_reference();
+            assert!(app.menu_gated());
+            let mut frame = ctx.run_ui(RawInput::default(), |ui| app.site_reference_ui(ui.ctx()));
+            frame.textures_delta.clear();
+            assert_eq!(app.host.document.editor.project, original);
+            app.site_dialog.as_mut().unwrap().context.true_north = Some(TrueNorth {
+                clockwise_from_model_y_deg: 45.,
+                evidence: SiteEvidence {
+                    source_sha256: "b".repeat(64),
+                    locator: "headless fixture, not approved site".into(),
+                    note: String::new(),
+                },
+            });
+            let mut frame = ctx.run_ui(
+                RawInput {
+                    events: vec![key(Key::Escape, Modifiers::NONE)],
+                    ..Default::default()
+                },
+                |ui| app.site_reference_ui(ui.ctx()),
+            );
+            frame.textures_delta.clear();
+            assert!(app.site_dialog.is_none());
+            assert_eq!(app.host.document.editor.project, original);
+            assert!(app.host.document.editor.undo.is_empty());
+        }
+        // Preserved legacy component semantics; unified default routing is covered separately.
+        app.open_site_reference();
+        let dialog = app.site_dialog.as_mut().unwrap();
+        dialog.context.vertical = Some(VerticalReference::default());
+        assert!(app.apply_site_reference().is_err());
+        assert_eq!(app.host.document.editor.project, original);
+        let dialog = app.site_dialog.as_mut().unwrap();
+        dialog.context.vertical = Some(VerticalReference {
+            datum: "fixture datum".into(),
+            model_zero_elevation_m: 55.2,
+            evidence: SiteEvidence {
+                source_sha256: "c".repeat(64),
+                locator: "controlled test fixture".into(),
+                note: String::new(),
+            },
+        });
+        let mut frame = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900., 800.))),
+                ..Default::default()
+            },
+            |ui| app.site_reference_ui(ui.ctx()),
+        );
+        frame.textures_delta.clear();
+        let apply =
+            text_center(&frame.shapes, language.translate("Apply")).expect("Apply button visible");
+        for pressed in [true, false] {
+            let mut frame = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900., 800.))),
+                    events: vec![
+                        Event::PointerMoved(apply),
+                        Event::PointerButton {
+                            pos: apply,
+                            button: PointerButton::Primary,
+                            pressed,
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                    ..Default::default()
+                },
+                |ui| app.site_reference_ui(ui.ctx()),
+            );
+            frame.textures_delta.clear();
+        }
+        assert!(app.site_dialog.is_none(), "Apply did not close the dialog");
+        assert_eq!(app.host.document.editor.project.elements, original.elements);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        assert!(app.host.document.editor.dirty());
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project, original);
+        app.dispatch_history(true);
+        assert!(app.host.document.editor.project.site.vertical.is_some());
+        // Preserved legacy component semantics; unified default routing is covered separately.
+        app.open_site_reference();
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(30., 30.))
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        assert!(
+            app.apply_site_reference()
+                .unwrap_err()
+                .contains("changed while editing")
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        app.site_dialog = None;
+    }
+}
+
+#[test]
+fn v4_legacy_component_site_reference_picks_named_document_source_and_hides_rejected_choice_bilingual()
+ {
+    use crate::{project_repository::Repository, site::TrueNorth, workbench::WorkbenchCommand};
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(900., 800.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.site_reference_ui(ui.ctx()),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, pos: Pos2) -> eframe::egui::FullOutput {
+        let _ = frame(
+            ctx,
+            app,
+            vec![
+                Event::PointerMoved(pos),
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        frame(
+            ctx,
+            app,
+            vec![
+                Event::PointerMoved(pos),
+                Event::PointerButton {
+                    pos,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        )
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let before = app.host.document.editor.project.clone();
+        let directory = std::env::temp_dir().join(format!(
+            "oa-site-source-picker-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let source = directory.join("survey-reference.txt");
+        std::fs::write(&source, b"synthetic source only").unwrap();
+        let rejected = directory.join("rejected-survey.txt");
+        std::fs::write(&rejected, b"bad source").unwrap();
+        let mut repo =
+            Repository::create_for_editor(&directory.join("project"), &app.host.document.editor)
+                .unwrap();
+        let id = repo.add_source(&source).unwrap();
+        let bad_id = repo.add_source(&rejected).unwrap();
+        repo.reject_source(&bad_id, "fixture excluded").unwrap();
+        app.source_ui.repository = Some(repo);
+        // Preserved legacy component semantics; unified default routing is covered separately.
+        app.open_site_reference();
+        app.site_dialog.as_mut().unwrap().context.true_north = Some(TrueNorth::default());
+        let _ = frame(&ctx, &mut app, vec![]);
+        let output = frame(&ctx, &mut app, vec![]);
+        let choose = text_center(
+            &output.shapes,
+            language.translate("Choose reference source"),
+        )
+        .unwrap();
+        let _ = press(&ctx, &mut app, choose);
+        let output = frame(&ctx, &mut app, vec![]);
+        let entry = format!("survey-reference.txt · {}", &id[..8]);
+        let mut visible = Vec::new();
+        collect_text(&output.shapes, &mut visible);
+        let at = text_center(&output.shapes, &entry)
+            .unwrap_or_else(|| panic!("source file is selectable: {:?}", visible));
+        assert!(
+            text_center(
+                &output.shapes,
+                &format!("rejected-survey.txt · {}", &bad_id[..8])
+            )
+            .is_none()
+        );
+        let _ = press(&ctx, &mut app, at);
+        assert_eq!(
+            app.site_dialog
+                .as_ref()
+                .unwrap()
+                .context
+                .true_north
+                .as_ref()
+                .unwrap()
+                .evidence
+                .source_sha256,
+            id
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        let _ = frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.site_dialog.is_none());
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_boundary_source_worker_preview_commit_cancel_and_stale_are_bilingual() {
+    use super::project_sources_ui::SourceAction;
+    use crate::project_repository::{LengthUnit, Repository, boundary::BoundaryPlacement};
+    fn finish(app: &mut AtelierApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let original = app.host.document.editor.project.clone();
+        let directory = std::env::temp_dir().join(format!(
+            "oa-boundary-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("plot.dxf");
+        std::fs::write(&path,b"0\nSECTION\n2\nENTITIES\n0\nLWPOLYLINE\n5\nA1\n8\nSITE\n90\n4\n70\n1\n10\n20\n20\n20\n10\n28\n20\n20\n10\n28\n20\n26\n10\n20\n20\n26\n0\nENDSEC\n0\nEOF\n").unwrap();
+        let mut repo =
+            Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                .unwrap();
+        let id = repo.add_source(&path).unwrap();
+        repo.confirm_unit(&id, Some(LengthUnit::Metre)).unwrap();
+        app.source_ui.root = repo.root().display().to_string();
+        app.source_ui.repository = Some(repo);
+        app.source_ui.open = true;
+        app.source_ui.boundary_handle = "A1".into();
+        app.source_ui.boundary_name = "Synthetic test site".into();
+        app.source_ui.boundary_layer = 1;
+        app.source_ui.boundary_placement = Some(BoundaryPlacement::ModelAxes);
+        assert!(!app.source_ui.boundary_centerline);
+        app.start_source_action(SourceAction::ListBoundaryEntities(id.clone()));
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        let (listed_source, records) = app.source_ui.boundary_entities.as_ref().unwrap();
+        assert_eq!(listed_source, &id);
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].handle.as_deref(), Some("A1"));
+        assert_eq!(app.host.document.editor.project, original);
+        app.start_source_action(SourceAction::PreviewBoundary(id.clone()));
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert!(app.source_ui.boundary_preview.is_some());
+        assert_eq!(app.host.document.editor.project, original);
+        let mut frame = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100., 1200.))),
+                ..Default::default()
+            },
+            |ui| {
+                app.project_sources_ui(ui.ctx());
+                app.project_conditions_window(ui.ctx());
+            },
+        );
+        frame.textures_delta.clear();
+        let preview = app.source_ui.boundary_preview.clone().unwrap();
+        app.start_source_action(SourceAction::CommitBoundary(preview.clone()));
+        app.source_ui.open = false;
+        finish(&mut app);
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.source_ui.error.contains("cancelled"));
+        app.source_ui.open = true;
+        app.start_source_action(SourceAction::CommitBoundary(preview.clone()));
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert_eq!(
+            app.host.document.editor.project.elements.len(),
+            original.elements.len() + 1
+        );
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        let boundary = app
+            .host
+            .document
+            .editor
+            .project
+            .site
+            .boundary
+            .as_ref()
+            .unwrap()
+            .element_id;
+        assert_eq!(app.host.document.editor.selection_ids(), vec![boundary]);
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project, original);
+        app.dispatch_history(true);
+        assert!(app.host.document.editor.project.site.boundary.is_some());
+        app.start_source_action(SourceAction::PreviewBoundary(id));
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(40., 40.))
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        finish(&mut app);
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.source_ui.error.contains("Model changed"));
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_legacy_component_program_worker_preview_cancel_commit_and_row_edits_are_bilingual() {
+    use super::project_sources_ui::SourceAction;
+    use crate::{
+        program::{Area, AreaBasis, AreaUnit, ProgramEdit},
+        project_repository::Repository,
+        workbench::WorkbenchCommand,
+    };
+    fn finish(app: &mut AtelierApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200., 2000.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.program_window(ui.ctx()),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let original = app.host.document.editor.project.clone();
+        let directory = std::env::temp_dir().join(format!(
+            "oa-program-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("rooms.csv");
+        std::fs::write(
+            &path,
+            b"ID,Name,Area,Count,Scope,Note\nA,Room,10,2,net,One\nB,Hall,,1,outdoor,\n",
+        )
+        .unwrap();
+        let mut repo =
+            Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                .unwrap();
+        let id = repo.add_source(&path).unwrap();
+        app.source_ui.root = repo.root().display().to_string();
+        app.source_ui.repository = Some(repo);
+        app.dispatch_workbench(WorkbenchCommand::Program);
+        // Exercise retained standalone component/worker, not default unified product routing.
+        app.project_conditions_ui.open = false;
+        assert!(app.program_ui.open);
+        app.start_source_action(SourceAction::InspectProgram(id.clone()));
+        finish(&mut app);
+        assert_eq!(app.program_ui.sheet, "CSV");
+        assert_eq!(app.program_ui.last, 3);
+        assert_eq!(app.host.document.editor.project, original);
+        app.start_source_action(SourceAction::PreviewProgram(id.clone()));
+        assert!(app.source_ui.error.contains("explicitly"));
+        assert!(app.program_ui.preview.is_none());
+        app.program_ui.unit = Some(AreaUnit::SquareMetre);
+        app.program_ui.basis = Some(AreaBasis::PerUnit);
+        app.program_ui.quantity = 4;
+        app.program_ui.scope = 5;
+        app.program_ui.note = 6;
+        app.program_ui.name = "Synthetic requirements".into();
+        app.start_source_action(SourceAction::PreviewProgram(id.clone()));
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        let preview = app.program_ui.preview.clone().unwrap();
+        assert_eq!(
+            preview.proposal.sheet.rows[0].values.area,
+            Area::Known { m2: 20. }
+        );
+        assert_eq!(app.host.document.editor.project, original);
+        app.start_source_action(SourceAction::CommitProgram(preview));
+        app.program_ui.open = false;
+        finish(&mut app);
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.source_ui.error.contains("cancelled"));
+        app.program_ui.open = true;
+        frame(&ctx, &mut app, vec![]);
+        let out = frame(&ctx, &mut app, vec![]);
+        let button = text_center(
+            &out.shapes,
+            language.translate("Import requirement preview"),
+        )
+        .expect("visible import preview button");
+        press(&ctx, &mut app, button);
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert_eq!(app.host.document.editor.project.elements, original.elements);
+        assert_eq!(app.host.document.editor.project.program.sheets.len(), 1);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project, original);
+        app.dispatch_history(true);
+        let old = app.host.document.editor.project.program.sheets[0].clone();
+        let row = &old.rows[0];
+        let mut values = row.values.clone();
+        values.label = "User requirement".into();
+        app.apply_program_edit(
+            app.host.context(),
+            ProgramEdit::UpdateRow {
+                sheet_id: old.id.clone(),
+                key: row.key.clone(),
+                expected: row.values.clone(),
+                values,
+            },
+        );
+        assert_eq!(
+            app.host.document.editor.project.program.sheets[0].rows[0]
+                .values
+                .label,
+            "User requirement"
+        );
+        app.start_source_action(SourceAction::PreviewProgram(id.clone()));
+        finish(&mut app);
+        let candidate = app.program_ui.preview.clone().unwrap();
+        let before = app.host.document.editor.project.clone();
+        app.start_source_action(SourceAction::CommitProgram(candidate));
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("user edits"));
+        assert_eq!(app.host.document.editor.project, before);
+        // The canonical error must follow the current UI language even when
+        // produced before a language switch. Keep the diagnostic and document.
+        let diagnostic = app.source_ui.error.clone();
+        let context = app.host.context();
+        let history = (
+            app.host.document.editor.undo.len(),
+            app.host.document.editor.redo.len(),
+        );
+        let selection = app.host.document.editor.selection_ids();
+        app.program_ui.preview = None;
+        app.program_ui.workbook = None;
+        for switched in [UiLanguage::SimplifiedChinese, UiLanguage::English] {
+            app.language = switched;
+            frame(&ctx, &mut app, vec![]);
+            let out = frame(&ctx, &mut app, vec![]);
+            let expected = if switched == UiLanguage::SimplifiedChinese {
+                "拒绝重导入：功能需求表含用户修改"
+            } else {
+                "Reimport refused: program contains user edits"
+            };
+            assert!(text_center(&out.shapes, expected).is_some(), "{expected}");
+            assert_eq!(app.source_ui.error, diagnostic);
+            assert_eq!(app.host.context(), context);
+            assert_eq!(
+                (
+                    app.host.document.editor.undo.len(),
+                    app.host.document.editor.redo.len()
+                ),
+                history
+            );
+            assert_eq!(app.host.document.editor.selection_ids(), selection);
+            assert_eq!(app.host.document.editor.project, before);
+        }
+        app.language = language;
+        app.dispatch_history(false);
+        app.start_source_action(SourceAction::InspectProgram(id.clone()));
+        finish(&mut app);
+        app.start_source_action(SourceAction::PreviewProgram(id));
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(40., 40.))
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("Model changed"));
+        assert_eq!(app.host.document.editor.project, before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_legacy_component_terrain_worker_native_preview_cancel_vertex_and_stale_query_are_bilingual() {
+    use super::project_sources_ui::SourceAction;
+    use crate::{
+        project_repository::{LengthUnit, Repository, terrain::TerrainPlacement},
+        site::terrain::Edit,
+        workbench::WorkbenchCommand,
+    };
+    fn finish(app: &mut AtelierApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1100., 1500.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.terrain_window(ui.ctx()),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let original = app.host.document.editor.project.clone();
+        let root = std::env::temp_dir().join(format!(
+            "oa-terrain-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let file = root.join("terrain.obj");
+        std::fs::write(
+            &file,
+            b"v 0 0 2000\nv 8000 0 2800\nv 8000 6000 4000\nv 0 6000 3200\nf 1 2 3\nf 1 3 4\n",
+        )
+        .unwrap();
+        let mut repo =
+            Repository::create_for_editor(&root.join("repo"), &app.host.document.editor).unwrap();
+        let id = repo.add_source(&file).unwrap();
+        repo.confirm_unit(&id, Some(LengthUnit::Millimetre))
+            .unwrap();
+        app.source_ui.root = repo.root().display().to_string();
+        app.source_ui.repository = Some(repo);
+        app.dispatch_workbench(WorkbenchCommand::Terrain);
+        // Exercise retained standalone component/worker, not default unified product routing.
+        app.project_conditions_ui.open = false;
+        assert!(app.terrain_ui.open);
+        app.terrain_ui.name = "Synthetic terrain".into();
+        app.start_source_action(SourceAction::PreviewTerrain(id.clone()));
+        finish(&mut app);
+        assert!(app.terrain_ui.preview.is_none());
+        assert!(app.source_ui.error.contains("explicitly"));
+        app.terrain_ui.placement = Some(TerrainPlacement::ModelXyz);
+        app.start_source_action(SourceAction::PreviewTerrain(id.clone()));
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        let preview = app.terrain_ui.preview.clone().unwrap();
+        assert_eq!(app.host.document.editor.project, original);
+        app.start_source_action(SourceAction::CommitTerrain(preview));
+        app.terrain_ui.open = false;
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("cancelled"));
+        assert_eq!(app.host.document.editor.project, original);
+        app.terrain_ui.open = true;
+        frame(&ctx, &mut app, vec![]);
+        let out = frame(&ctx, &mut app, vec![]);
+        let apply = text_center(&out.shapes, language.translate("Use preview as terrain"))
+            .expect("terrain preview confirmation visible");
+        press(&ctx, &mut app, apply);
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert!(app.host.document.editor.project.site.terrain.is_some());
+        assert_eq!(app.host.document.editor.project.elements, original.elements);
+        assert_eq!(app.host.document.editor.undo.len(), 1);
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project, original);
+        app.dispatch_history(true);
+        app.terrain_ui.query_xy = [3., 2.];
+        frame(&ctx, &mut app, vec![]);
+        let out = frame(&ctx, &mut app, vec![]);
+        let query = text_center(&out.shapes, language.translate("Query terrain height"))
+            .expect("query button visible");
+        press(&ctx, &mut app, query);
+        assert!(
+            (app.terrain_ui.report.as_ref().unwrap().1["sample"]["elevation_model_m"]
+                .as_f64()
+                .unwrap()
+                - 2.7)
+                .abs()
+                < 1e-12
+        );
+        app.terrain_ui.query_xy = [4., 2.];
+        let out = frame(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &out.shapes,
+                language.translate("Terrain sample is stale; query again")
+            )
+            .is_some()
+        );
+        app.apply_terrain_edit(
+            app.host.context(),
+            Edit::UpdateVertex {
+                index: 0,
+                expected: [0., 0., 2.],
+                position: [0., 0., 2.2],
+            },
+        );
+        assert!(app.source_ui.error.is_empty());
+        assert!(app.terrain_ui.metrics_cache.is_none());
+        frame(&ctx, &mut app, vec![]);
+        assert_eq!(
+            app.terrain_ui.metrics_cache.as_ref().unwrap().0,
+            app.host.context()
+        );
+        assert!(
+            (app.terrain_ui.metrics_cache.as_ref().unwrap().1.bounds_m[0][2] - 2.2).abs() < 1e-12
+        );
+        app.start_source_action(SourceAction::PreviewTerrain(id.clone()));
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("user edits"));
+        let changed = app.host.document.editor.project.clone();
+        assert_eq!(changed.elements, original.elements);
+        app.dispatch_history(false);
+        app.start_source_action(SourceAction::PreviewTerrain(id));
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(40., 40.))
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("Model changed"));
+        assert_eq!(app.host.document.editor.project, before);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn v4_docx_taskbook_native_source_quotes_and_unknown_program_are_bilingual() {
+    use super::project_sources_ui::SourceAction;
+    use crate::{
+        program::{Area, AreaBasis, AreaUnit},
+        project_repository::Repository,
+    };
+    use std::io::Write;
+    fn finish(app: &mut AtelierApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1400., 2400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.program_window(ui.ctx()),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|style| style.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let original = app.host.document.editor.project.clone();
+        let directory =
+            std::env::temp_dir().join(format!("oa-docx-ui-{}", storage::new_document_identity()));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("taskbook.docx");
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, xml) in [
+            (
+                "_rels/.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+            ),
+            (
+                "[Content_Types].xml",
+                r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#,
+            ),
+            (
+                "word/document.xml",
+                r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Client confirmation remains blank</w:t></w:r></w:p><w:tbl><w:tr><w:tc><w:p><w:r><w:t>Function</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Requirement</w:t></w:r></w:p></w:tc></w:tr><w:tr><w:tc><w:p><w:r><w:t>Teaching</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>Shared classroom</w:t></w:r></w:p></w:tc></w:tr></w:tbl></w:body></w:document>"#,
+            ),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(xml.as_bytes()).unwrap();
+        }
+        std::fs::write(&path, zip.finish().unwrap().into_inner()).unwrap();
+        let mut repo =
+            Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                .unwrap();
+        let id = repo.add_source(&path).unwrap();
+        app.source_ui.root = repo.root().display().to_string();
+        app.source_ui.repository = Some(repo);
+        app.program_ui.open = true;
+        frame(&ctx, &mut app, vec![]);
+        let out = frame(&ctx, &mut app, vec![]);
+        let inspect = text_center(
+            &out.shapes,
+            &format!(
+                "{}: taskbook.docx",
+                language.translate("Inspect functional worksheet")
+            ),
+        )
+        .expect("DOCX inspect entry visible");
+        press(&ctx, &mut app, inspect);
+        finish(&mut app);
+        assert_eq!(app.program_ui.sheet, "Table 1");
+        assert_eq!(
+            app.program_ui
+                .workbook
+                .as_ref()
+                .unwrap()
+                .1
+                .document
+                .as_ref()
+                .unwrap()
+                .quote("body/p[1]"),
+            Some("Client confirmation remains blank")
+        );
+        frame(&ctx, &mut app, vec![]);
+        let out = frame(&ctx, &mut app, vec![]);
+        let header = text_center(
+            &out.shapes,
+            language.translate("Taskbook source paragraphs"),
+        )
+        .expect("source paragraph inspector");
+        press(&ctx, &mut app, header);
+        let out = frame(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes, "Client confirmation remains blank").is_some());
+        assert!(text_center(&out.shapes, language.translate("Source paragraph")).is_some());
+        app.program_ui.area = 0;
+        app.program_ui.label = 1;
+        app.program_ui.note = 2;
+        app.program_ui.unit = Some(AreaUnit::SquareMetre);
+        app.program_ui.basis = Some(AreaBasis::RowTotal);
+        app.start_source_action(SourceAction::PreviewProgram(id));
+        finish(&mut app);
+        let preview = app.program_ui.preview.clone().unwrap();
+        assert!(matches!(
+            preview.proposal.sheet.rows[0].values.area,
+            Area::Unknown { .. }
+        ));
+        assert_eq!(app.host.document.editor.project, original);
+        app.start_source_action(SourceAction::CommitProgram(preview));
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert_eq!(
+            app.host.document.editor.project.program.sheets[0].rows[0]
+                .values
+                .note,
+            "Shared classroom"
+        );
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project, original);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_legacy_component_source_evidence_native_quote_links_cancel_stale_and_undo_are_bilingual() {
+    use super::project_sources_ui::SourceAction;
+    use crate::{
+        evidence::LinkStatus, project_repository::Repository, workbench::WorkbenchCommand,
+    };
+    use std::io::Write;
+    fn finish(app: &mut AtelierApp) {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < deadline);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        evidence: bool,
+        events: Vec<Event>,
+    ) -> eframe::egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1500., 2400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                if evidence {
+                    app.evidence_window(ui.ctx())
+                } else {
+                    app.program_window(ui.ctx())
+                }
+            },
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn press(ctx: &Context, app: &mut AtelierApp, evidence: bool, pos: Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                evidence,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, evidence: bool, key: &str) {
+        frame(ctx, app, evidence, vec![]);
+        let out = frame(ctx, app, evidence, vec![]);
+        let pos = text_center(&out.shapes, app.language.translate(key))
+            .unwrap_or_else(|| panic!("visible source-note control: {key}"));
+        press(ctx, app, evidence, pos);
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|style| style.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let original = app.host.document.editor.project.clone();
+        let id = original.elements[0].id;
+        app.host.document.editor.selected_ids = vec![id];
+        let directory = std::env::temp_dir().join(format!(
+            "oa-source-evidence-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        let path = directory.join("taskbook.docx");
+        let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        for (name, text) in [
+            (
+                "_rels/.rels",
+                r#"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="main" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/></Relationships>"#,
+            ),
+            (
+                "[Content_Types].xml",
+                r#"<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/></Types>"#,
+            ),
+            (
+                "word/document.xml",
+                r#"<w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"><w:body><w:p><w:r><w:t>Neighbor height remains unmeasured.</w:t></w:r></w:p></w:body></w:document>"#,
+            ),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(text.as_bytes()).unwrap();
+        }
+        std::fs::write(&path, zip.finish().unwrap().into_inner()).unwrap();
+        let mut repo =
+            Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                .unwrap();
+        let source = repo.add_source(&path).unwrap();
+        app.source_ui.root = repo.root().display().to_string();
+        app.source_ui.repository = Some(repo);
+        app.dispatch_workbench(WorkbenchCommand::Program);
+        // Exercise retained standalone component/worker, not default unified product routing.
+        app.project_conditions_ui.open = false;
+        app.start_source_action(SourceAction::InspectProgram(source));
+        finish(&mut app);
+        button(&ctx, &mut app, false, "Taskbook source paragraphs");
+        button(&ctx, &mut app, false, "Create source note from paragraph");
+        assert!(app.evidence_ui.open);
+        app.program_ui.open = false;
+        app.evidence_ui.draft.as_mut().unwrap().draft.title = "Survey question".into();
+        button(&ctx, &mut app, true, "Link selected model elements");
+        assert_eq!(
+            app.evidence_ui.draft.as_ref().unwrap().draft.targets.len(),
+            1
+        );
+        button(&ctx, &mut app, true, "Preview source note");
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        let preview = app.evidence_ui.preview.clone().unwrap();
+        assert_eq!(app.host.document.editor.project, original);
+        app.start_source_action(SourceAction::CommitEvidence(preview.clone()));
+        app.evidence_ui.preview = None;
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("cancelled"));
+        assert_eq!(app.host.document.editor.project, original);
+        app.evidence_ui.preview = Some(preview);
+        button(&ctx, &mut app, true, "Commit source note");
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        let note = app.host.document.editor.project.evidence.notes[0].clone();
+        assert_eq!(note.quote.text, "Neighbor height remains unmeasured.");
+        assert_eq!(
+            note.links[0].status(&app.host.document.editor.project),
+            LinkStatus::Unchanged
+        );
+        assert_eq!(app.host.document.editor.project.elements, original.elements);
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project, original);
+        app.dispatch_history(true);
+        app.host.document.editor.set_selection(vec![id]);
+        app.host.document.editor.move_selection(Point::new(1., 0.));
+        assert_ne!(app.host.document.editor.project.elements, original.elements);
+        app.evidence_ui.edit(note.clone(), app.host.context());
+        app.evidence_ui.draft.as_mut().unwrap().draft.annotation =
+            "Still needs independent survey".into();
+        button(&ctx, &mut app, true, "Preview source note");
+        finish(&mut app);
+        let preview = app.evidence_ui.preview.clone().unwrap();
+        assert_eq!(preview.prepared.links, note.links);
+        app.start_source_action(SourceAction::CommitEvidence(preview));
+        finish(&mut app);
+        assert_eq!(
+            app.host.document.editor.project.evidence.notes[0].links[0]
+                .status(&app.host.document.editor.project),
+            LinkStatus::Changed
+        );
+        app.evidence_ui.edit(
+            app.host.document.editor.project.evidence.notes[0].clone(),
+            app.host.context(),
+        );
+        let state = app.evidence_ui.draft.clone().unwrap();
+        app.start_source_action(SourceAction::PreviewEvidence(state));
+        app.evidence_ui.draft.as_mut().unwrap().draft.annotation = "Newer intent".into();
+        finish(&mut app);
+        assert!(app.source_ui.error.contains("draft changed"));
+        assert!(app.evidence_ui.preview.is_none());
+        let state = app.evidence_ui.draft.clone().unwrap();
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(40., 40.))
+            .unwrap();
+        let before = app.host.document.editor.project.clone();
+        app.start_source_action(SourceAction::PreviewEvidence(state));
+        assert!(app.source_ui.error.contains("Model changed"));
+        assert_eq!(app.host.document.editor.project, before);
+        app.evidence_ui.draft = None;
+        button(
+            &ctx,
+            &mut app,
+            true,
+            &format!("{} · Survey question", language.translate("Question")),
+        );
+        button(&ctx, &mut app, true, "Remove source note");
+        button(&ctx, &mut app, true, "Cancel removal");
+        assert_eq!(app.host.document.editor.project.evidence.notes.len(), 1);
+        button(&ctx, &mut app, true, "Remove source note");
+        button(&ctx, &mut app, true, "Confirm removal");
+        assert!(app.host.document.editor.project.evidence.is_empty());
+        app.dispatch_history(false);
+        assert_eq!(app.host.document.editor.project.evidence.notes.len(), 1);
+        app.dispatch_workbench(WorkbenchCommand::Evidence);
+        // Exercise retained standalone component/worker, not default unified product routing.
+        app.project_conditions_ui.open = false;
+        assert!(app.evidence_ui.open);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_portable_quality_report_copy_and_original_operation_lookup_are_bilingual() {
+    use super::{project_sources_ui::SourceAction, source_review_ui::ReviewRequest};
+    use crate::project_repository::{
+        Repository, SourceQuality,
+        quality::{Counts, Review, ReviewOperation, Verdict},
+    };
+    fn finish(app: &mut AtelierApp) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < end);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        review: bool,
+        events: Vec<Event>,
+    ) -> eframe::egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1300., 2200.))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                if review {
+                    app.source_review_window(ui.ctx())
+                } else {
+                    app.project_sources_ui(ui.ctx())
+                }
+            },
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, review: bool, label: &str) {
+        let mut pos = None;
+        for _ in 0..4 {
+            frame(ctx, app, review, vec![]);
+            let out = frame(ctx, app, review, vec![]);
+            pos = text_center(&out.shapes, app.language.translate(label));
+            if pos.is_some() {
+                break;
+            }
+            frame(
+                ctx,
+                app,
+                review,
+                vec![
+                    Event::PointerMoved(pos2(350., 600.)),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        phase: egui::TouchPhase::Move,
+                        delta: vec2(0., -600.),
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        let pos = pos.unwrap_or_else(|| panic!("Visible quality control: {label}"));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                review,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        app.host.document.editor.set_selection(vec![13]);
+        let original = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        let directory = std::env::temp_dir().join(format!(
+            "oa-quality-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&directory).unwrap();
+        std::fs::write(directory.join("original.dwg"), b"Synthetic declared source").unwrap();
+        std::fs::write(directory.join("output.dxf"),b"0\nSECTION\n2\nENTITIES\n0\nLINE\n5\nAA\n8\nLayer\n10\n0\n20\n0\n11\n1\n21\n0\n0\nENDSEC\n0\nEOF\n").unwrap();
+        let mut repo =
+            Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                .unwrap();
+        let reference = repo.add_source(&directory.join("original.dwg")).unwrap();
+        let subject = repo.add_source(&directory.join("output.dxf")).unwrap();
+        app.source_ui.root = repo.root().display().to_string();
+        app.source_ui.repository = Some(repo);
+        app.source_ui.review.choose(subject.clone());
+        app.start_source_action(SourceAction::InspectReviews(subject.clone()));
+        finish(&mut app);
+        let state = &mut app.source_ui.review;
+        state.draft.reference_source_id = Some(reference);
+        state.draft.scope = "Declared model-space handles".into();
+        state.draft.summary = "One missing; no geometry use".into();
+        state.draft.limits = "Synthetic declaration only, not independently measured".into();
+        state.draft.verdict = Verdict::Rejected;
+        state.counts = Counts {
+            expected_unique_handles: 2,
+            observed_unique_handles: 1,
+            missing_handles: 1,
+            ..Default::default()
+        };
+        state.counts_enabled = true;
+        button(&ctx, &mut app, true, "Save quality report");
+        assert!(app.source_ui.review.pending.is_some());
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert!(app.source_ui.review.pending.is_none());
+        assert_eq!(app.source_ui.review.records.len(), 1);
+        let report = app.source_ui.review.records[0].clone();
+        assert!(matches!(
+            app.source_ui
+                .repository
+                .as_ref()
+                .unwrap()
+                .manifest
+                .sources
+                .iter()
+                .find(|s| s.id == subject)
+                .unwrap()
+                .quality,
+            SourceQuality::Rejected { .. }
+        ));
+        assert_eq!(app.host.document.editor.project, original);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.host.document.editor.selected_ids, vec![13]);
+        assert!(app.host.document.editor.undo.is_empty());
+        let before = std::fs::read(directory.join("repo/project.json")).unwrap();
+        app.source_ui.review.open = false;
+        app.source_ui.open = true;
+        app.source_ui.copy_root = directory.join("copy").display().to_string();
+        button(&ctx, &mut app, false, "Copy stored project");
+        finish(&mut app);
+        assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+        assert_eq!(
+            app.source_ui.repository.as_ref().unwrap().root(),
+            directory.join("copy").canonicalize().unwrap()
+        );
+        assert_eq!(
+            std::fs::read(directory.join("repo/project.json")).unwrap(),
+            before
+        );
+        let root = app.source_ui.repository.as_ref().unwrap().root().to_owned();
+        let orphan = storage::new_document_identity();
+        let mut unpublished: Review = report.clone();
+        unpublished.operation_id = orphan.clone();
+        std::fs::write(
+            root.join(format!("reviews/{orphan}.json")),
+            serde_json::to_vec(&unpublished).unwrap(),
+        )
+        .unwrap();
+        app.source_ui.review.open = true;
+        app.source_ui.open = false;
+        app.source_ui.review.pending = Some(ReviewRequest {
+            operation_id: orphan.clone(),
+            draft: report.draft.clone(),
+            root: root.clone(),
+        });
+        app.start_source_action(SourceAction::ReviewOperation(orphan));
+        finish(&mut app);
+        assert!(matches!(
+            app.source_ui.review.operation_result,
+            Some(ReviewOperation::Unpublished { .. })
+        ));
+        assert!(app.source_ui.review.pending.is_some());
+        let missing = storage::new_document_identity();
+        app.source_ui.review.pending = Some(ReviewRequest {
+            operation_id: missing,
+            draft: report.draft.clone(),
+            root,
+        });
+        button(&ctx, &mut app, true, "Inspect review operation");
+        finish(&mut app);
+        assert!(matches!(
+            app.source_ui.review.operation_result,
+            Some(ReviewOperation::NotFound)
+        ));
+        assert!(app.source_ui.review.pending.is_none());
+        assert_eq!(app.host.document.editor.project, original);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_physical_paper_fit_and_zoom_remain_readable_without_rescaling_model_or_calibration() {
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        let root =
+            std::env::temp_dir().join(format!("oa-paper-{}", storage::new_document_identity()));
+        std::fs::create_dir(&root).unwrap();
+        let path = root.join("paper.png");
+        image::RgbaImage::from_pixel(910, 1287, image::Rgba([245, 245, 245, 255]))
+            .save(&path)
+            .unwrap();
+        let mut page = crate::drawings::import(&path, &root.join("cache"), 2).unwrap();
+        page.placement = Some(crate::drawings::DrawingPlacement {
+            worksheet: Some(1),
+            story: 0,
+            origin: Point::default(),
+            angle: 0.,
+            visible: true,
+            opacity: 255,
+            frame: None,
+        });
+        let mut project = Project::default();
+        project.drawings.pages.push(page);
+        project
+            .drawings
+            .worksheets
+            .push(crate::drawings::Worksheet {
+                id: 1,
+                name: "Physical paper".into(),
+            });
+        project
+            .drawings
+            .regions
+            .push(crate::drawings::DrawingRegion {
+                id: 3,
+                page: 2,
+                story: 0,
+                bounds: [0., 0., 910., 1287.],
+                calibration: Some(crate::drawings::Calibration {
+                    points: [[0., 0.], [910., 0.]],
+                    distance_mm: 910. * 25.4 / 110.,
+                }),
+                revision: 1,
+                needs_review: false,
+                visible: true,
+                opacity: 140,
+            });
+        project.drawings.validate(&project.stories).unwrap();
+        app.host.document.editor = Editor::new(project);
+        app.open_worksheet(1);
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        let paper_height_m = 1287. * 25.4 / 110. / 1000.;
+        assert!((paper_height_m * app.plan_scale - 552.).abs() < 0.01);
+        assert!(app.plan_scale > 1800.);
+        plan_frame(&ctx, &mut app, vec![]);
+        assert!(!app.host.document.editor.dirty());
+        app.fit_worksheet_in_viewport(1, vec2(360., 240.));
+        assert!((paper_height_m * app.plan_scale - 192.).abs() < 0.01);
+        app.fit_worksheet(1);
+        plan_frame(&ctx, &mut app, vec![]);
+        // Navigator can switch sheets after toolbar layout. Fit on the next, smaller
+        // canvas, then preserve manual zoom rather than fitting every later frame.
+        assert_eq!(app.drawings_ui.fit_pending, Some((1, false)));
+        let small_frame = |app: &mut AtelierApp| {
+            let _ = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(360., 240.))),
+                    ..Default::default()
+                },
+                |ui| {
+                    app.plan(ui);
+                },
+            );
+        };
+        small_frame(&mut app);
+        assert!(paper_height_m * app.plan_scale <= 192.01);
+        assert!(app.drawings_ui.fit_pending.is_none());
+        app.fit_worksheet(1);
+        plan_frame(&ctx, &mut app, vec![]);
+        plan_frame(&ctx, &mut app, vec![]);
+        let fit = app.plan_scale;
+        app.zoom_plan_view(1.15);
+        assert!((app.plan_scale - fit * 1.15).abs() < 1e-6);
+        app.zoom_plan_view(1. / 1.15);
+        assert!((app.plan_scale - fit).abs() < 1e-6);
+        // Real egui wheel event on the plan canvas must not snap a fitted page to250px/m.
+        let pointer = pos2(400., 300.);
+        plan_frame(&ctx, &mut app, vec![Event::PointerMoved(pointer)]);
+        plan_frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::PointerMoved(pointer),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    phase: egui::TouchPhase::Move,
+                    delta: vec2(0., 60.),
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert!(app.plan_scale > fit && app.plan_scale < 100_000.);
+        app.set_plan_zoom_percent(5000.);
+        assert_eq!(app.plan_scale, 2000.);
+        app.set_plan_zoom_percent(f64::NAN);
+        assert_eq!(app.plan_scale, 2000.);
+        app.set_plan_zoom_percent(1e9);
+        assert_eq!(app.plan_scale, 100_000.);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        assert!(!app.host.document.editor.dirty());
+        app.host.document.editor.switch_worksheet(None);
+        app.set_plan_zoom_percent(5000.);
+        assert_eq!(
+            app.plan_scale, 400.,
+            "architectural percentage limit unchanged"
+        );
+        app.zoom_plan_view(1e6);
+        assert_eq!(
+            app.plan_scale, 400.,
+            "architectural toolbar limit unchanged"
+        );
+        app.plan_scale = 200.;
+        plan_frame(
+            &ctx,
+            &mut app,
+            vec![
+                Event::PointerMoved(pointer),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    phase: egui::TouchPhase::Move,
+                    delta: vec2(0., 6000.),
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+        );
+        assert!(
+            app.plan_scale <= 250.,
+            "architectural wheel limit unchanged"
+        );
+        assert_eq!(app.host.document.editor.project.drawings, before.drawings);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn v4_legacy_component_rules_original_worker_preview_cancel_links_stale_and_undo_bilingual() {
+    use super::{project_sources_ui::SourceAction, rules_ui::RulePreview};
+    use crate::{
+        project_repository::Repository,
+        rules::*,
+        workbench::{WorkMode, WorkbenchCommand},
+    };
+    fn finish(app: &mut AtelierApp) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < end);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 2400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.rules_window(ui.ctx()),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, key: &str) {
+        frame(ctx, app, vec![]);
+        let out = frame(ctx, app, vec![]);
+        let pos = text_center(&out.shapes, app.language.translate(key))
+            .unwrap_or_else(|| panic!("visible rule control {key}"));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for mode in [WorkMode::Architecture, WorkMode::SiteConcept] {
+            let (ctx, mut app) = setup();
+            ctx.global_style_mut(|s| s.animation_time = 0.);
+            app.language = language;
+            app.switch_work_mode(mode);
+            app.host.document.editor = Editor::new(storage::startup_example());
+            let original = app.host.document.editor.project.clone();
+            let directory = std::env::temp_dir()
+                .join(format!("oa-rules-ui-{}", storage::new_document_identity()));
+            std::fs::create_dir(&directory).unwrap();
+            let path = directory.join("original.html");
+            std::fs::write(
+                &path,
+                "<h1>Controlled fixture</h1><p>Terrain remains unmeasured.</p>",
+            )
+            .unwrap();
+            let mut repo =
+                Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                    .unwrap();
+            let sha = repo.add_source(&path).unwrap();
+            app.source_ui.root = repo.root().display().to_string();
+            app.source_ui.repository = Some(repo);
+            assert!(
+                mode.profile()
+                    .commands
+                    .contains(&WorkbenchCommand::Conditions)
+            );
+            app.execute_workbench(WorkbenchCommand::Rules).unwrap();
+            // Isolated legacy component regression; unified normal path has separate evidence.
+            app.project_conditions_ui.open = false;
+            assert!(app.rules_ui.open);
+            let source = RuleSource {
+                id: "v1".into(),
+                title: "Controlled fixture".into(),
+                code: "FIXTURE".into(),
+                edition: "1".into(),
+                publisher: "Synthetic".into(),
+                jurisdiction: String::new(),
+                published_on: String::new(),
+                effective_on: String::new(),
+                original_sha256: sha.clone(),
+                origin_url: String::new(),
+                origin: Origin::Unverified,
+                verification_note: "Not a statutory source".into(),
+                replaces: vec![],
+                same_edition_as: None,
+            };
+            let preview = RulePreview {
+                base: app.host.context(),
+                edit: RuleEdit::AddSource { source },
+            };
+            app.rules_ui.request = Some(preview.clone());
+            app.start_source_action(SourceAction::PreviewRule(preview));
+            finish(&mut app);
+            assert!(app.rules_ui.preview.is_some(), "{}", app.source_ui.error);
+            assert_eq!(app.host.document.editor.project, original);
+            button(&ctx, &mut app, "Cancel rule edit");
+            assert!(app.rules_ui.preview.is_none());
+            assert_eq!(app.host.document.editor.project, original);
+            let source = RuleSource {
+                id: "v1".into(),
+                title: "Controlled fixture".into(),
+                code: "FIXTURE".into(),
+                edition: "1".into(),
+                publisher: "Synthetic".into(),
+                jurisdiction: String::new(),
+                published_on: String::new(),
+                effective_on: String::new(),
+                original_sha256: sha.clone(),
+                origin_url: String::new(),
+                origin: Origin::Unverified,
+                verification_note: "Not a statutory source".into(),
+                replaces: vec![],
+                same_edition_as: None,
+            };
+            let preview = RulePreview {
+                base: app.host.context(),
+                edit: RuleEdit::AddSource { source },
+            };
+            app.rules_ui.request = Some(preview.clone());
+            app.start_source_action(SourceAction::PreviewRule(preview));
+            finish(&mut app);
+            button(&ctx, &mut app, "Confirm rule edit");
+            finish(&mut app);
+            assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+            assert_eq!(app.host.document.editor.project.rules.sources.len(), 1);
+            app.rules_ui.source_id = "v1".into();
+            app.start_source_action(SourceAction::InspectRuleOriginal(sha));
+            finish(&mut app);
+            assert!(app.rules_ui.original.is_some());
+            let target = crate::evidence::Target::Element {
+                id: original.elements[0].id,
+            };
+            let row = Requirement {
+                id: "terrain".into(),
+                title: "Terrain condition".into(),
+                topic: Topic::TerrainNeighbors,
+                citation: Citation {
+                    source_id: "v1".into(),
+                    locator: "html/static[2]".into(),
+                    text: "Terrain remains unmeasured.".into(),
+                },
+                interpretation: "Do not infer flat terrain".into(),
+                decision: Decision {
+                    applicability: Applicability::Unknown,
+                    adoption: Adoption::Pending,
+                    rationale: String::new(),
+                    missing: "Actual terrain and neighbors required".into(),
+                    basis_sha256: app.host.document.editor.project.rules.basis("v1").unwrap(),
+                },
+                links: vec![crate::evidence::Link {
+                    baseline_sha256: target.current_hash(&original).unwrap(),
+                    target,
+                }],
+            };
+            let preview = RulePreview {
+                base: app.host.context(),
+                edit: RuleEdit::PutRequirement {
+                    expected: None,
+                    requirement: row.clone(),
+                },
+            };
+            app.rules_ui.request = Some(preview.clone());
+            app.start_source_action(SourceAction::PreviewRule(preview.clone()));
+            finish(&mut app);
+            assert!(app.rules_ui.preview.is_some(), "{}", app.source_ui.error);
+            app.start_source_action(SourceAction::CommitRule(preview.clone()));
+            app.rules_ui.request = None;
+            finish(&mut app);
+            assert!(app.source_ui.error.contains("cancelled"));
+            assert!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .rules
+                    .requirements
+                    .is_empty()
+            );
+            app.rules_ui.request = Some(preview.clone());
+            app.rules_ui.preview = Some(preview);
+            button(&ctx, &mut app, "Confirm rule edit");
+            finish(&mut app);
+            assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+            assert_eq!(
+                app.host.document.editor.project.rules.requirements,
+                [row.clone()]
+            );
+            assert_eq!(app.host.document.editor.project.elements, original.elements);
+            app.dispatch_history(false);
+            assert!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .rules
+                    .requirements
+                    .is_empty()
+            );
+            app.dispatch_history(true);
+            assert_eq!(app.host.document.editor.project.rules.requirements, [row]);
+            let mut context = app.host.document.editor.project.rules.context.clone();
+            context.stage = "Changed by user".into();
+            let preview = RulePreview {
+                base: app.host.context(),
+                edit: RuleEdit::SetContext {
+                    expected: app.host.document.editor.project.rules.context.clone(),
+                    context,
+                },
+            };
+            app.rules_ui.request = Some(preview.clone());
+            app.start_source_action(SourceAction::PreviewRule(preview.clone()));
+            finish(&mut app);
+            app.host
+                .document
+                .editor
+                .set_selection(vec![original.elements[0].id]);
+            app.host.document.editor.move_selection(Point::new(1., 0.));
+            app.start_source_action(SourceAction::CommitRule(preview));
+            finish(&mut app);
+            assert!(app.source_ui.error.contains("changed"));
+            assert!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .rules
+                    .context
+                    .stage
+                    .is_empty()
+            );
+            app.dispatch_history(false);
+            assert_eq!(app.host.document.editor.project.elements, original.elements);
+            for key in [
+                "Conditions and rules",
+                "Rule edit preview",
+                "Applicability unknown",
+                "Linked rule target changed or missing",
+                "Rule effective date is unknown",
+                "Rule edit cancelled or draft changed; preview again",
+            ] {
+                if language == UiLanguage::SimplifiedChinese {
+                    assert_ne!(language.translate(key), key, "{key}");
+                }
+            }
+            let _ = frame(&ctx, &mut app, vec![]);
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+}
+
+#[test]
+fn v4_pdf_original_page_gaps_and_provider_limits_are_visible_bilingual() {
+    use crate::{
+        project_repository::{
+            conversion::ToolIdentity,
+            rules::{RuleOriginal, pdf::PdfTextEvidence},
+        },
+        source_document::{Paragraph, SourceDocument},
+    };
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.rules_ui.open = true;
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        app.rules_ui.original = Some(RuleOriginal {
+            source_sha256: "a".repeat(64),
+            document: SourceDocument {
+                paragraphs: vec![Paragraph {
+                    locator: "pdf/page[3]/block[1]".into(),
+                    text: "Synthetic display fixture; not a real original".into(),
+                }],
+                tables: vec![],
+            },
+            limits: "Synthetic display evidence".into(),
+            pdf: Some(PdfTextEvidence {
+                tool: ToolIdentity {
+                    executable: "controlled display fixture".into(),
+                    sha256: "b".repeat(64),
+                    version: "pdftotext test display only".into(),
+                    license: "synthetic".into(),
+                },
+                recipe: "controlled-fixture".into(),
+                layout_sha256: "c".repeat(64),
+                physical_pages: 3,
+                empty_pages: vec![2],
+                warnings: String::new(),
+            }),
+        });
+        let mut last = None;
+        for _ in 0..3 {
+            let mut output = ctx.run_ui(
+                RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 1400.))),
+                    ..Default::default()
+                },
+                |ui| app.rules_window(ui.ctx()),
+            );
+            output.textures_delta.clear();
+            last = Some(output);
+        }
+        let output = last.unwrap();
+        let label = format!(
+            "{}: 3 · {}: 2",
+            language.translate("Physical PDF pages"),
+            language.translate("Pages without extracted text")
+        );
+        assert!(text_center(&output.shapes, &label).is_some());
+        assert!(
+            text_center(
+                &output.shapes,
+                language.translate("Local PDF text provider")
+            )
+            .is_some()
+        );
+        assert!(text_center(&output.shapes, "pdf/page[3]/block[1]").is_some());
+        if language == UiLanguage::SimplifiedChinese {
+            for key in [
+                "Same edition, alternate original",
+                "PDF text inspection timed out",
+                "PDF original has no extractable text; scanned pages require verified OCR",
+            ] {
+                assert_ne!(language.translate(key), key)
+            }
+        }
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+    }
+}
+
+#[test]
+fn v4_lifecycle_and_condition_register_worker_cancel_stale_and_undo_bilingual() {
+    use super::{project_sources_ui::SourceAction, rule_register_ui::RegisterDraft};
+    use crate::{project_repository::Repository, rules::*, workbench::WorkMode};
+    fn finish(app: &mut AtelierApp) {
+        let end = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while app.source_ui.pending_for_test() {
+            app.poll_source_job();
+            assert!(std::time::Instant::now() < end);
+            std::thread::sleep(std::time::Duration::from_millis(2));
+        }
+    }
+    fn frame(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        register: bool,
+        events: Vec<Event>,
+    ) -> eframe::egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 2400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                if register {
+                    app.rule_register_window(ui.ctx())
+                } else {
+                    app.rules_window(ui.ctx())
+                }
+            },
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, register: bool, key: &str) {
+        let mut pos = None;
+        for step in 0..14 {
+            let output = frame(ctx, app, register, vec![]);
+            pos = text_center(&output.shapes, app.language.translate(key));
+            if pos.is_some() {
+                break;
+            }
+            let delta = if step == 0 { 3000. } else { -260. };
+            frame(
+                ctx,
+                app,
+                register,
+                vec![
+                    Event::PointerMoved(pos2(400., 420.)),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        phase: egui::TouchPhase::Move,
+                        delta: vec2(0., delta),
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        let pos = pos.unwrap_or_else(|| panic!("visible register control {key}"));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                register,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        for mode in [WorkMode::Architecture, WorkMode::SiteConcept] {
+            let (ctx, mut app) = setup();
+            ctx.global_style_mut(|s| s.animation_time = 0.);
+            app.language = language;
+            app.switch_work_mode(mode);
+            app.host.document.editor = Editor::new(storage::startup_example());
+            let original = app.host.document.editor.project.clone();
+            let directory = std::env::temp_dir().join(format!(
+                "oa-register-ui-{}",
+                storage::new_document_identity()
+            ));
+            std::fs::create_dir(&directory).unwrap();
+            let file = directory.join("notice.txt");
+            std::fs::write(
+                &file,
+                "Controlled notice about partial provisions.\nEffective day is not known.\n",
+            )
+            .unwrap();
+            let mut repo =
+                Repository::create_for_editor(&directory.join("repo"), &app.host.document.editor)
+                    .unwrap();
+            let sha = repo.add_source(&file).unwrap();
+            let source = RuleSource {
+                id: "notice".into(),
+                title: "Synthetic notice".into(),
+                code: "SYNTHETIC".into(),
+                edition: "fixture".into(),
+                publisher: "Synthetic".into(),
+                jurisdiction: String::new(),
+                published_on: String::new(),
+                effective_on: String::new(),
+                original_sha256: sha.clone(),
+                origin_url: String::new(),
+                origin: Origin::Unverified,
+                verification_note: "Controlled data, not real law".into(),
+                replaces: vec![],
+                same_edition_as: None,
+            };
+            let edit = RuleEdit::AddSource { source };
+            let guard = repo
+                .guard_rule_edit(&app.host.document.editor.project.rules, &edit)
+                .unwrap();
+            app.host
+                .apply_rule_edit(app.host.context(), "source", edit, guard)
+                .unwrap();
+            app.source_ui.root = repo.root().display().to_string();
+            app.source_ui.repository = Some(repo);
+            app.rules_ui.open = true;
+            app.rules_ui.source_id = "notice".into();
+            app.start_source_action(SourceAction::InspectRuleOriginal(sha));
+            finish(&mut app);
+            button(&ctx, &mut app, false, "Record lifecycle from this block");
+            assert!(app.rules_ui.register.open);
+            if let Some(RegisterDraft::Lifecycle { value, .. }) = &mut app.rules_ui.register.draft {
+                value.title = "Controlled partial report".into();
+                value.subject = DocumentRef::Missing {
+                    title: "Unacquired original".into(),
+                    code_hint: "OLD-MISSING".into(),
+                    edition_hint: String::new(),
+                    jurisdiction_hint: String::new(),
+                };
+                value.kind = LifecycleKind::Amended;
+                value.scope = LifecycleScope::Partial;
+                value.role = EvidenceRole::Explanation;
+                value.scope_note = "Only named provisions, not the whole document".into();
+                value.missing = "Formal instrument and exact effective day missing".into();
+            } else {
+                panic!("lifecycle draft")
+            }
+            button(
+                &ctx,
+                &mut app,
+                false,
+                "text/line[2] · Effective day is not known.",
+            );
+            button(&ctx, &mut app, false, "Add block to lifecycle evidence");
+            assert!(
+                matches!(&app.rules_ui.register.draft,Some(RegisterDraft::Lifecycle{value,..}) if value.corroboration.len()==1)
+            );
+            let draft = app.rules_ui.register.draft.clone();
+            let before = app.host.document.editor.project.clone();
+            app.rules_ui.open = false;
+            button(&ctx, &mut app, true, "Preview lifecycle record");
+            finish(&mut app);
+            assert!(app.rules_ui.preview.is_some(), "{}", app.source_ui.error);
+            assert_eq!(app.host.document.editor.project, before);
+            button(&ctx, &mut app, true, "Cancel register edit");
+            assert!(app.rules_ui.preview.is_none() && app.rules_ui.register.draft.is_none());
+            assert_eq!(app.host.document.editor.project, before);
+            app.rules_ui.register.draft = draft;
+            button(&ctx, &mut app, true, "Preview lifecycle record");
+            finish(&mut app);
+            let preview = app.rules_ui.preview.clone().unwrap();
+            app.start_source_action(SourceAction::CommitRule(preview.clone()));
+            app.rules_ui.request = None;
+            finish(&mut app);
+            assert!(app.source_ui.error.contains("cancelled"));
+            assert_eq!(app.host.document.editor.project, before);
+            app.rules_ui.request = Some(preview.clone());
+            app.rules_ui.preview = Some(preview);
+            button(&ctx, &mut app, true, "Confirm register edit");
+            finish(&mut app);
+            assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+            assert_eq!(app.host.document.editor.project.rules.lifecycle.len(), 1);
+            assert_eq!(app.host.document.editor.project.elements, original.elements);
+            button(&ctx, &mut app, true, "Add condition to verify");
+            if let Some(RegisterDraft::Condition { value, .. }) = &mut app.rules_ui.register.draft {
+                value.title = "Approval pending".into();
+                value.question = "Obtain the actual approval and project use".into();
+                value.originals = vec![DocumentRef::Missing {
+                    title: "Approved project conditions".into(),
+                    code_hint: String::new(),
+                    edition_hint: String::new(),
+                    jurisdiction_hint: String::new(),
+                }];
+                value.missing = "No approved project conditions".into();
+            } else {
+                panic!("condition draft")
+            }
+            button(&ctx, &mut app, true, "Preview condition need");
+            finish(&mut app);
+            assert!(app.rules_ui.preview.is_some(), "{}", app.source_ui.error);
+            let preview = app.rules_ui.preview.clone().unwrap();
+            app.start_source_action(SourceAction::CommitRule(preview));
+            app.dispatch_history(false);
+            finish(&mut app);
+            assert!(app.source_ui.error.contains("changed"));
+            assert!(app.host.document.editor.project.rules.conditions.is_empty());
+            app.dispatch_history(true);
+            button(
+                &ctx,
+                &mut app,
+                true,
+                "Explicitly refresh condition review basis",
+            );
+            button(&ctx, &mut app, true, "Preview condition need");
+            finish(&mut app);
+            button(&ctx, &mut app, true, "Confirm register edit");
+            finish(&mut app);
+            assert!(app.source_ui.error.is_empty(), "{}", app.source_ui.error);
+            assert_eq!(app.host.document.editor.project.rules.conditions.len(), 1);
+            let need = &app.host.document.editor.project.rules.conditions[0];
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .rules
+                    .condition_state(&app.host.document.editor.project, need),
+                "Condition original not acquired"
+            );
+            app.dispatch_history(false);
+            assert!(app.host.document.editor.project.rules.conditions.is_empty());
+            app.dispatch_history(true);
+            assert_eq!(app.host.document.editor.project.rules.conditions.len(), 1);
+            assert_eq!(app.host.document.editor.project.elements, original.elements);
+            let output = directory.join("saved.json");
+            storage::save_document(
+                &app.host.document.editor.project,
+                &output,
+                app.host.document.editor.project_identity(),
+            )
+            .unwrap();
+            assert_eq!(
+                Editor::from_stored_document(&output).unwrap().project,
+                app.host.document.editor.project
+            );
+            if language == UiLanguage::SimplifiedChinese {
+                for key in [
+                    "Lifecycle and condition register",
+                    "Lifecycle subject original not acquired",
+                    "Partial or unresolved lifecycle scope needs review",
+                    "Condition review is stale",
+                    "Condition original not acquired",
+                ] {
+                    assert_ne!(language.translate(key), key, "{key}");
+                }
+            }
+            std::fs::remove_dir_all(directory).unwrap();
+        }
+    }
+}
+
+#[test]
+fn v4_personal_environment_real_controls_save_restart_conflict_and_model_preservation_bilingual() {
+    use crate::workbench::{WorkMode, WorkbenchCommand};
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 1400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                app.shortcuts(ui.ctx());
+                app.workbench_ui(ui);
+            },
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, key: &str) {
+        frame(ctx, app, vec![]);
+        for _ in 0..12 {
+            let out = frame(ctx, app, vec![]);
+            let target = out.shapes.iter().find_map(|shape| {
+                text_center(std::slice::from_ref(shape), app.language.translate(key))
+                    .map(|point| (point, shape.clip_rect))
+            });
+            if let Some((pos, clip)) = target {
+                if clip.contains(pos) {
+                    for pressed in [true, false] {
+                        frame(
+                            ctx,
+                            app,
+                            vec![
+                                Event::PointerMoved(pos),
+                                Event::PointerButton {
+                                    pos,
+                                    button: PointerButton::Primary,
+                                    pressed,
+                                    modifiers: Modifiers::NONE,
+                                },
+                            ],
+                        );
+                    }
+                    return;
+                }
+                let delta = if pos.y >= clip.max.y { -160. } else { 160. };
+                let hover = pos2(clip.max.x - 12., clip.center().y);
+                frame(
+                    ctx,
+                    app,
+                    vec![
+                        Event::PointerMoved(hover),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            phase: egui::TouchPhase::Move,
+                            delta: vec2(0., delta),
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+            } else {
+                // A control above the current scroll viewport may not be painted.
+                // Return toward the header through the real outer scroll area.
+                let rect = ctx
+                    .memory(|m| {
+                        m.area_rect(Id::new(app.language.translate("Personal work environment")))
+                    })
+                    .expect("open environment window");
+                let hover = pos2(rect.max.x - 18., rect.center().y);
+                frame(
+                    ctx,
+                    app,
+                    vec![
+                        Event::PointerMoved(hover),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            phase: egui::TouchPhase::Move,
+                            delta: vec2(0., 300.),
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+        }
+        panic!("visible environment control {key} after normal scrolling");
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        if let Some(project) = std::env::var_os("OPENARCHI_ENV_REVIEW_PROJECT") {
+            // Optional protected project supplied by the caller, never a private build dependency.
+            open_test_project(&ctx, &mut app, std::path::Path::new(&project));
+        }
+        let id = app
+            .host
+            .document
+            .editor
+            .place_concept_mass(crate::concept_mass::ConceptMassSpec {
+                arcs: vec![],
+                hole_arcs: vec![],
+                outline: vec![
+                    Point::new(30., 30.),
+                    Point::new(32., 30.),
+                    Point::new(32., 32.),
+                    Point::new(30., 32.),
+                ],
+                holes: vec![],
+                height: 3.,
+                bottom_offset: 0.,
+            })
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        let history = app.host.document.editor.undo.len();
+        let directory = std::env::temp_dir().join(format!(
+            "oa-personal-environment-{}",
+            storage::new_document_identity()
+        ));
+        app.initialize_work_mode(&directory);
+        app.open_command_preview("Customize work environment…".into());
+        assert!(app.workbench.configuration_open);
+        assert!(app.menu_gated());
+        frame(
+            &ctx,
+            &mut app,
+            vec![
+                key(Key::Delete, Modifiers::NONE),
+                key(Key::Z, Modifiers::COMMAND),
+            ],
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        button(&ctx, &mut app, "Clone as personal mode");
+        let (_, profile) = app.workbench.configuration_draft.as_mut().unwrap();
+        profile.name = "我的空间任务".into();
+        profile.commands = vec!["tool.zone".into(), "view.model".into()];
+        let profile_id = profile.id.clone();
+        button(&ctx, &mut app, "Move down");
+        assert_eq!(
+            app.workbench
+                .configuration_draft
+                .as_ref()
+                .unwrap()
+                .1
+                .commands,
+            vec!["view.model", "tool.zone"]
+        );
+        button(&ctx, &mut app, "Navigator");
+        assert!(
+            !app.workbench
+                .configuration_draft
+                .as_ref()
+                .unwrap()
+                .1
+                .panels
+                .navigator
+        );
+        app.host.document.editor.anchor = Some(Point::new(4., 5.));
+        button(&ctx, &mut app, "Save and activate mode");
+        assert!(
+            app.workbench
+                .configuration_error
+                .contains("Finish or cancel")
+        );
+        assert!(!directory.join("work-environment.json").exists());
+        assert_eq!(app.host.document.editor.anchor, Some(Point::new(4., 5.)));
+        app.host.document.editor.anchor = None;
+        button(&ctx, &mut app, "Save and activate mode");
+        assert!(
+            app.workbench.configuration_error.is_empty(),
+            "{}",
+            app.workbench.configuration_error
+        );
+        assert!(!app.show_right);
+        assert_eq!(app.workbench.active_profile, profile_id);
+        let saved = std::fs::read(directory.join("work-environment.json")).unwrap();
+        button(&ctx, &mut app, "Cancel environment edits");
+        assert!(!app.workbench.configuration_open);
+        app.initialize_work_mode(&directory);
+        assert_eq!(app.workbench.active_profile, profile_id);
+        assert!(!app.show_right);
+        app.dispatch_workbench(WorkbenchCommand::Environment);
+        app.workbench.transfer_path = directory.join("export.json").display().to_string();
+        button(&ctx, &mut app, "Export saved environment");
+        assert_eq!(std::fs::read(directory.join("export.json")).unwrap(), saved);
+        let mut incoming = crate::workbench::environment::Configuration::parse(&saved).unwrap();
+        incoming
+            .profiles
+            .iter_mut()
+            .find(|p| p.id == profile_id)
+            .unwrap()
+            .workspace = Some(Default::default());
+        std::fs::write(
+            directory.join("export.json"),
+            serde_json::to_vec(&incoming).unwrap(),
+        )
+        .unwrap();
+        app.switch_work_mode(WorkMode::SiteConcept);
+        assert!(app.show_right);
+        let before_review = std::fs::read(directory.join("work-environment.json")).unwrap();
+        button(&ctx, &mut app, "Review environment file");
+        assert!(
+            app.show_right,
+            "reading a proposal must not activate its panel changes"
+        );
+        assert_eq!(app.workbench.environment.mode, WorkMode::SiteConcept);
+        assert_eq!(
+            std::fs::read(directory.join("work-environment.json")).unwrap(),
+            before_review
+        );
+        button(&ctx, &mut app, "Changes from saved environment");
+        let reviewed = frame(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &reviewed.shapes,
+                &format!(
+                    "{}: {}",
+                    language.translate("Before"),
+                    language.translate(WorkMode::SiteConcept.label())
+                )
+            )
+            .is_some()
+        );
+        assert!(
+            text_center(
+                &reviewed.shapes,
+                &format!("{}: 我的空间任务", language.translate("After"))
+            )
+            .is_some()
+        );
+        button(&ctx, &mut app, "Cancel environment edits");
+        assert_eq!(
+            std::fs::read(directory.join("work-environment.json")).unwrap(),
+            before_review
+        );
+        app.dispatch_workbench(WorkbenchCommand::Environment);
+        button(&ctx, &mut app, "Review environment file");
+        // Invalid input must preserve the valid proposal and its current editable profile.
+        let valid_draft = app.workbench.configuration_draft.clone().unwrap();
+        let export_path = app.workbench.transfer_path.clone();
+        app.workbench.transfer_path = directory.join("invalid.json").display().to_string();
+        std::fs::write(&app.workbench.transfer_path, b"invalid proposal").unwrap();
+        button(&ctx, &mut app, "Review environment file");
+        assert_eq!(
+            app.workbench.configuration_draft.as_ref().unwrap(),
+            &valid_draft
+        );
+        assert!(!app.workbench.configuration_error.is_empty());
+        app.workbench.transfer_path = export_path;
+        button(&ctx, &mut app, "Save and activate mode");
+        assert!(
+            app.host
+                .environment
+                .as_ref()
+                .unwrap()
+                .configuration
+                .profiles
+                .iter()
+                .find(|p| p.id == profile_id)
+                .unwrap()
+                .workspace
+                .is_some(),
+            "review and Save must preserve the incoming explicit default override"
+        );
+        assert!(!app.show_right);
+        assert_eq!(app.workbench.active_profile, profile_id);
+        button(&ctx, &mut app, "Configuration source and differences");
+        button(&ctx, &mut app, "Reset draft to bundled defaults");
+        assert!(
+            app.workbench
+                .configuration_draft
+                .as_ref()
+                .unwrap()
+                .0
+                .profiles
+                .iter()
+                .find(|p| p.id == profile_id)
+                .unwrap()
+                .workspace
+                .is_none(),
+            "explicit Reset must still clear the saved override in the draft"
+        );
+        assert!(!app.show_right, "resetting a draft is not applying it");
+        button(&ctx, &mut app, "Cancel environment edits");
+        app.dispatch_workbench(WorkbenchCommand::Environment);
+        button(&ctx, &mut app, "Restore previous environment");
+        assert_eq!(app.workbench.environment.mode, WorkMode::SiteConcept);
+        assert!(app.show_right);
+        // A stale editor must preserve the user's current file and its own unsaved draft.
+        let mut external = crate::workbench::environment::EnvironmentService::open(
+            &directory.join("work-environment.json"),
+            WorkMode::Architecture,
+        )
+        .unwrap();
+        let config = external.configuration.clone();
+        external.save(config).unwrap();
+        let external_bytes = std::fs::read(directory.join("work-environment.json")).unwrap();
+        button(&ctx, &mut app, "Save and activate mode");
+        assert!(app.workbench.configuration_error.contains("changed"));
+        assert_eq!(
+            std::fs::read(directory.join("work-environment.json")).unwrap(),
+            external_bytes
+        );
+        assert!(app.workbench.configuration_draft.is_some());
+        // Bad/newer initial state retains bytes until the explicit GUI recovery action.
+        std::fs::write(
+            directory.join("work-environment.json"),
+            b"corrupt configuration",
+        )
+        .unwrap();
+        app.workbench.configuration_open = false;
+        app.initialize_work_mode(&directory);
+        app.dispatch_workbench(WorkbenchCommand::Environment);
+        button(&ctx, &mut app, "Recover with bundled defaults");
+        assert!(
+            app.workbench.configuration_error.is_empty(),
+            "{}",
+            app.workbench.configuration_error
+        );
+        assert!(app.host.environment.as_ref().unwrap().recovery.is_none());
+        let preserved = std::fs::read_dir(&directory)
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|e| {
+                e.file_name()
+                    .to_string_lossy()
+                    .starts_with("work-environment-preserved-")
+            })
+            .unwrap();
+        assert_eq!(
+            std::fs::read(preserved.path()).unwrap(),
+            b"corrupt configuration"
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        assert!(app.host.document.editor.dirty());
+        assert!(app.host.document.editor.redo.is_empty());
+        app.host.document.editor.anchor = Some(Point::new(6., 7.));
+        frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(!app.workbench.configuration_open);
+        assert!(app.workbench.configuration_draft.is_none());
+        assert_eq!(app.host.document.editor.anchor, Some(Point::new(6., 7.)));
+        assert!(!ctx.input(|i| i.key_pressed(Key::Escape)));
+        assert_eq!(app.host.document.editor.project, before);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_native_workspace_groups_float_drag_resize_save_recover_and_reset_bilingual() {
+    use crate::workbench::{WorkMode, WorkbenchCommand, workspace::*};
+    fn frame(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        events: Vec<Event>,
+        size: Vec2,
+    ) -> eframe::egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                app.shortcuts(ui.ctx());
+                app.workbench_ui(ui);
+                app.native_workspace_ui(ui);
+                CentralPanel::default().show(ui, |ui| {
+                    ui.label("Controlled canvas");
+                });
+            },
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, group: Option<&str>, key: &str) {
+        let size = vec2(1600., 1200.);
+        let context_menu = key == "Panel placement";
+        let panel_label = group
+            .and_then(|g| app.workbench.workspace.groups.iter().find(|v| v.id == g))
+            .and_then(|g| crate::workbench::workspace::panel_label(&g.active));
+        let key = if context_menu {
+            panel_label.expect("active panel title")
+        } else {
+            key
+        };
+        frame(ctx, app, vec![], size);
+        let output = frame(ctx, app, vec![], size);
+        let bounds = group.and_then(|g| app.workbench.panel_rects.get(g).copied());
+        let mut shapes = vec![];
+        collect_shapes(&output.shapes, &mut shapes);
+        let pos = shapes
+            .iter()
+            .find_map(|s| {
+                if let egui::Shape::Text(t) = s {
+                    let p = t.pos + t.galley.size() / 2.;
+                    (t.galley.text() == app.language.translate(key)
+                        && bounds.is_none_or(|r| r.contains(p)))
+                    .then_some(p)
+                } else {
+                    None
+                }
+            })
+            .unwrap_or_else(|| panic!("visible workspace control {group:?}/{key}"));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: if context_menu {
+                            PointerButton::Secondary
+                        } else {
+                            PointerButton::Primary
+                        },
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+                size,
+            );
+        }
+    }
+    fn drag(ctx: &Context, app: &mut AtelierApp, start: Pos2, delta: Vec2) {
+        let size = vec2(1600., 1200.);
+        frame(
+            ctx,
+            app,
+            vec![
+                Event::PointerMoved(start),
+                Event::PointerButton {
+                    pos: start,
+                    button: PointerButton::Primary,
+                    pressed: true,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+            size,
+        );
+        frame(ctx, app, vec![Event::PointerMoved(start + delta)], size);
+        frame(
+            ctx,
+            app,
+            vec![
+                Event::PointerMoved(start + delta),
+                Event::PointerButton {
+                    pos: start + delta,
+                    button: PointerButton::Primary,
+                    pressed: false,
+                    modifiers: Modifiers::NONE,
+                },
+            ],
+            size,
+        );
+        frame(ctx, app, vec![], size);
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let id = app
+            .host
+            .document
+            .editor
+            .place_column(Point::new(30., 30.))
+            .unwrap();
+        app.host.document.editor.set_selection(vec![id]);
+        let project = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        let history = app.host.document.editor.undo.len();
+        app.view = View::Model;
+        let directory = std::env::temp_dir().join(format!(
+            "oa-workspace-ui-{}",
+            storage::new_document_identity()
+        ));
+        app.initialize_work_mode(&directory);
+        frame(&ctx, &mut app, vec![], vec2(1600., 1200.));
+        frame(&ctx, &mut app, vec![], vec2(1600., 1200.));
+        assert!(
+            !app.workspace_layout_dirty(),
+            "intrinsic minimum widths are not personal edits"
+        );
+        let dock = app.workbench.panel_rects["workspace.toolbox"];
+        drag(
+            &ctx,
+            &mut app,
+            pos2(dock.max.x as f64, dock.center().y as f64),
+            vec2(45., 0.),
+        );
+        assert!(
+            app.workbench.workspace.groups[0].extent > 208,
+            "real dock resize must persist"
+        );
+        button(&ctx, &mut app, Some("workspace.toolbox"), "Panel placement");
+        button(&ctx, &mut app, None, "Float panel group");
+        assert_eq!(
+            app.workbench.workspace.groups[0].placement,
+            Placement::Floating
+        );
+        button(&ctx, &mut app, Some("workspace.toolbox"), "Panel placement");
+        button(&ctx, &mut app, None, "Group with Navigator");
+        assert_eq!(app.workbench.workspace.groups.len(), 1);
+        button(
+            &ctx,
+            &mut app,
+            Some("workspace.navigator"),
+            "Navigator & Properties",
+        );
+        assert_eq!(app.workbench.workspace.groups[0].active, NAVIGATOR);
+        button(
+            &ctx,
+            &mut app,
+            Some("workspace.navigator"),
+            "Panel placement",
+        );
+        button(&ctx, &mut app, None, "Ungroup active panel");
+        let floating = app
+            .workbench
+            .workspace
+            .groups
+            .iter()
+            .find(|g| g.panels == [NAVIGATOR])
+            .unwrap()
+            .id
+            .clone();
+        button(&ctx, &mut app, Some(&floating), "Panel placement");
+        button(&ctx, &mut app, None, "Dock group left");
+        assert_eq!(
+            app.workbench
+                .workspace
+                .groups
+                .iter()
+                .find(|g| g.id == floating)
+                .unwrap()
+                .placement,
+            Placement::Left
+        );
+        button(&ctx, &mut app, Some(&floating), "Panel placement");
+        button(&ctx, &mut app, None, "Float panel group");
+        let before = app.workbench.panel_rects[&floating];
+        drag(&ctx, &mut app, before.min + vec2(120., 10.), vec2(65., 45.));
+        let moved = app.workbench.panel_rects[&floating];
+        assert!(
+            (moved.min - before.min).length() > 30.,
+            "title drag {before:?} -> {moved:?}"
+        );
+        drag(&ctx, &mut app, moved.max - vec2(3., 3.), vec2(70., 55.));
+        let resized = app.workbench.panel_rects[&floating];
+        assert!(
+            resized.width() > moved.width() + 20.,
+            "resize {moved:?} -> {resized:?}"
+        );
+        button(&ctx, &mut app, Some(&floating), "Panel placement");
+        button(&ctx, &mut app, None, "Save workspace layout");
+        assert!(
+            app.workbench.configuration_error.is_empty(),
+            "{}",
+            app.workbench.configuration_error
+        );
+        let saved = app
+            .host
+            .environment
+            .as_ref()
+            .unwrap()
+            .configuration
+            .resolve(&app.workbench.active_profile)
+            .unwrap()
+            .workspace;
+        assert_eq!(app.workbench.workspace, saved);
+        app.initialize_work_mode(&directory);
+        assert_eq!(app.workbench.workspace, saved);
+        for _ in 0..3 {
+            frame(&ctx, &mut app, vec![], vec2(1600., 1200.));
+        }
+        assert_eq!(
+            app.workbench.workspace, saved,
+            "geometry must not grow across frames/restart"
+        );
+        frame(&ctx, &mut app, vec![], vec2(480., 400.));
+        frame(&ctx, &mut app, vec![], vec2(480., 400.));
+        let recovered = app.workbench.panel_rects[&floating];
+        assert!(
+            recovered.min.x >= 0.
+                && recovered.min.y >= 0.
+                && recovered.max.x <= 481.
+                && recovered.max.y <= 401.,
+            "recovered {recovered:?}"
+        );
+        let layout = app.workbench.workspace.clone();
+        app.host.document.editor.anchor = Some(Point::new(2., 3.));
+        app.dispatch_workbench(WorkbenchCommand::ResetWorkspace);
+        assert_eq!(app.workbench.workspace, layout);
+        assert_eq!(app.host.document.editor.anchor, Some(Point::new(2., 3.)));
+        app.host.document.editor.anchor = None;
+        button(&ctx, &mut app, None, "Find command…");
+        assert!(
+            app.workbench.search_open,
+            "command finder stays reachable after viewport recovery"
+        );
+        button(&ctx, &mut app, None, "Reset workspace layout");
+        assert_eq!(app.workbench.workspace, NativeWorkspace::default());
+        assert!(app.show_left && app.show_right);
+        assert_eq!(app.view, View::Model);
+        assert_eq!(app.host.document.editor.project, project);
+        assert_eq!(app.host.context(), context);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        assert_eq!(app.host.document.editor.selection_ids(), vec![id]);
+        assert!(app.host.document.editor.dirty());
+        app.switch_work_mode(WorkMode::SiteConcept);
+        std::fs::remove_dir_all(directory).unwrap();
+    }
+}
+
+#[test]
+fn v4_space_analysis_tracks_active_option_including_unrevised_context_bilingual() {
+    use crate::view_settings::DesignOptionScope;
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        let mut project = Project::default();
+        let a = project.design_options.create("Wall".into());
+        let b = project.design_options.create("Candidate B".into());
+        for (x, width, option) in [(0., 2., None), (4., 3., Some(a)), (4., 4., Some(b))] {
+            let id = project.add(
+                0,
+                Material::Plaster,
+                Shape::Zone {
+                    spec: crate::zones::ZoneSpec {
+                        surface: Default::default(),
+                        purpose: "fixture".into(),
+                        outline: vec![
+                            Point::new(x, 0.),
+                            Point::new(x + width, 0.),
+                            Point::new(x + width, width),
+                            Point::new(x, width),
+                        ],
+                        holes: vec![],
+                        height: 3.,
+                        bottom_offset: 0.,
+                        label_position: None,
+                    },
+                },
+            );
+            project
+                .elements
+                .iter_mut()
+                .find(|e| e.id == id)
+                .unwrap()
+                .design_option = option;
+        }
+        app.host.document.editor = Editor::new(project);
+        app.zone_analysis_open = true;
+        let before = app.host.document.editor.project.clone();
+        let context = app.host.context();
+        for (option, total) in [(Some(a), 13.), (Some(b), 20.), (None, 4.)] {
+            // Deliberate fixture-only unrevised change proves the cache includes option identity.
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .active_design_option = option;
+            let mut texts = vec![];
+            for _ in 0..2 {
+                let mut output = ctx.run_ui(
+                    RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1200., 900.))),
+                        ..Default::default()
+                    },
+                    |ui| app.zone_analysis_ui(ui.ctx()),
+                );
+                output.textures_delta.clear();
+                texts.clear();
+                collect_text(&output.shapes, &mut texts);
+            }
+            let name = match option {
+                Some(id) if id == a => "Wall",
+                Some(_) => "Candidate B",
+                None => language.translate("Main model"),
+            };
+            assert!(
+                texts
+                    .iter()
+                    .any(|s| s
+                        == &format!("{}: {name}", language.translate("Analysis design option"))),
+                "visible literal candidate name {texts:?}"
+            );
+            let cache = app.zone_analysis_cache.as_ref().unwrap();
+            assert_eq!(cache.3, DesignOptionScope::active(option));
+            assert_eq!(cache.4.as_ref().unwrap().by_story[&0].area_m2, total);
+        }
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), context);
+        assert!(app.host.document.editor.undo.is_empty());
+    }
+}
+
+#[test]
+fn v4_l1_actual_explore_controls_preview_cancel_edit_choose_and_reopen_bilingual() {
+    use crate::workbench::WorkbenchCommand;
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1500., 1100.))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                app.shortcuts(ui.ctx());
+                app.design_process_window(ui.ctx());
+            },
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, key: &str) {
+        button_index(ctx, app, key, 0);
+    }
+    fn button_index(ctx: &Context, app: &mut AtelierApp, key: &str, index: usize) {
+        // Find visible painted text, respecting the actual ScrollArea clip.
+        let mut found = None;
+        for step in 0..22 {
+            let out = frame(ctx, app, vec![]);
+            found = out
+                .shapes
+                .iter()
+                .filter_map(|shape| {
+                    let p = text_center(std::slice::from_ref(shape), app.language.translate(key))?;
+                    shape.clip_rect.contains(p).then_some(p)
+                })
+                .nth(index);
+            if found.is_some() {
+                break;
+            }
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos2(350., 420.)),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        phase: egui::TouchPhase::Move,
+                        delta: vec2(0., if step == 0 { 4000. } else { -140. }),
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        let p = found.unwrap_or_else(|| {
+            panic!(
+                "visible exploration control {key}; error={}",
+                app.process_ui.error
+            )
+        });
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(p),
+                    Event::PointerButton {
+                        pos: p,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::synthetic_building_fixture());
+        let journal_root = std::env::temp_dir().join(format!(
+            "oa-native-task-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&journal_root).unwrap();
+        app.host
+            .configure_operation_journal(Some(journal_root.join("journal")))
+            .unwrap();
+        assert!(app.automation.is_none());
+        let original = app.host.document.editor.project.clone();
+        app.dispatch_workbench(WorkbenchCommand::Explore);
+        assert!(app.process_ui.open);
+        app.process_ui.question = "比较保留空间与一项明确标为假设的净高变化".into();
+        app.process_ui.assumptions = "净高增加为探索假设，并非测绘或审批".into();
+        app.process_ui.unknowns = "用途、规范和日照结论未核准".into();
+        app.process_ui.names = ["Wall".into(), "另一个方向".into()]; // literal user data, not a translation key
+        frame(&ctx, &mut app, vec![]);
+        frame(&ctx, &mut app, vec![]);
+        button(&ctx, &mut app, "Preview two editable candidates");
+        assert!(app.process_ui.preview.is_some(), "{}", app.process_ui.error);
+        assert_eq!(app.host.document.editor.project, original);
+        button(&ctx, &mut app, "Cancel design proposal");
+        assert_eq!(app.host.document.editor.project, original);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert!(!app.process_ui.assumptions.is_empty());
+        button(&ctx, &mut app, "Preview two editable candidates");
+        button(&ctx, &mut app, "Confirm design change");
+        assert!(app.process_ui.preview.is_none(), "{}", app.process_ui.error);
+        let task = app
+            .host
+            .document
+            .editor
+            .project
+            .design_process
+            .task()
+            .unwrap()
+            .clone();
+        assert_eq!(app.host.document.editor.project.elements.len(), 116);
+        assert_eq!(task.statements.len(), 2);
+        assert!(
+            !task
+                .compare(&app.host.document.editor.project)
+                .unwrap()
+                .different
+        );
+        let a = task.candidates[0].option;
+        let b = task.candidates[1].option;
+        // Select B by its actual normal row control (the second repeated button).
+        button_index(&ctx, &mut app, "Edit candidate", 1);
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .active_design_option,
+            Some(b)
+        );
+        frame(&ctx, &mut app, vec![]);
+        frame(&ctx, &mut app, vec![]);
+        let before_edit = app.host.document.editor.project.clone();
+        app.process_ui.height += 0.15;
+        button(&ctx, &mut app, "Preview candidate edit");
+        assert!(app.process_ui.preview.is_some(), "{}", app.process_ui.error);
+        assert_eq!(app.host.document.editor.project, before_edit);
+        button(&ctx, &mut app, "Return to design editing");
+        assert_eq!(app.host.document.editor.project, before_edit);
+        button(&ctx, &mut app, "Preview candidate edit");
+        button(&ctx, &mut app, "Confirm design change");
+        let comparison = task.compare(&app.host.document.editor.project).unwrap();
+        assert!(comparison.different && comparison.basis_current);
+        for e in before_edit
+            .elements
+            .iter()
+            .filter(|e| e.design_option != Some(b))
+        {
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .elements
+                    .iter()
+                    .find(|x| x.id == e.id),
+                Some(e)
+            );
+        }
+        app.process_ui.chosen = Some(a);
+        app.process_ui.reason = "暂保留原净高；另一个候选留作讨论，非合规推荐".into();
+        button(&ctx, &mut app, "Preview choice and saved versions");
+        let choice_id = app.process_ui.preview.as_ref().unwrap().id.clone();
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .design_process
+                .decisions
+                .is_empty()
+        );
+        button(&ctx, &mut app, "Confirm design change");
+        assert!(app.process_ui.preview.is_none(), "{}", app.process_ui.error);
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .design_process
+                .current_choice
+                .as_deref(),
+            Some(choice_id.as_str())
+        );
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .plan_options
+                .active_design_option,
+            Some(a)
+        );
+        let choice = app.host.document.editor.project.design_process.decisions[0].clone();
+        app.host.document.editor.undo();
+        assert!(
+            app.host
+                .document
+                .editor
+                .project
+                .design_process
+                .current_choice
+                .is_none()
+        );
+        assert_eq!(
+            app.host.document.editor.project.design_process.decisions,
+            vec![choice.clone()]
+        );
+        app.host.document.editor.redo();
+        assert_eq!(
+            app.host
+                .document
+                .editor
+                .project
+                .design_process
+                .current_choice
+                .as_deref(),
+            Some(choice_id.as_str())
+        );
+        let path = std::env::temp_dir().join(format!(
+            "oa-l1-ui-{}.json",
+            storage::new_document_identity()
+        ));
+        storage::save_document(
+            &app.host.document.editor.project,
+            &path,
+            app.host.document.editor.project_identity(),
+        )
+        .unwrap();
+        let (reopened, _, _) = storage::load_document(&path).unwrap();
+        let expected = app.host.document.editor.project.clone();
+
+        assert_eq!(reopened, expected);
+        std::fs::remove_file(path).unwrap();
+        // Candidate history retains the declared corresponding member; the real
+        // selector must show that member instead of an empty-selection hint.
+        assert_eq!(
+            app.host.document.editor.selection_ids(),
+            vec![task.candidates[0].initial_zone_ids[0]]
+        );
+        let name = app
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .find(|e| e.id == task.candidates[0].initial_zone_ids[0])
+            .unwrap()
+            .name
+            .clone();
+        button(&ctx, &mut app, &name);
+        button(&ctx, &mut app, &name);
+        // A stale confirmation is retained under its original request identity and never auto-reprepared.
+        app.process_ui.height += 0.2;
+        button(&ctx, &mut app, "Preview candidate edit");
+        let request = app.process_ui.preview.as_ref().unwrap().id.clone();
+        app.host
+            .document
+            .editor
+            .apply(crate::command::ModelCommand::MoveElements {
+                ids: vec![task.candidates[0].initial_zone_ids[0]],
+                offset: Point::new(0.01, 0.),
+            })
+            .unwrap();
+        let edited = app.host.document.editor.project.clone();
+        button(&ctx, &mut app, "Confirm design change");
+        assert_eq!(app.process_ui.preview.as_ref().unwrap().id, request);
+        assert_eq!(app.host.document.editor.project, edited);
+        button(&ctx, &mut app, "Cancel design proposal");
+        assert_eq!(app.host.document.editor.project, edited);
+        let checkpoint = app.host.task_operations();
+        assert_eq!(checkpoint["total"], 3);
+        assert_eq!(
+            app.host
+                .operations
+                .borrow()
+                .authorization_status(&app.host.document.editor)["enabled"],
+            false
+        );
+        drop(app);
+        std::fs::remove_dir_all(journal_root).unwrap();
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn v4_default_stdio_native_permission_control_requires_explicit_regrant_bilingual() {
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1500., 1400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.mcp_settings_window(ui.ctx()),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let root = PathBuf::from("/tmp").join(format!(
+            "oa-grant-ui-{}",
+            &storage::new_document_identity()[..12]
+        ));
+        std::fs::create_dir(&root).unwrap();
+        app.automation = Some(
+            crate::automation_ipc::Endpoint::bind_for_host(
+                root.join("ipc/app.sock"),
+                true,
+                Some(root.join("journal")),
+                &mut app.host,
+            )
+            .unwrap(),
+        );
+        // This is the normal environment-enabled local stdio endpoint, with no HTTP child/TaskGuard.
+        app.automation
+            .as_mut()
+            .unwrap()
+            .poll(&mut app.host.document.editor);
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(30., 30.))
+            .unwrap();
+        app.automation
+            .as_mut()
+            .unwrap()
+            .poll(&mut app.host.document.editor);
+        let before = app.host.document.editor.project.clone();
+        let history = app.host.document.editor.undo.len();
+        let context = app.host.context();
+        app.mcp_settings.open = true;
+        frame(&ctx, &mut app, vec![]);
+        let out = frame(&ctx, &mut app, vec![]);
+        assert!(text_center(&out.shapes,language.translate("Remote writes paused after a model edit. Reading a new revision does not renew permission.")).is_some());
+        assert!(
+            app.automation
+                .as_mut()
+                .unwrap()
+                .changes()
+                .write_authorization(&app.host.document.editor)
+                .is_err()
+        );
+        let pos = text_center(
+            &out.shapes,
+            language.translate("Authorize the current model state"),
+        )
+        .unwrap();
+        for pressed in [true, false] {
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        assert!(
+            app.automation
+                .as_mut()
+                .unwrap()
+                .changes()
+                .write_authorization(&app.host.document.editor)
+                .is_ok()
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.undo.len(), history);
+        assert_eq!(app.host.context(), context);
+        let out = frame(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &out.shapes,
+                language.translate("Authorize the current model state")
+            )
+            .is_none()
+        );
+        app.host
+            .document
+            .editor
+            .place_column(Point::new(35., 30.))
+            .unwrap();
+        app.automation
+            .as_mut()
+            .unwrap()
+            .poll(&mut app.host.document.editor);
+        assert!(
+            app.automation
+                .as_mut()
+                .unwrap()
+                .changes()
+                .write_authorization(&app.host.document.editor)
+                .is_err()
+        );
+        drop(app.automation.take());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn v4_native_task_unknown_result_retains_identity_and_reconciles_without_mcp_bilingual() {
+    fn frame(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        events: Vec<Event>,
+        operations: bool,
+    ) -> egui::FullOutput {
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 1400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| {
+                app.shortcuts(ui.ctx());
+                if operations {
+                    app.automation_window(ui.ctx());
+                } else {
+                    app.design_process_window(ui.ctx());
+                }
+            },
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn click(ctx: &Context, app: &mut AtelierApp, key: &str, operations: bool) {
+        for _ in 0..2 {
+            frame(ctx, app, vec![], operations);
+        }
+        let output = frame(ctx, app, vec![], operations);
+        let pos = text_center(&output.shapes, app.language.translate(key))
+            .unwrap_or_else(|| panic!("missing {key}: {}", app.process_ui.error));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+                operations,
+            );
+        }
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|style| style.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::synthetic_building_fixture());
+        let root = std::env::temp_dir().join(format!(
+            "oa-native-unknown-ui-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        let journal = root.join("journal");
+        let moved = root.join("journal-retained-failure");
+        app.host
+            .configure_operation_journal(Some(journal.clone()))
+            .unwrap();
+        let original = app.host.operation_target();
+        app.process_ui.open = true;
+        app.process_ui.name = "Unknown-result controlled fixture".into();
+        app.process_ui.question = "Recover original operation without replay".into();
+        app.process_ui.names = ["A".into(), "B".into()];
+        click(&ctx, &mut app, "Preview two editable candidates", false);
+        let request = app.process_ui.preview.as_ref().unwrap().id.clone();
+        let source = journal.clone();
+        let destination = moved.clone();
+        app.host
+            .operations
+            .borrow_mut()
+            .set_durability_probe(move |stage| {
+                if stage == crate::automation_change::DurableStage::ModelCommitted {
+                    // Protected fixture only: force commit-marker failure after model success.
+                    std::fs::rename(&source, &destination).unwrap();
+                }
+            });
+        click(&ctx, &mut app, "Confirm design change", false);
+        assert_eq!(app.process_ui.error, "OPERATION_OUTCOME_UNKNOWN");
+        assert_eq!(app.process_ui.preview.as_ref().unwrap().id, request);
+        assert_eq!(
+            app.process_ui.preview.as_ref().unwrap().sent_target,
+            Some(original.clone())
+        );
+        let after = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        assert_eq!(after.elements.len(), 116);
+        // Disabled confirmation cannot resubmit the same or a replacement operation.
+        click(&ctx, &mut app, "Confirm design change", false);
+        assert_eq!(app.host.document.editor.project, after);
+        assert_eq!(app.host.document.editor.revision, revision);
+        assert_eq!(app.process_ui.preview.as_ref().unwrap().id, request);
+        click(&ctx, &mut app, "Inspect original design operation", false);
+        assert!(
+            app.process_ui
+                .preview
+                .as_ref()
+                .unwrap()
+                .sent_target
+                .is_some()
+        );
+        click(&ctx, &mut app, "Close and retain operation", false);
+        assert!(app.process_ui.preview.is_none());
+        assert_eq!(app.host.document.editor.project, after);
+        assert!(app.automation.is_none());
+        let saved = root.join("latest-user-state.json");
+        storage::save_document(&after, &saved, app.host.document.editor.project_identity())
+            .unwrap();
+        drop(app);
+        // Resume the retained original journal after the simulated host failure.
+        std::fs::rename(&moved, &journal).unwrap();
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|style| style.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::from_stored_document(&saved).unwrap();
+        app.host.configure_operation_journal(Some(journal)).unwrap();
+        app.automation_window = true;
+        assert_eq!(
+            app.host.inspect_operation(original.clone(), &request)["result"]["status"],
+            "unknown"
+        );
+        click(&ctx, &mut app, "Reconcile operation", true);
+        assert_eq!(app.automation_feedback, "committed");
+        let lookup = app.host.inspect_operation(original, &request);
+        assert_eq!(lookup["result"]["status"], "committed");
+        assert_eq!(lookup["result"]["current_effect"], "AfterImage");
+        assert_eq!(app.host.document.editor.project, after);
+        assert_eq!(app.host.document.editor.revision, 0);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert_eq!(
+            app.host
+                .operations
+                .borrow()
+                .authorization_status(&app.host.document.editor)["status"],
+            "read_only"
+        );
+        assert!(app.automation.is_none());
+        drop(app);
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+mod concept_continuity {
+    use super::*;
+    fn seeded(
+        language: UiLanguage,
+    ) -> (
+        Context,
+        AtelierApp,
+        std::path::PathBuf,
+        crate::design_process::Task,
+    ) {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|style| style.animation_time = 0.);
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::synthetic_building_fixture());
+        let root = std::env::temp_dir().join(format!(
+            "oa-concept-walk-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        app.host
+            .configure_operation_journal(Some(root.join("journal")))
+            .unwrap();
+        let id = storage::new_document_identity();
+        let draft = crate::design_process::service::Draft {
+            name: "Continuous concept task".into(),
+            question: "Keep the selected kitchen while comparing height assumptions".into(),
+            statements: vec![crate::design_process::Statement {
+                kind: crate::design_process::StatementKind::Unknown,
+                text: "Survey/use/code conclusions are unknown".into(),
+            }],
+            candidate_names: ["A".into(), "B".into()],
+            source_ids: app
+                .host
+                .document
+                .editor
+                .project
+                .elements
+                .iter()
+                .filter(|e| e.story == 0 && matches!(e.shape, Shape::Zone { .. }))
+                .map(|e| e.id)
+                .collect(),
+            entry: crate::design_process::Entry::ManualInterface,
+        };
+        let prepared =
+            crate::design_process::service::prepare_create(&app.host.document.editor, &id, draft)
+                .unwrap();
+        let committed = app.host.confirm_task_prepared(
+            app.host.context(),
+            &id,
+            "Controlled concept setup",
+            std::rc::Rc::new(prepared),
+        );
+        assert_eq!(committed["result"]["status"], "committed");
+        let task = app
+            .host
+            .document
+            .editor
+            .project
+            .design_process
+            .task()
+            .unwrap()
+            .clone();
+        app.activate_named_tool("Arrow");
+        app.view = View::Plan;
+        (ctx, app, root, task)
+    }
+    fn canvas_pick(ctx: &Context, app: &mut AtelierApp, id: u64) {
+        app.process_ui.open = false;
+        let space = app
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .find(|e| e.id == id)
+            .unwrap();
+        let Shape::Zone { spec } = &space.shape else {
+            panic!("not a Zone")
+        };
+        app.plan_center = spec.label_point();
+        app.plan_scale = 35.;
+        plan_frame(ctx, app, vec![]);
+        click(ctx, app, pos2(400., 300.));
+        assert_eq!(
+            app.host.document.editor.selection_ids(),
+            vec![id],
+            "actual canvas click must select the declared space"
+        );
+    }
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1500., 1200.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.design_process_window(ui.ctx()),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, key: &str) {
+        let mut position = None;
+        for step in 0..22 {
+            let out = frame(ctx, app, vec![]);
+            position = out.shapes.iter().find_map(|shape| {
+                text_center(std::slice::from_ref(shape), app.language.translate(key))
+                    .filter(|p| shape.clip_rect.contains(*p))
+            });
+            if position.is_some() {
+                break;
+            }
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos2(350., 420.)),
+                    Event::MouseWheel {
+                        unit: egui::MouseWheelUnit::Point,
+                        phase: egui::TouchPhase::Move,
+                        delta: vec2(0., if step == 0 { 4000. } else { -140. }),
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+        let pos = position.unwrap_or_else(|| panic!("missing {key}: {}", app.process_ui.error));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+
+    #[test]
+    fn v4_concept_window_follows_nonfirst_canvas_selection_bilingual() {
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let (ctx, mut app, root, task) = seeded(language);
+            canvas_pick(&ctx, &mut app, task.candidates[0].initial_zone_ids[0]);
+            app.process_ui.open = true;
+            frame(&ctx, &mut app, vec![]);
+            frame(&ctx, &mut app, vec![]);
+            let kitchen = task.candidates[0].initial_zone_ids[2];
+            canvas_pick(&ctx, &mut app, kitchen);
+            app.process_ui.open = true;
+            frame(&ctx, &mut app, vec![]);
+            frame(&ctx, &mut app, vec![]);
+            println!("CONCEPT_WALK_FIXTURE={}", root.display());
+            assert_eq!(
+                app.process_ui.selected_space,
+                Some(kitchen),
+                "opening comparison must use the current canvas selection, without reselecting in a form"
+            );
+            assert_eq!(app.host.document.editor.selection_ids(), vec![kitchen]);
+            drop(app);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn v4_concept_commit_keeps_nonfirst_space_instead_of_resetting_bilingual() {
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let (ctx, mut app, root, task) = seeded(language);
+            canvas_pick(&ctx, &mut app, task.candidates[0].initial_zone_ids[0]);
+            app.process_ui.open = true;
+            frame(&ctx, &mut app, vec![]);
+            frame(&ctx, &mut app, vec![]);
+            // Existing selector is used here so the old canvas-follow defect
+            // does not hide the separate post-commit context reset.
+            button(&ctx, &mut app, "客厅");
+            button(&ctx, &mut app, "厨房");
+            let kitchen = task.candidates[0].initial_zone_ids[2];
+            assert_eq!(app.host.document.editor.selection_ids(), vec![kitchen]);
+            app.process_ui.height += 0.1;
+            button(&ctx, &mut app, "Preview candidate edit");
+            button(&ctx, &mut app, "Confirm design change");
+            println!("CONCEPT_WALK_FIXTURE={}", root.display());
+            assert_eq!(
+                app.host.document.editor.selection_ids(),
+                vec![kitchen],
+                "committing an edit must not move the user to the first space"
+            );
+            assert_eq!(app.process_ui.selected_space, Some(kitchen));
+            drop(app);
+            std::fs::remove_dir_all(root).unwrap();
+        }
+    }
+
+    #[test]
+    fn v4_concept_saved_project_canvas_path_walk_bilingual() {
+        use serde_json::json;
+        fn full_button(ctx: &Context, app: &mut AtelierApp, key: &str) {
+            reveal_manual_control(ctx, app, key);
+            let mut pos = None;
+            for _ in 0..3 {
+                let output = layers_frame_output(ctx, app, vec![]);
+                pos = output.shapes.iter().find_map(|shape| {
+                    text_center(std::slice::from_ref(shape), app.language.translate(key))
+                        .filter(|p| shape.clip_rect.contains(*p))
+                });
+                if pos.is_some() {
+                    break;
+                }
+            }
+            let position = pos.unwrap_or_else(|| {
+                let output = layers_frame_output(ctx, app, vec![]);
+                panic!(
+                    "full-workspace control missing: {key}; {} unclipped={:?} panels={:?}",
+                    app.process_ui.error,
+                    text_center(&output.shapes, app.language.translate(key)),
+                    app.workbench.panel_rects
+                )
+            });
+            layers_click(ctx, app, position);
+        }
+        fn record(app: &AtelierApp, name: &str) -> serde_json::Value {
+            json!({"step":name,"project_id":app.host.document.editor.project_identity(),"active_option":app.host.document.editor.project.plan_options.active_design_option,"selection":app.host.document.editor.selection_ids(),"floating_comparison":app.process_ui.open,"proposal_modal":app.process_ui.preview.is_some(),"analysis_window":app.zone_analysis_open,"file_modal":app.file_action.is_some(),"input_kind":"actual egui pointer and numeric text events; not a native OS/GPU claim"})
+        }
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let supplied = std::env::var_os("OPENARCHI_CONCEPT_WALK_INPUT").map(PathBuf::from);
+            let (ctx, mut app, root, task) = if let Some(input) = &supplied {
+                let base = PathBuf::from(
+                    std::env::var_os("OPENARCHI_CONCEPT_WALK_OUTPUT")
+                        .expect("explicit case output directory required"),
+                );
+                std::fs::create_dir_all(&base).unwrap();
+                let root = base.join(if language == UiLanguage::English {
+                    "en"
+                } else {
+                    "zh"
+                });
+                std::fs::create_dir(&root).expect("do not replay an existing/unknown walk output");
+                let source = Editor::from_stored_document(input).unwrap();
+                let copy = root.join("input-copy.openarchi.json");
+                storage::save_document(&source.project, &copy, source.project_identity()).unwrap();
+                let (ctx, mut app) = setup();
+                ctx.global_style_mut(|style| style.animation_time = 0.);
+                app.language = language;
+                app.host.document.editor = Editor::from_stored_document(&copy).unwrap();
+                app.host
+                    .configure_operation_journal(Some(root.join("journal")))
+                    .unwrap();
+                let task = app
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .design_process
+                    .task()
+                    .expect("current saved exploration required")
+                    .clone();
+                (ctx, app, root, task)
+            } else {
+                seeded(language)
+            };
+            app.switch_work_mode(crate::workbench::WorkMode::SiteConcept);
+            app.activate_named_tool("Arrow");
+            app.view = View::Plan;
+            let original = app.host.document.editor.project.clone();
+            let option = original.plan_options.active_design_option.unwrap();
+            let current = task.candidates.iter().find(|c| c.option == option).unwrap();
+            let other = task.candidates.iter().find(|c| c.option != option).unwrap();
+            let kitchen = current.initial_zone_ids[2];
+            let counterpart = other.initial_zone_ids[2];
+            let point = match &original
+                .elements
+                .iter()
+                .find(|e| e.id == kitchen)
+                .unwrap()
+                .shape
+            {
+                Shape::Zone { spec } => spec.label_point(),
+                _ => unreachable!(),
+            };
+            app.plan_center = point;
+            app.plan_scale = 35.;
+            layers_frame_output(&ctx, &mut app, vec![]);
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let viewport = app.workbench.panel_rects["view.canvas"];
+            let pos = app.screen(viewport, point);
+            layers_click(&ctx, &mut app, pos);
+            assert_eq!(app.host.document.editor.selection_ids(), vec![kitchen]);
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let mut trace = vec![record(&app, "select kitchen directly in persistent canvas")];
+            let old_height = match &app
+                .host
+                .document
+                .editor
+                .project
+                .elements
+                .iter()
+                .find(|e| e.id == kitchen)
+                .unwrap()
+                .shape
+            {
+                Shape::Zone { spec } => spec.height,
+                _ => unreachable!(),
+            };
+            let height = old_height + 0.1;
+            // Use the existing numeric widget, not direct draft assignment.
+            let mut input_pos = None;
+            for _ in 0..40 {
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                let label = output.shapes.iter().find_map(|shape| {
+                    text_center(
+                        std::slice::from_ref(shape),
+                        language.translate("Clear height"),
+                    )
+                    .filter(|p| shape.clip_rect.contains(*p))
+                });
+                if let Some(label) = label {
+                    input_pos = output.shapes.iter().find_map(|shape| {
+                        let egui::Shape::Text(t) = &shape.shape else {
+                            return None;
+                        };
+                        let p = t.pos + t.galley.size() / 2.;
+                        (shape.clip_rect.contains(p)
+                            && (p.y - label.y).abs() < 10.
+                            && p.x > label.x
+                            && t.galley.text().starts_with(|c: char| c.is_ascii_digit()))
+                        .then_some(p)
+                    });
+                }
+                if input_pos.is_some() {
+                    break;
+                }
+                layers_frame_output(
+                    &ctx,
+                    &mut app,
+                    vec![
+                        Event::PointerMoved(pos2(1230., 760.)),
+                        Event::MouseWheel {
+                            unit: egui::MouseWheelUnit::Point,
+                            phase: egui::TouchPhase::Move,
+                            delta: vec2(0., -20.),
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+            let input_pos = input_pos.unwrap_or_else(|| {
+                let output = layers_frame_output(&ctx, &mut app, vec![]);
+                let labels = output
+                    .shapes
+                    .iter()
+                    .filter_map(|shape| {
+                        if let egui::Shape::Text(t) = &shape.shape {
+                            Some(format!(
+                                "{} @{:?} clip{:?}",
+                                t.galley.text(),
+                                t.pos,
+                                shape.clip_rect
+                            ))
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>();
+                panic!(
+                    "visible existing clear height numeric control; {}",
+                    labels.join("\n")
+                );
+            });
+            layers_click(&ctx, &mut app, input_pos);
+            layers_frame_output(
+                &ctx,
+                &mut app,
+                vec![
+                    key(Key::A, Modifiers::COMMAND),
+                    Event::Text(format!("{height:.3}")),
+                ],
+            );
+            layers_frame_output(&ctx, &mut app, vec![key(Key::Tab, Modifiers::NONE)]);
+            assert!(
+                matches!(&app.draft.as_ref().unwrap().shape,Shape::Zone{spec} if (spec.height-height).abs()<1e-9)
+            );
+            // Record the finite manual operation before its real UI Apply.
+            let plan = json!({"input":supplied,"project_id":app.host.document.editor.project_identity(),"zone":kitchen,"authored_height_m":height,"role":"controlled concept assumption, not measured/approved","output":root.join("continued.openarchi.json"),"recovery":"inspect this same output/identity; do not replay with another directory"});
+            std::fs::write(
+                root.join("operation-plan.json"),
+                serde_json::to_vec_pretty(&plan).unwrap(),
+            )
+            .unwrap();
+            full_button(&ctx, &mut app, "Apply changes");
+            assert!(!app.process_ui.open && app.process_ui.preview.is_none());
+            assert_eq!(app.host.document.editor.selection_ids(), vec![kitchen]);
+            trace.push(record(
+                &app,
+                "edit authored height in existing inspector; no exploration form/modal",
+            ));
+            let after_edit = app.host.document.editor.project.clone();
+            full_button(&ctx, &mut app, "Undo");
+            assert_eq!(app.host.document.editor.project, original);
+            full_button(&ctx, &mut app, "Redo");
+            assert_eq!(app.host.document.editor.project, after_edit);
+            // Existing model Undo/Redo intentionally clears transient selection; reselect on canvas.
+            layers_frame_output(&ctx, &mut app, vec![]);
+            let current_viewport = app.workbench.panel_rects["view.canvas"];
+            let reselect = app.screen(current_viewport, point);
+            layers_click(&ctx, &mut app, reselect);
+            assert_eq!(app.host.document.editor.selection_ids(), vec![kitchen]);
+            trace.push(record(&app,"normal Undo/Redo restores exact model; canvas reselection after transient selection clear"));
+            reveal_manual_control(&ctx, &mut app, &current.name);
+            let output = layers_frame_output(&ctx, &mut app, vec![]);
+            let chosen =
+                text_center(&output.shapes, &current.name).expect("current candidate in task menu");
+            layers_click(&ctx, &mut app, chosen);
+            full_button(&ctx, &mut app, &other.name);
+            assert_eq!(
+                app.host
+                    .document
+                    .editor
+                    .project
+                    .plan_options
+                    .active_design_option,
+                Some(other.option)
+            );
+            assert_eq!(app.host.document.editor.selection_ids(), vec![counterpart]);
+            assert!(!app.process_ui.open);
+            trace.push(record(
+                &app,
+                "switch counterpart from current canvas strip without menus or reselecting",
+            ));
+            full_button(&ctx, &mut app, "Compare options…");
+            assert!(app.process_ui.open);
+            trace.push(record(
+                &app,
+                "optional comparison in existing floating surface",
+            ));
+            full_button(&ctx, &mut app, "Continue in canvas");
+            assert!(!app.process_ui.open);
+            assert_eq!(app.host.document.editor.selection_ids(), vec![counterpart]);
+            trace.push(record(
+                &app,
+                "return to same canvas and corresponding space",
+            ));
+            let expected = app.host.document.editor.project.clone();
+            assert_eq!(
+                expected.design_process, original.design_process,
+                "do not rewrite task/choices while browsing/editing"
+            );
+            for old in &original.elements {
+                let actual = expected.elements.iter().find(|e| e.id == old.id).unwrap();
+                let mut target = old.clone();
+                if target.id == kitchen {
+                    if let Shape::Zone { spec } = &mut target.shape {
+                        spec.height = height;
+                    }
+                }
+                assert_eq!(actual, &target);
+            }
+            let save = root.join("continued.openarchi.json");
+            app.path = save.to_string_lossy().into_owned();
+            app.path_confirmed = false;
+            app.file_baseline = None;
+            full_button(&ctx, &mut app, "Save project");
+            assert!(app.file_action.is_some());
+            full_button(&ctx, &mut app, "Save");
+            assert!(app.file_action.is_none(), "{}", app.file_error);
+            trace.push(record(
+                &app,
+                "normal Save project path, existing file confirmation",
+            ));
+            let reopened = Editor::from_stored_document(&save).unwrap();
+            assert_eq!(reopened.project, expected);
+            assert_eq!(
+                reopened.project.plan_options.active_design_option,
+                Some(other.option)
+            );
+            let report = json!({"source_entry":"full current egui workspace, not packaged native OS/GPU","language":format!("{language:?}"),"input":supplied,"output":save,"initial_project":original,"final_project":expected,"steps":trace,"manual_parameter_insertions":0,"numeric_text_event_edits":1,"menu_context_transfers":0,"new_panels":0,"counterpart_reselection":false,"canvas_reselection_after_undo_redo":1,"saved_reopened_equal":true,"selection_persisted_across_process":false,"task_and_option_reopened":true,"gaps":[{"task":"change a requirement and selectively regenerate","status":"software_gap; immutable task statements lack revision/impact UI"},{"task":"record choice now and add reason later","status":"software_gap; reason still mandatory, no supplementation command"}],"real_AI":"not_run","native_desktop":"not_run"});
+            std::fs::write(
+                root.join("walkthrough.json"),
+                serde_json::to_vec_pretty(&report).unwrap(),
+            )
+            .unwrap();
+            println!(
+                "CONCEPT_WALK_REPORT={}",
+                root.join("walkthrough.json").display()
+            );
+            drop(app);
+            if supplied.is_none() {
+                std::fs::remove_dir_all(root).unwrap();
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn v4_default_gui_source_reader_retains_current_project_selection_and_read_permission_bilingual() {
+    use serde_json::{Value, json};
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+        sync::mpsc,
+        thread,
+        time::{Duration, Instant},
+    };
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        app.language = language;
+        app.host.document.editor = Editor::new(storage::startup_example());
+        let space = app
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .find(|e| matches!(e.shape, Shape::Zone { .. }))
+            .unwrap()
+            .id;
+        app.host.document.editor.set_selection(vec![space]);
+        let root =
+            std::env::temp_dir().join(format!("oa-sg-{}", &storage::new_document_identity()[..12]));
+        std::fs::create_dir(&root).unwrap();
+        let input = root.join("existing instruction.md");
+        std::fs::write(
+            &input,
+            "Declared preference: preserve the current model. Dimensions/approval unknown.",
+        )
+        .unwrap();
+        let mut repo = crate::project_repository::Repository::create_for_editor(
+            &root.join("repository"),
+            &app.host.document.editor,
+        )
+        .unwrap();
+        let source = repo.add_source(&input).unwrap();
+        app.source_ui.repository = Some(repo);
+        let path = root.join("ipc/app.sock");
+        app.automation = Some(
+            crate::automation_ipc::Endpoint::bind_application(path.clone(), &mut app.host).unwrap(),
+        );
+        let before = app.host.document.editor.project.clone();
+        let current = app.host.context();
+        let dirty = app.host.document.editor.dirty();
+        let (tx, rx) = mpsc::channel();
+        let worker = thread::spawn(move || {
+            let call = |method: &str, params: Value| -> Value {
+                let mut stream = UnixStream::connect(&path).unwrap();
+                writeln!(stream, "{}", json!({"method":method,"params":params})).unwrap();
+                let mut line = String::new();
+                BufReader::new(stream).read_line(&mut line).unwrap();
+                serde_json::from_str(&line).unwrap()
+            };
+            let mut stream = UnixStream::connect(&path).unwrap();
+            writeln!(stream, "{}", json!({"method":"get_target"})).unwrap();
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line).unwrap();
+            let target = serde_json::from_str::<Value>(&line).unwrap()["result"]["target"].clone();
+            let context = call("get_context", target.clone());
+            let search = call(
+                "query_project_sources",
+                json!({"target":target,"expected_revision":0,"query":"instruction","offset":0,"limit":20}),
+            );
+            assert_eq!(search["result"]["total"], 1);
+            let read = call(
+                "read_project_source",
+                json!({"target":target,"expected_revision":0,"sources_revision":search["result"]["source_context"]["sources_revision"],"source_id":format!("repository:{source}"),"representation":"text","offset":0,"limit":32768}),
+            );
+            assert_eq!(read["result"]["original_sha256"], source);
+            assert!(read["result"]["next_offset"].is_null());
+            let after = call("get_context", target);
+            assert_eq!(
+                after["result"]["write_authorization"],
+                context["result"]["write_authorization"]
+            );
+            tx.send(read).unwrap();
+        });
+        let start = Instant::now();
+        loop {
+            app.poll_automation(&ctx);
+            if rx.try_recv().is_ok() {
+                break;
+            }
+            assert!(start.elapsed() < Duration::from_secs(8));
+            thread::sleep(Duration::from_millis(2));
+        }
+        worker.join().unwrap();
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.context(), current);
+        assert_eq!(app.host.document.editor.selection_ids(), vec![space]);
+        assert_eq!(app.host.document.editor.dirty(), dirty);
+        assert!(app.host.document.editor.undo.is_empty());
+        assert!(!app.source_ui.open);
+        drop(app.automation.take());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[cfg(unix)]
+include!("intent_ui_tests.rs");
+
+include!("mass_ui_tests.rs");
+include!("site_concept_ui_tests.rs");
+include!("mass_footprint_ui_tests.rs");
+include!("project_conditions_ui_tests.rs");
+
+include!("diagram_ui_tests.rs");
+
+include!("plugin_ui_tests.rs");
+
+#[cfg(unix)]
+mod environment_proposal_product_path {
+    use super::*;
+    use std::{
+        io::{BufRead, BufReader, Write},
+        os::unix::net::UnixStream,
+        thread,
+        time::{Duration, Instant},
+    };
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> eframe::egui::FullOutput {
+        frame_size(ctx, app, events, vec2(1600., 1400.))
+    }
+    fn frame_size(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        events: Vec<Event>,
+        size: Vec2,
+    ) -> eframe::egui::FullOutput {
+        let events = discrete_key_events(ctx, events);
+        let mut output = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, size)),
+                events,
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        output.textures_delta.clear();
+        output
+    }
+    fn click_at(ctx: &Context, app: &mut AtelierApp, pos: Pos2) {
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, label: &str) {
+        if label == "Panel placement" {
+            let out = frame(ctx, app, vec![]);
+            let pos = text_center(&out.shapes, app.language.translate("Toolbox")).unwrap();
+            for pressed in [true, false] {
+                frame(
+                    ctx,
+                    app,
+                    vec![
+                        Event::PointerMoved(pos),
+                        Event::PointerButton {
+                            pos,
+                            button: PointerButton::Secondary,
+                            pressed,
+                            modifiers: Modifiers::NONE,
+                        },
+                    ],
+                );
+            }
+            return;
+        }
+        if label == "Customize work environment…" && !app.workbench.configuration_open {
+            let out = frame(ctx, app, vec![]);
+            if text_center(&out.shapes, app.language.translate(label)).is_none() {
+                let pos =
+                    text_center(&out.shapes, app.language.translate("Tasks and settings")).unwrap();
+                click_at(ctx, app, pos);
+            }
+        }
+        for _ in 0..5 {
+            let out = frame(ctx, app, vec![]);
+            let environment_window = app
+                .workbench
+                .configuration_open
+                .then(|| {
+                    ctx.memory(|memory| {
+                        memory
+                            .area_rect(Id::new(app.language.translate("Personal work environment")))
+                    })
+                })
+                .flatten();
+            if let Some(pos) = out.shapes.iter().rev().find_map(|s| {
+                text_center(std::slice::from_ref(s), app.language.translate(label)).filter(|p| {
+                    s.clip_rect.contains(*p)
+                        && environment_window.is_none_or(|rect| rect.contains(*p))
+                })
+            }) {
+                click_at(ctx, app, pos);
+                return;
+            }
+        }
+        panic!(
+            "visible configuration control {label}: {}",
+            app.workbench.configuration_error
+        );
+    }
+    fn open(ctx: &Context, app: &mut AtelierApp, path: &std::path::Path) {
+        open_test_project(ctx, app, &path);
+    }
+    fn wire(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        endpoint: &mut crate::automation_ipc::Endpoint,
+        path: &std::path::Path,
+        request: serde_json::Value,
+    ) -> serde_json::Value {
+        let path = path.to_owned();
+        let client = thread::spawn(move || {
+            let mut stream = UnixStream::connect(path).unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            writeln!(stream, "{request}").unwrap();
+            let mut line = String::new();
+            BufReader::new(stream).read_line(&mut line).unwrap();
+            serde_json::from_str::<serde_json::Value>(&line).unwrap()
+        });
+        let start = Instant::now();
+        while !client.is_finished() {
+            app.poll_automation(ctx);
+            endpoint.poll_with_host(&mut app.host, None);
+            assert!(start.elapsed() < Duration::from_secs(5));
+            thread::sleep(Duration::from_millis(1));
+        }
+        let result = client.join().unwrap();
+        assert!(result.get("error").is_none(), "{result}");
+        result["result"].clone()
+    }
+    fn propose(
+        ctx: &Context,
+        app: &mut AtelierApp,
+        endpoint: &mut crate::automation_ipc::Endpoint,
+        path: &std::path::Path,
+        id: &str,
+    ) {
+        use serde_json::json;
+        let target =
+            wire(ctx, app, endpoint, path, json!({"method":"get_target"}))["target"].clone();
+        wire(
+            ctx,
+            app,
+            endpoint,
+            path,
+            json!({"method":"get_context","params":target}),
+        );
+        let revision = app.host.document.editor.revision;
+        let inspection=wire(ctx,app,endpoint,path,json!({"method":"inspect_work_environment","params":{"target":target,"expected_revision":revision}}))["inspection"].clone();
+        let mut config = inspection["configuration"].clone();
+        config["profiles"].as_array_mut().unwrap().push(json!({"id":"user.task-design","base_mode":"SiteConcept","name":"场地和方案一起","commands":["project.site_reference","project.space_options","view.model","workspace.environment"]}));
+        config["active"] = json!("user.task-design");
+        let value = wire(
+            ctx,
+            app,
+            endpoint,
+            path,
+            json!({"method":"propose_work_environment","params":{"target":target,"expected_revision":revision,"proposal":{"schema_version":1,"request_id":id,"project_id":target["project_id"],"expected_snapshot":inspection["snapshot"],"configuration":config}}}),
+        );
+        assert_eq!(value["proposal"]["status"], "pending");
+        assert!(
+            !app.workbench.configuration_open,
+            "Agent must not steal the canvas with a modal"
+        );
+    }
+    #[test]
+    fn public_proposal_normal_review_cancel_confirm_restore_and_user_config_conflict_bilingual() {
+        use crate::{automation_ipc::Endpoint, workbench::WorkMode};
+        use serde_json::json;
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let root = std::path::PathBuf::from("/tmp").join(format!(
+                "oa-ec-ui-{}",
+                &storage::new_document_identity()[..12]
+            ));
+            std::fs::create_dir(&root).unwrap();
+            println!("ENVIRONMENT_PROPOSAL_UI_ROOT={}", root.display());
+            let input = if let Some(path) = std::env::var_os("OPENARCHI_ENV_REVIEW_PROJECT") {
+                std::path::PathBuf::from(path)
+            } else {
+                let path = root.join("input.json");
+                storage::save_document(
+                    &storage::startup_example(),
+                    &path,
+                    &storage::new_document_identity(),
+                )
+                .unwrap();
+                path
+            };
+            let original_bytes = std::fs::read(&input).unwrap();
+            let profile = root.join("profile");
+            let (ctx, mut app) = setup();
+            ctx.global_style_mut(|s| s.animation_time = 0.);
+            app.language = language;
+            open(&ctx, &mut app, &input);
+            app.initialize_work_mode(&profile);
+            let before = app.host.document.editor.project.clone();
+            let context = app.host.context();
+            let selection = app.host.document.editor.selection_ids();
+            let socket = root.join("ipc/app.sock");
+            let mut endpoint = Endpoint::bind_for_host(
+                socket.clone(),
+                true,
+                Some(root.join("journal")),
+                &mut app.host,
+            )
+            .unwrap();
+            propose(&ctx, &mut app, &mut endpoint, &socket, "cancel-preview");
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Review project configuration proposal");
+            assert_eq!(
+                app.workbench.reviewed_proposal.as_deref(),
+                Some("cancel-preview")
+            );
+            assert!(!profile.join("work-environment.json").exists());
+            button(&ctx, &mut app, "Cancel environment edits");
+            assert_eq!(
+                app.host
+                    .environment
+                    .as_ref()
+                    .unwrap()
+                    .read_proposal(
+                        "cancel-preview",
+                        app.host.document.editor.project_identity()
+                    )
+                    .unwrap()
+                    .status,
+                "cancelled"
+            );
+            propose(&ctx, &mut app, &mut endpoint, &socket, "confirm-preview");
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Review project configuration proposal");
+            button(&ctx, &mut app, "Changes from saved environment");
+            button(&ctx, &mut app, "Save and activate mode");
+            assert!(
+                app.workbench.configuration_error.is_empty(),
+                "{}",
+                app.workbench.configuration_error
+            );
+            assert_eq!(app.workbench.active_profile, "user.task-design");
+            assert_eq!(
+                app.current_environment_profile().commands,
+                [
+                    "project.site_reference",
+                    "project.space_options",
+                    "view.model",
+                    "workspace.environment"
+                ]
+            );
+            assert_eq!(
+                app.workbench.proposal_record.as_ref().unwrap().status,
+                "applied"
+            );
+            assert!(app.workbench.reviewed_proposal.is_none());
+            button(&ctx, &mut app, "Navigator");
+            let user_draft = app.workbench.configuration_draft.clone().unwrap();
+            let applied_file = std::fs::read(profile.join("work-environment.json")).unwrap();
+            button(&ctx, &mut app, "Restore this configuration proposal");
+            assert!(app.workbench.configuration_error.contains("Save or cancel"));
+            assert_eq!(
+                app.workbench.configuration_draft.as_ref().unwrap(),
+                &user_draft
+            );
+            assert_eq!(
+                std::fs::read(profile.join("work-environment.json")).unwrap(),
+                applied_file
+            );
+            button(&ctx, &mut app, "Cancel environment edits");
+            button(&ctx, &mut app, "Customize work environment…");
+            assert!(
+                app.workbench.configuration_error.is_empty(),
+                "a cancelled draft must not leave a stale conflict"
+            );
+            button(&ctx, &mut app, "Restore this configuration proposal");
+            assert_eq!(app.workbench.environment.mode, WorkMode::Architecture);
+            assert_eq!(
+                app.workbench.proposal_record.as_ref().unwrap().status,
+                "reverted"
+            );
+            button(&ctx, &mut app, "Cancel environment edits");
+            propose(&ctx, &mut app, &mut endpoint, &socket, "user-intervened");
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Navigator");
+            assert!(
+                !app.workbench
+                    .configuration_draft
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .panels
+                    .navigator,
+                "actual checkbox event must change the draft, not click the translated background heading"
+            );
+            button(&ctx, &mut app, "Save and activate mode");
+            let user_bytes = std::fs::read(profile.join("work-environment.json")).unwrap();
+            button(&ctx, &mut app, "Review project configuration proposal");
+            assert!(
+                app.workbench
+                    .configuration_error
+                    .contains("baseline changed")
+            );
+            assert!(app.workbench.reviewed_proposal.is_none());
+            button(&ctx, &mut app, "Cancel this configuration proposal");
+            assert_eq!(
+                app.workbench.proposal_record.as_ref().unwrap().status,
+                "cancelled"
+            );
+            assert_eq!(
+                std::fs::read(profile.join("work-environment.json")).unwrap(),
+                user_bytes
+            );
+            button(&ctx, &mut app, "Cancel environment edits");
+            assert_eq!(app.host.document.editor.project, before);
+            assert_eq!(app.host.context(), context);
+            assert_eq!(app.host.document.editor.selection_ids(), selection);
+            assert!(app.host.document.editor.undo.is_empty());
+            assert_eq!(std::fs::read(&input).unwrap(), original_bytes);
+            drop(endpoint);
+            // Fresh application host, original project through normal Open; read-only endpoint.
+            let (next_ctx, mut next) = setup();
+            next.language = language;
+            open(&next_ctx, &mut next, &input);
+            next.initialize_work_mode(&profile);
+            let next_socket = root.join("ipc2/app.sock");
+            let mut endpoint = Endpoint::bind_for_host(
+                next_socket.clone(),
+                false,
+                Some(root.join("journal2")),
+                &mut next.host,
+            )
+            .unwrap();
+            let target = wire(
+                &next_ctx,
+                &mut next,
+                &mut endpoint,
+                &next_socket,
+                json!({"method":"get_target"}),
+            )["target"]
+                .clone();
+            let revision = next.host.document.editor.revision;
+            let inspection = wire(
+                &next_ctx,
+                &mut next,
+                &mut endpoint,
+                &next_socket,
+                json!({"method":"inspect_work_environment","params":{"target":target,"expected_revision":revision}}),
+            );
+            assert_eq!(inspection["project_proposals"].as_array().unwrap().len(), 3);
+            let original = wire(
+                &next_ctx,
+                &mut next,
+                &mut endpoint,
+                &next_socket,
+                json!({"method":"get_environment_proposal","params":{"target":target,"request_id":"confirm-preview"}}),
+            );
+            assert_eq!(original["proposal"]["status"], "reverted");
+            assert!(original["proposal"]["applied_configuration"].is_object());
+            assert!(!next.show_right);
+            assert_eq!(next.host.document.editor.project, before);
+            drop(endpoint);
+        }
+    }
+    #[test]
+    fn configuration_proposal_review_preserves_unsaved_user_draft_bilingual() {
+        use crate::automation_ipc::Endpoint;
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let root = std::path::PathBuf::from("/tmp").join(format!(
+                "oa-env-unsaved-{}",
+                &storage::new_document_identity()[..12]
+            ));
+            std::fs::create_dir(&root).unwrap();
+            println!("ENVIRONMENT_UNSAVED_ROOT={}", root.display());
+            let input = if let Some(path) = std::env::var_os("OPENARCHI_ENV_REVIEW_PROJECT") {
+                std::path::PathBuf::from(path)
+            } else {
+                let p = root.join("input.json");
+                storage::save_document(
+                    &storage::startup_example(),
+                    &p,
+                    &storage::new_document_identity(),
+                )
+                .unwrap();
+                p
+            };
+            let raw = std::fs::read(&input).unwrap();
+            let (ctx, mut app) = setup();
+            ctx.global_style_mut(|s| s.animation_time = 0.);
+            app.language = language;
+            open(&ctx, &mut app, &input);
+            app.initialize_work_mode(&root.join("profile"));
+            let model = app.host.document.editor.project.clone();
+            let context = app.host.context();
+            let socket = root.join("ipc/app.sock");
+            let mut endpoint = Endpoint::bind_for_host(
+                socket.clone(),
+                true,
+                Some(root.join("journal")),
+                &mut app.host,
+            )
+            .unwrap();
+            propose(&ctx, &mut app, &mut endpoint, &socket, "manual-input");
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Navigator");
+            let draft = app.workbench.configuration_draft.clone().unwrap();
+            assert!(!draft.1.panels.navigator);
+            button(&ctx, &mut app, "Review project configuration proposal");
+            assert_eq!(
+                app.workbench.configuration_draft.as_ref().unwrap(),
+                &draft,
+                "Review must not discard uncommitted user settings"
+            );
+            assert!(app.workbench.reviewed_proposal.is_none());
+            assert!(app.workbench.configuration_error.contains("Save or cancel"));
+            assert!(!root.join("profile/work-environment.json").exists());
+            button(&ctx, &mut app, "Cancel environment edits");
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Review project configuration proposal");
+            button(&ctx, &mut app, "Navigator");
+            let amended = app.workbench.configuration_draft.clone().unwrap();
+            button(&ctx, &mut app, "Review project configuration proposal");
+            assert_eq!(
+                app.workbench.configuration_draft.as_ref().unwrap(),
+                &amended,
+                "Review must not reset the user's amendments to an Agent proposal"
+            );
+            assert_eq!(
+                app.workbench.reviewed_proposal.as_deref(),
+                Some("manual-input")
+            );
+            button(&ctx, &mut app, "Cancel environment edits");
+            assert_eq!(app.host.document.editor.project, model);
+            assert_eq!(app.host.context(), context);
+            assert_eq!(std::fs::read(&input).unwrap(), raw);
+            drop(endpoint);
+        }
+    }
+    #[test]
+    fn configuration_proposal_keeps_unsaved_canvas_layout_and_does_not_rebase_bilingual() {
+        use crate::automation_ipc::Endpoint;
+        for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+            let root = std::path::PathBuf::from("/tmp").join(format!(
+                "oa-env-layout-handover-{}",
+                &storage::new_document_identity()[..12]
+            ));
+            std::fs::create_dir(&root).unwrap();
+            println!("ENVIRONMENT_LAYOUT_HANDOVER_ROOT={}", root.display());
+            let input = if let Some(path) = std::env::var_os("OPENARCHI_ENV_REVIEW_PROJECT") {
+                std::path::PathBuf::from(path)
+            } else {
+                let p = root.join("input.json");
+                storage::save_document(
+                    &storage::startup_example(),
+                    &p,
+                    &storage::new_document_identity(),
+                )
+                .unwrap();
+                p
+            };
+            let raw = std::fs::read(&input).unwrap();
+            let (ctx, mut app) = setup();
+            ctx.global_style_mut(|s| s.animation_time = 0.);
+            app.language = language;
+            open(&ctx, &mut app, &input);
+            app.initialize_work_mode(&root.join("profile"));
+            let model = app.host.document.editor.project.clone();
+            let context = app.host.context();
+            let socket = root.join("ipc/app.sock");
+            let mut endpoint = Endpoint::bind_for_host(
+                socket.clone(),
+                true,
+                Some(root.join("journal")),
+                &mut app.host,
+            )
+            .unwrap();
+            propose(&ctx, &mut app, &mut endpoint, &socket, "layout-original");
+            frame(&ctx, &mut app, vec![]);
+            frame(&ctx, &mut app, vec![]);
+            let dock = app.workbench.panel_rects["workspace.toolbox"];
+            let start = pos2((dock.max.x - 2.) as f64, dock.center().y as f64);
+            let end = start + vec2(45., 0.);
+            // Hover the documented resize strip inside the dock, not the shared canvas boundary.
+            frame(&ctx, &mut app, vec![Event::PointerMoved(start)]);
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    Event::PointerMoved(start),
+                    Event::PointerButton {
+                        pos: start,
+                        button: PointerButton::Primary,
+                        pressed: true,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            frame(&ctx, &mut app, vec![Event::PointerMoved(end)]);
+            frame(
+                &ctx,
+                &mut app,
+                vec![
+                    Event::PointerMoved(end),
+                    Event::PointerButton {
+                        pos: end,
+                        button: PointerButton::Primary,
+                        pressed: false,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+            frame(&ctx, &mut app, vec![]);
+            assert!(
+                app.workspace_layout_dirty(),
+                "actual native dock drag is a user edit"
+            );
+            let layout = app.workbench.workspace.clone();
+            button(&ctx, &mut app, "Customize work environment…");
+            assert_eq!(
+                app.workbench
+                    .configuration_draft
+                    .as_ref()
+                    .unwrap()
+                    .1
+                    .workspace,
+                layout,
+                "settings must capture the existing unsaved canvas layout"
+            );
+            let draft = app.workbench.configuration_draft.clone().unwrap();
+            button(&ctx, &mut app, "Review project configuration proposal");
+            assert_eq!(app.workbench.configuration_draft.as_ref().unwrap(), &draft);
+            assert!(app.workbench.configuration_error.contains("Save or cancel"));
+            button(&ctx, &mut app, "Cancel environment edits");
+            assert_eq!(app.workbench.workspace, layout);
+            assert!(!root.join("profile/work-environment.json").exists());
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Save and activate mode");
+            assert!(
+                app.workbench.configuration_error.is_empty(),
+                "{}",
+                app.workbench.configuration_error
+            );
+            assert_eq!(app.current_environment_profile().workspace, layout);
+            let saved = std::fs::read(root.join("profile/work-environment.json")).unwrap();
+            button(&ctx, &mut app, "Review project configuration proposal");
+            assert!(
+                app.workbench
+                    .configuration_error
+                    .contains("baseline changed"),
+                "saving a user layout cannot renew the old Agent proposal"
+            );
+            assert!(app.workbench.reviewed_proposal.is_none());
+            assert_eq!(
+                std::fs::read(root.join("profile/work-environment.json")).unwrap(),
+                saved
+            );
+            button(&ctx, &mut app, "Cancel this configuration proposal");
+            button(&ctx, &mut app, "Cancel environment edits");
+            assert_eq!(app.workbench.workspace, layout);
+            // Same normal panel menu, saved layout and a real viewport recovery while reviewing.
+            button(&ctx, &mut app, "Panel placement");
+            button(&ctx, &mut app, "Float panel group");
+            frame(&ctx, &mut app, vec![]);
+            frame(&ctx, &mut app, vec![]);
+            button(&ctx, &mut app, "Panel placement");
+            button(&ctx, &mut app, "Save workspace layout");
+            frame(&ctx, &mut app, vec![]);
+            assert!(!app.workspace_layout_dirty());
+            propose(&ctx, &mut app, &mut endpoint, &socket, "viewport-original");
+            button(&ctx, &mut app, "Customize work environment…");
+            button(&ctx, &mut app, "Review project configuration proposal");
+            let proposal = app.workbench.configuration_draft.clone().unwrap();
+            let before_resize = app.workbench.workspace.clone();
+            frame_size(&ctx, &mut app, vec![], vec2(1000., 700.));
+            frame_size(&ctx, &mut app, vec![], vec2(1000., 700.));
+            frame(&ctx, &mut app, vec![]);
+            frame(&ctx, &mut app, vec![]);
+            assert_ne!(
+                app.workbench.workspace, before_resize,
+                "actual viewport recovery must exercise the live-layout guard"
+            );
+            let before_confirm = std::fs::read(root.join("profile/work-environment.json")).unwrap();
+            button(&ctx, &mut app, "Save and activate mode");
+            assert!(
+                app.workbench
+                    .configuration_error
+                    .contains("live workspace changed")
+            );
+            assert_eq!(
+                app.workbench.configuration_draft.as_ref().unwrap(),
+                &proposal
+            );
+            assert_eq!(
+                std::fs::read(root.join("profile/work-environment.json")).unwrap(),
+                before_confirm
+            );
+            button(&ctx, &mut app, "Capture current workspace layout");
+            let captured = app.workbench.workspace.clone();
+            button(&ctx, &mut app, "Save and activate mode");
+            assert!(
+                app.workbench.configuration_error.is_empty(),
+                "{}",
+                app.workbench.configuration_error
+            );
+            assert_eq!(app.current_environment_profile().workspace, captured);
+            assert_eq!(
+                app.workbench.proposal_record.as_ref().unwrap().status,
+                "applied"
+            );
+            button(&ctx, &mut app, "Cancel environment edits");
+            assert_eq!(app.host.document.editor.project, model);
+            assert_eq!(app.host.context(), context);
+            assert_eq!(std::fs::read(&input).unwrap(), raw);
+            drop(endpoint);
+        }
+    }
+}
+
+include!("report_ui_tests.rs");
+
+include!("startup_ui_tests.rs");
+
+include!("mass_space_ui_tests.rs");
+
+#[test]
+fn personal_shortcuts_normal_settings_record_cancel_save_and_actual_canvas_bilingual() {
+    fn frame(ctx: &Context, app: &mut AtelierApp, events: Vec<Event>) -> egui::FullOutput {
+        let events = discrete_key_events(ctx, events);
+        let mut out = ctx.run_ui(
+            RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 1400.))),
+                events,
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        out.textures_delta.clear();
+        out
+    }
+    fn button(ctx: &Context, app: &mut AtelierApp, label: &str) {
+        frame(ctx, app, vec![]);
+        let out = frame(ctx, app, vec![]);
+        let pos = out
+            .shapes
+            .iter()
+            .rev()
+            .find_map(|s| {
+                text_center(std::slice::from_ref(s), label).filter(|p| s.clip_rect.contains(*p))
+            })
+            .unwrap_or_else(|| panic!("visible personal shortcut control {label}"));
+        for pressed in [true, false] {
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::PointerMoved(pos),
+                    Event::PointerButton {
+                        pos,
+                        button: PointerButton::Primary,
+                        pressed,
+                        modifiers: Modifiers::NONE,
+                    },
+                ],
+            );
+        }
+    }
+    fn open(ctx: &Context, app: &mut AtelierApp) {
+        for label in ["OpenArchi", "Work Environment", "Keyboard Shortcuts…"] {
+            let label = app.language.translate(label).to_string();
+            button(ctx, app, &label);
+        }
+        assert!(app.workbench.configuration_open);
+        assert!(app.command_dialog.is_none());
+        // Locate the command through the existing visible filter; registered
+        // commands may grow without Select remaining in the first scroll page.
+        if app.workbench.shortcut_filter.is_empty() {
+            button(ctx, app, app.language.translate("Command name or ID"));
+            frame(
+                ctx,
+                app,
+                vec![
+                    Event::Text("tool.select".into()),
+                    key(Key::Tab, Modifiers::NONE),
+                ],
+            );
+        }
+        assert_eq!(app.workbench.shortcut_filter, "tool.select");
+    }
+    for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
+        let (ctx, mut app) = setup();
+        ctx.global_style_mut(|s| s.animation_time = 0.);
+        app.language = language;
+        app.in_window_menus = true;
+        let root = std::env::temp_dir().join(format!(
+            "oa-personal-keys-{}",
+            storage::new_document_identity()
+        ));
+        std::fs::create_dir(&root).unwrap();
+        app.initialize_work_mode(&root);
+        if let Some(path) = std::env::var_os("OPENARCHI_ENV_REVIEW_PROJECT") {
+            let input_path = std::path::PathBuf::from(path);
+            let input: serde_json::Value =
+                serde_json::from_slice(&std::fs::read(&input_path).unwrap()).unwrap();
+            open_test_project(&ctx, &mut app, &input_path);
+            assert!(app.file_action.is_none());
+            assert_eq!(std::path::Path::new(&app.path), input_path);
+            assert_eq!(
+                app.host.document.editor.project.elements.len(),
+                input["elements"].as_array().unwrap().len()
+            );
+        }
+        let before = app.host.document.editor.project.clone();
+        let revision = app.host.document.editor.revision;
+        open(&ctx, &mut app);
+        let record = format!(
+            "{} · {}",
+            language.translate("Record shortcut"),
+            language.translate("Select")
+        );
+        button(&ctx, &mut app, &record);
+        frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(app.workbench.configuration_open);
+        assert!(app.workbench.shortcut_recording.is_none());
+        button(&ctx, &mut app, &record);
+        let mut unfocused = ctx.run_ui(
+            RawInput {
+                focused: false,
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1600., 1400.))),
+                events: vec![key(Key::J, Modifiers::NONE)],
+                ..Default::default()
+            },
+            |ui| app.workspace(ui),
+        );
+        unfocused.textures_delta.clear();
+        assert!(app.workbench.shortcut_recording.is_none());
+        assert!(
+            app.workbench
+                .configuration_draft
+                .as_ref()
+                .unwrap()
+                .1
+                .shortcuts
+                .is_empty()
+        );
+        frame(&ctx, &mut app, vec![]);
+        button(&ctx, &mut app, &record);
+        frame(&ctx, &mut app, vec![key(Key::W, Modifiers::NONE)]);
+        assert!(
+            app.workbench
+                .configuration_error
+                .contains("Shortcut conflicts with")
+        );
+        assert!(
+            app.workbench
+                .configuration_draft
+                .as_ref()
+                .unwrap()
+                .1
+                .shortcuts
+                .is_empty()
+        );
+        button(&ctx, &mut app, &record);
+        frame(&ctx, &mut app, vec![key(Key::J, Modifiers::NONE)]);
+        assert!(app.workbench.configuration_error.is_empty());
+        button(
+            &ctx,
+            &mut app,
+            language.translate("Cancel environment edits"),
+        );
+        assert!(!app.workbench.configuration_open);
+        assert!(!root.join("work-environment.json").exists());
+        open(&ctx, &mut app);
+        button(&ctx, &mut app, &record);
+        frame(&ctx, &mut app, vec![key(Key::J, Modifiers::NONE)]);
+        button(&ctx, &mut app, language.translate("Save and activate mode"));
+        assert!(
+            app.workbench.configuration_error.is_empty(),
+            "{}",
+            app.workbench.configuration_error
+        );
+        let saved_frame = frame(&ctx, &mut app, vec![]);
+        assert!(
+            text_center(
+                &saved_frame.shapes,
+                language.translate("Work environment saved")
+            )
+            .is_some()
+        );
+        frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert!(!app.workbench.configuration_open);
+        frame(&ctx, &mut app, vec![key(Key::W, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.tool, Tool::Wall);
+        frame(&ctx, &mut app, vec![key(Key::V, Modifiers::NONE)]);
+        assert_eq!(
+            app.host.document.editor.tool,
+            Tool::Wall,
+            "replaced V must be inactive"
+        );
+        frame(&ctx, &mut app, vec![key(Key::J, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.tool, Tool::Select);
+        frame(&ctx, &mut app, vec![key(Key::W, Modifiers::NONE)]);
+        frame(&ctx, &mut app, vec![key(Key::J, Modifiers::SHIFT)]);
+        assert_eq!(app.host.document.editor.tool, Tool::Wall, "exact modifiers");
+        let mut repeated = key(Key::J, Modifiers::NONE);
+        if let Event::Key { repeat, .. } = &mut repeated {
+            *repeat = true;
+        }
+        frame(&ctx, &mut app, vec![repeated]);
+        assert_eq!(
+            app.host.document.editor.tool,
+            Tool::Wall,
+            "repeat consumed without action"
+        );
+        // A real wall creation gesture retains its anchor and history.
+        click(&ctx, &mut app, pos2(400., 300.));
+        let anchor = app.host.document.editor.anchor;
+        assert!(anchor.is_some());
+        plan_frame(&ctx, &mut app, vec![key(Key::J, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.tool, Tool::Wall);
+        assert_eq!(app.host.document.editor.anchor, anchor);
+        plan_frame(&ctx, &mut app, vec![key(Key::Escape, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.project, before);
+        assert_eq!(app.host.document.editor.revision, revision);
+        let (_, mut reopened) = setup();
+        reopened.initialize_work_mode(&root);
+        assert!(reopened.shortcut_overridden("tool.select"));
+        assert_eq!(
+            reopened.personal_command_label("tool.select", "Select", "Select  V"),
+            format!("Select  J")
+        );
+        frame(&ctx, &mut app, vec![key(Key::W, Modifiers::NONE)]);
+        assert_eq!(app.host.document.editor.tool, Tool::Wall);
+        button(&ctx, &mut app, language.translate("Find command…"));
+        button(&ctx, &mut app, language.translate("Command name or ID"));
+        assert!(
+            ctx.egui_wants_keyboard_input(),
+            "normal command search must own text focus"
+        );
+        frame(
+            &ctx,
+            &mut app,
+            vec![key(Key::J, Modifiers::NONE), Event::Text("j".into())],
+        );
+        assert_eq!(
+            app.host.document.editor.tool,
+            Tool::Wall,
+            "text entry must keep its key"
+        );
+        assert_eq!(app.host.document.editor.project, before);
+        assert!(app.host.document.editor.undo.is_empty());
+        std::fs::remove_dir_all(root).unwrap();
+    }
+}
+
+#[test]
+fn personal_shortcuts_default_gui_clipboard_and_figure_paths_use_same_bindings() {
+    use crate::workbench::{
+        WorkMode,
+        environment::EnvironmentService,
+        shortcuts::{self, Chord},
+    };
+    let root =
+        std::env::temp_dir().join(format!("oa-key-wire-{}", storage::new_document_identity()));
+    std::fs::create_dir(&root).unwrap();
+    let mut service =
+        EnvironmentService::open(&root.join("work-environment.json"), WorkMode::Architecture)
+            .unwrap();
+    let mut config = service.configuration.clone();
+    let mut profile = config.resolve(&config.active).unwrap();
+    shortcuts::assign(
+        &mut profile.shortcuts,
+        "tool.zone",
+        Some(vec![Chord::new("C", true, true, true)]),
+    )
+    .unwrap();
+    shortcuts::assign(
+        &mut profile.shortcuts,
+        "view.plan",
+        Some(vec![Chord::new("F4", false, false, false)]),
+    )
+    .unwrap();
+    config.apply_profile_draft(&profile);
+    service.save(config).unwrap();
+    let (ctx, mut app) = setup();
+    app.initialize_work_mode(&root);
+    plan_frame(
+        &ctx,
+        &mut app,
+        vec![
+            Event::ModifiersChanged(Modifiers::COMMAND | Modifiers::ALT | Modifiers::SHIFT),
+            Event::Copy,
+        ],
+    );
+    assert_eq!(app.host.document.editor.tool, Tool::Zone);
+    assert!(app.host.document.editor.clipboard.is_empty());
+    assert!(app.host.document.editor.project.elements.is_empty());
+    app.view = View::Figure(999);
+    plan_frame(&ctx, &mut app, vec![key(Key::F2, Modifiers::NONE)]);
+    assert_eq!(
+        app.view,
+        View::Figure(999),
+        "old plan key stays unbound in figure view"
+    );
+    plan_frame(&ctx, &mut app, vec![key(Key::F4, Modifiers::NONE)]);
+    assert_eq!(app.view, View::Plan);
+    assert!(app.host.document.editor.undo.is_empty());
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+include!("checks_ui_tests.rs");
+
+include!("report_work_environment_ui_tests.rs");
+include!("creation_presets_ui_tests.rs");
+
+include!("object_research_ui_tests.rs");
+
+include!("menu_toolbars_ui_tests.rs");
+
+include!("editing_shortcuts_ui_tests.rs");
+
+include!("surfaces_ui_tests.rs");
+
+include!("canvas_selection_ui_tests.rs");
+include!("selection_shortcuts_ui_tests.rs");
+
+include!("file_open_ui_tests.rs");
+
+include!("mass_edit_ui_tests.rs");
+
+include!("precision_input_ui_tests.rs");
+include!("drawing_backtrack_ui_tests.rs");
+include!("drawing_preview_ui_tests.rs");
+
+include!("trace_persistence_ui_tests.rs");

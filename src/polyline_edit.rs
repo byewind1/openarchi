@@ -7,8 +7,8 @@ pub enum PolylineChange {
     OffsetPolyline,
     CurveEdge,
     Tangent,
-    Chamfer(f32),
-    Fillet(f32),
+    Chamfer(f64),
+    Fillet(f64),
 }
 pub fn changed_shape(
     original: &Element,
@@ -47,17 +47,17 @@ pub fn changed_shape(
                         let angle = (current.y - center.y).atan2(current.x - center.x);
                         let start_angle = (a.y - center.y).atan2(a.x - center.x);
                         let traveled = if sweep > 0. {
-                            (angle - start_angle).rem_euclid(std::f32::consts::TAU)
+                            (angle - start_angle).rem_euclid(std::f64::consts::TAU)
                         } else {
-                            (start_angle - angle).rem_euclid(std::f32::consts::TAU)
+                            (start_angle - angle).rem_euclid(std::f64::consts::TAU)
                         };
                         if traveled >= sweep.abs() {
                             return Err("Invalid edit parameters".into());
                         }
                         let mut first = arc;
-                        first.large_arc = traveled > std::f32::consts::PI;
+                        first.large_arc = traveled > std::f64::consts::PI;
                         let mut second = arc;
-                        second.large_arc = sweep.abs() - traveled > std::f32::consts::PI;
+                        second.large_arc = sweep.abs() - traveled > std::f64::consts::PI;
                         (current, (Some(first), Some(second)))
                     } else {
                         (current, (None, None))
@@ -170,7 +170,7 @@ pub fn changed_shape(
             let u = Point::new((a.x - corner.x) / la, (a.y - corner.y) / la);
             let v = Point::new((b.x - corner.x) / lb, (b.y - corner.y) / lb);
             let angle = (u.x * v.x + u.y * v.y).clamp(-1., 1.).acos();
-            if angle < 0.01 || (std::f32::consts::PI - angle).abs() < 0.01 {
+            if angle < 0.01 || (std::f64::consts::PI - angle).abs() < 0.01 {
                 return Err("Corner edit needs two non-collinear segments".into());
             }
             let fillet = matches!(change, PolylineChange::Fillet(_));
@@ -324,7 +324,7 @@ mod tests {
             vec![],
         );
         let before = e.project.clone();
-        for value in [0., -1., f32::NAN, 100.] {
+        for value in [0., -1., f64::NAN, 100.] {
             assert!(
                 apply(
                     &mut e,
@@ -437,14 +437,14 @@ pub fn tangent_arc(
         let bb = (end.y - center.y).atan2(end.x - center.x);
         let clockwise = h < 0.;
         let sweep = if clockwise {
-            (aa - bb).rem_euclid(std::f32::consts::TAU)
+            (aa - bb).rem_euclid(std::f64::consts::TAU)
         } else {
-            (bb - aa).rem_euclid(std::f32::consts::TAU)
+            (bb - aa).rem_euclid(std::f64::consts::TAU)
         };
         Some(ArcSegment {
             radius: h.abs(),
             clockwise: clockwise ^ reverse,
-            large_arc: sweep > std::f32::consts::PI,
+            large_arc: sweep > std::f64::consts::PI,
         })
     };
     Ok(contour)

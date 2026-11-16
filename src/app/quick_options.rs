@@ -1,25 +1,58 @@
 use super::*;
 
 impl AtelierApp {
-    pub(super) fn set_plan_zoom_percent(&mut self, percent: f32) {
-        let percent = percent.clamp(1.0, 1000.0);
-        self.plan_scale = (40.0 * percent / 100.0).clamp(0.4, 400.0);
-        self.editor.status = format!("{} · {percent:.1}%", self.language.translate("Zoom"));
+    pub(super) fn plan_view_scale_max(&self, model_max: f64) -> f64 {
+        if self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .active_worksheet
+            .is_some()
+        {
+            100_000.
+        } else {
+            model_max
+        }
     }
 
-    pub(super) fn plan_zoom_percent(&self) -> f32 {
+    pub(super) fn zoom_plan_view(&mut self, factor: f64) {
+        if factor.is_finite() && factor > 0. {
+            self.plan_scale = (self.plan_scale * factor).clamp(4., self.plan_view_scale_max(400.));
+        }
+    }
+
+    pub(super) fn set_plan_zoom_percent(&mut self, percent: f64) {
+        if !percent.is_finite() {
+            return;
+        }
+        let maximum = self.plan_view_scale_max(400.);
+        let percent = percent.clamp(1.0, maximum / 40. * 100.);
+        self.plan_scale = (40.0 * percent / 100.0).clamp(0.4, maximum);
+        self.host.document.editor.status =
+            format!("{} · {percent:.1}%", self.language.translate("Zoom"));
+    }
+
+    pub(super) fn plan_zoom_percent(&self) -> f64 {
         self.plan_scale / 40.0 * 100.0
     }
 
     pub(super) fn toggle_grid_snap(&mut self) {
-        let enabled = !self.editor.project.grid_settings.grid_snap_enabled;
+        let enabled = !self
+            .host
+            .document
+            .editor
+            .project
+            .grid_settings
+            .grid_snap_enabled;
         self.set_grid_snap_enabled(enabled);
     }
 
     pub(super) fn set_grid_snap_enabled(&mut self, enabled: bool) {
-        let settings = &mut self.editor.project.grid_settings;
+        let settings = &mut self.host.document.editor.project.grid_settings;
         settings.set_snap_enabled(enabled);
-        self.editor.status = if settings.grid_snap_enabled {
+        self.host.document.editor.status = if settings.grid_snap_enabled {
             format!(
                 "{} · {}",
                 self.language.translate("Grid Snap on"),
@@ -34,18 +67,18 @@ impl AtelierApp {
     where
         F: FnOnce(&mut PlanOptions),
     {
-        let before = self.editor.project.clone();
-        change(&mut self.editor.project.plan_options);
-        if let Err(error) = self.editor.project.plan_options.validate() {
-            self.editor.project.plan_options = before.plan_options;
-            self.editor.status = error;
+        let before = self.host.document.editor.project.clone();
+        change(&mut self.host.document.editor.project.plan_options);
+        if let Err(error) = self.host.document.editor.project.plan_options.validate() {
+            self.host.document.editor.project.plan_options = before.plan_options;
+            self.host.document.editor.status = error;
             return false;
         }
-        if self.editor.project.plan_options == before.plan_options {
+        if self.host.document.editor.project.plan_options == before.plan_options {
             return false;
         }
-        self.editor.commit(before);
-        self.editor.status = status.into();
+        self.host.document.editor.commit(before);
+        self.host.document.editor.status = status.into();
         true
     }
 
@@ -54,6 +87,8 @@ impl AtelierApp {
     /// layer status).
     pub(super) fn apply_layer_combination(&mut self, id: crate::layers::CombinationId) {
         let name = self
+            .host
+            .document
             .editor
             .project
             .layers
@@ -63,12 +98,12 @@ impl AtelierApp {
             .map(|combination| combination.name.clone())
             .unwrap_or_default();
         let status = self.option_status("Layer Combination", &name);
-        let mut layers = self.editor.project.layers.clone();
+        let mut layers = self.host.document.editor.project.layers.clone();
         if !layers.apply_combination(id) {
             return;
         }
-        self.editor.set_layer_document(layers, &[]);
-        self.editor.status = status;
+        self.host.document.editor.set_layer_document(layers, &[]);
+        self.host.document.editor.status = status;
     }
 
     pub(super) fn apply_show_all_layers(&mut self, show: bool) {
@@ -80,15 +115,15 @@ impl AtelierApp {
                 self.language.translate("Off")
             },
         );
-        let mut layers = self.editor.project.layers.clone();
+        let mut layers = self.host.document.editor.project.layers.clone();
         if show {
             layers.set_all_visible(true);
         } else {
             let id = layers.active_combination.unwrap_or_default();
             layers.apply_combination(id);
         }
-        self.editor.set_layer_document(layers, &[]);
-        self.editor.status = status;
+        self.host.document.editor.set_layer_document(layers, &[]);
+        self.host.document.editor.status = status;
     }
 
     pub(super) fn set_pen_set(&mut self, pen_set: PenSet) {
@@ -132,15 +167,29 @@ impl AtelierApp {
         );
     }
 
-    pub(super) fn set_orientation_degrees(&mut self, degrees: f32) {
+    pub(super) fn set_orientation_degrees(&mut self, degrees: f64) {
         let degrees = degrees.rem_euclid(360.0);
         let status = format!("{} · {degrees:.2}°", self.language.translate("Orientation"));
         self.modify_plan_options(|options| options.orientation_degrees = degrees, status);
     }
 
     pub(super) fn set_active_design_option(&mut self, option: Option<u32>) {
+        if self
+            .host
+            .document
+            .editor
+            .project
+            .design_process
+            .task()
+            .is_some()
+        {
+            if let Err(error) = self.activate_process_option(option) {
+                self.host.document.editor.status = error;
+            }
+            return;
+        }
         let label = option
-            .and_then(|id| self.editor.project.design_options.name(id))
+            .and_then(|id| self.host.document.editor.project.design_options.name(id))
             .map_or_else(
                 || self.language.translate("Main Model Only").to_owned(),
                 str::to_owned,
@@ -152,7 +201,7 @@ impl AtelierApp {
     pub(super) fn begin_orientation_pick(&mut self) {
         self.orientation_pick_active = true;
         self.orientation_pick_start = None;
-        self.editor.status = self
+        self.host.document.editor.status = self
             .language
             .translate("Set Orientation Graphically · click two points")
             .into();
@@ -161,14 +210,15 @@ impl AtelierApp {
     pub(super) fn cancel_orientation_pick(&mut self) {
         self.orientation_pick_active = false;
         self.orientation_pick_start = None;
-        self.editor.status = self.language.translate("Set Orientation cancelled").into();
+        self.host.document.editor.status =
+            self.language.translate("Set Orientation cancelled").into();
     }
 
     pub(super) fn reset_renovation_status(&mut self) {
-        let before = self.editor.project.clone();
-        let selection: Vec<u64> = self.editor.selection_ids();
+        let before = self.host.document.editor.project.clone();
+        let selection: Vec<u64> = self.host.document.editor.selection_ids();
         let mut changed = 0;
-        for element in &mut self.editor.project.elements {
+        for element in &mut self.host.document.editor.project.elements {
             if (selection.is_empty() || selection.contains(&element.id))
                 && element.renovation != RenovationStatus::Existing
             {
@@ -177,14 +227,16 @@ impl AtelierApp {
             }
         }
         if changed == 0 {
-            self.editor.status = self
+            self.host.document.editor.status = self
                 .language
                 .translate("Renovation status already Existing")
                 .into();
             return;
         }
-        self.editor.commit(before);
-        self.editor.status = format!(
+        if !self.host.document.editor.commit_checked(before) {
+            return;
+        }
+        self.host.document.editor.status = format!(
             "{} · {} {}",
             self.language.translate("Renovation status reset"),
             changed,
@@ -194,12 +246,13 @@ impl AtelierApp {
     }
 
     pub(super) fn open_plan_option_dialog(&mut self, kind: PlanOptionKind) {
-        self.plan_dialog_options = self.editor.project.plan_options.clone();
+        self.plan_dialog_options = self.host.document.editor.project.plan_options.clone();
         self.plan_option_dialog = Some(kind);
     }
 
     pub(super) fn plan_option_title(language: UiLanguage, kind: PlanOptionKind) -> &'static str {
         language.translate(match kind {
+            PlanOptionKind::FloorPlanCut => "Floor Plan Cut Plane",
             PlanOptionKind::PenSets => "Pen Sets",
             PlanOptionKind::PartialStructure => "Partial Structure Display",
             PlanOptionKind::ModelView => "Model View Options",
@@ -300,19 +353,32 @@ impl AtelierApp {
                 self.saved_zooms.len() + 1
             );
             self.saved_zooms.push((name.clone(), self.plan_scale));
-            self.editor.status = format!("{} · {name}", language.translate("Saved zoom"));
+            self.host.document.editor.status =
+                format!("{} · {name}", language.translate("Saved zoom"));
             ui.close();
         }
         ui.add_enabled(false, Button::new(language.translate("Rename …")));
         ui.add_enabled(false, Button::new(language.translate("Delete")));
         ui.separator();
-        for percent in ZOOM_PRESETS {
-            let selected = (self.plan_zoom_percent() - percent as f32).abs() < 0.05;
+        let mut presets = ZOOM_PRESETS.to_vec();
+        if self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .active_worksheet
+            .is_some()
+        {
+            presets.extend([2500, 5000, 10000, 25000, 100000, 250000]);
+        }
+        for percent in presets {
+            let selected = (self.plan_zoom_percent() - percent as f64).abs() < 0.05;
             if ui
                 .selectable_label(selected, format!("{percent}%"))
                 .clicked()
             {
-                self.set_plan_zoom_percent(percent as f32);
+                self.set_plan_zoom_percent(percent as f64);
                 ui.close();
             }
         }
@@ -325,8 +391,9 @@ impl AtelierApp {
                     .selectable_label(false, format!("{name} · {percent:.1}%"))
                     .clicked()
                 {
-                    self.plan_scale = scale;
-                    self.editor.status = format!("{} · {name}", language.translate("Zoom"));
+                    self.plan_scale = scale.clamp(0.4, self.plan_view_scale_max(400.));
+                    self.host.document.editor.status =
+                        format!("{} · {name}", language.translate("Zoom"));
                     ui.close();
                 }
             }
@@ -343,7 +410,13 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.normalized_orientation();
+        let current = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .normalized_orientation();
         for degrees in ORIENTATION_PRESETS {
             if ui
                 .selectable_label((current - degrees).abs() < 0.005, format!("{degrees:.2}°"))
@@ -362,7 +435,7 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.drawing_scale;
+        let current = self.host.document.editor.project.plan_options.drawing_scale;
         for preset in SCALE_PRESETS {
             if ui
                 .selectable_label(current == preset, format!("1:{preset}"))
@@ -377,7 +450,7 @@ impl AtelierApp {
     /// Quick Options label: "All Layers" when everything is visible, otherwise
     /// the effective combination name (AC29 shows the applied combination).
     pub(super) fn layer_combination_label(&self) -> String {
-        let layers = &self.editor.project.layers;
+        let layers = &self.host.document.editor.project.layers;
         if layers.layers.iter().all(|layer| layer.status.visible) {
             return self.language.translate("All Layers").to_owned();
         }
@@ -405,6 +478,8 @@ impl AtelierApp {
             ui.close();
         }
         let mut all_visible = self
+            .host
+            .document
             .editor
             .project
             .layers
@@ -419,8 +494,16 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.layers.active_combination;
-        for combination in self.editor.project.layers.combinations.clone() {
+        let current = self.host.document.editor.project.layers.active_combination;
+        for combination in self
+            .host
+            .document
+            .editor
+            .project
+            .layers
+            .combinations
+            .clone()
+        {
             let selected = current == Some(combination.id);
             if ui
                 .selectable_label(
@@ -445,7 +528,13 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.partial_structure;
+        let current = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .partial_structure;
         for option in PartialStructureDisplay::ALL {
             if ui
                 .radio(current == option, language.translate(option.name()))
@@ -467,7 +556,7 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.pen_set;
+        let current = self.host.document.editor.project.plan_options.pen_set;
         if let Some(pen_set) = Self::option_menu_list(ui, current, &PenSet::ALL, |value| {
             language.translate(value.name())
         }) {
@@ -485,7 +574,7 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.model_view;
+        let current = self.host.document.editor.project.plan_options.model_view;
         if let Some(model_view) =
             Self::option_menu_list(ui, current, &ModelViewOptions::ALL, |value| {
                 language.translate(value.name())
@@ -505,7 +594,13 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.graphic_overrides;
+        let current = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .graphic_overrides;
         if let Some(overrides) =
             Self::option_menu_list(ui, current, &GraphicOverrides::ALL, |value| {
                 language.translate(value.name())
@@ -518,7 +613,7 @@ impl AtelierApp {
             .button(language.translate("Graphic Override Rules…"))
             .clicked()
         {
-            self.editor.status = language
+            self.host.document.editor.status = language
                 .translate("Graphic Override Rules · interface preview")
                 .into();
             ui.close();
@@ -535,7 +630,13 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.renovation_filter;
+        let current = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .renovation_filter;
         if let Some(filter) = Self::option_menu_list(ui, current, &RenovationFilter::ALL, |value| {
             language.translate(value.name())
         }) {
@@ -554,6 +655,13 @@ impl AtelierApp {
     pub(super) fn design_options_menu_contents(&mut self, ui: &mut Ui) {
         let language = self.language;
         if ui
+            .button(language.translate("Explore space options…"))
+            .clicked()
+        {
+            self.dispatch_workbench(crate::workbench::WorkbenchCommand::Explore);
+            ui.close();
+        }
+        if ui
             .button(language.translate("Design Option Manager"))
             .clicked()
         {
@@ -561,7 +669,13 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let active = self.editor.project.plan_options.active_design_option;
+        let active = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .active_design_option;
         if ui
             .radio(active.is_none(), language.translate("Main Model Only"))
             .clicked()
@@ -570,6 +684,8 @@ impl AtelierApp {
             ui.close();
         }
         let options: Vec<(u32, String)> = self
+            .host
+            .document
             .editor
             .project
             .design_options
@@ -595,7 +711,13 @@ impl AtelierApp {
             ui.close();
         }
         ui.separator();
-        let current = self.editor.project.plan_options.dimension_style;
+        let current = self
+            .host
+            .document
+            .editor
+            .project
+            .plan_options
+            .dimension_style;
         if let Some(style) = Self::option_menu_list(ui, current, &DimensionStyle::ALL, |value| {
             language.translate(value.name())
         }) {
@@ -605,7 +727,7 @@ impl AtelierApp {
 
     pub(super) fn toggle_quick_options_bar(&mut self) {
         self.quick_options_visible = !self.quick_options_visible;
-        self.editor.status = if self.quick_options_visible {
+        self.host.document.editor.status = if self.quick_options_visible {
             self.language.translate("Quick Options bar shown").into()
         } else {
             self.language.translate("Quick Options bar hidden").into()
@@ -614,7 +736,7 @@ impl AtelierApp {
 
     pub(super) fn toggle_quick_options_palette(&mut self) {
         self.quick_options_palette_visible = !self.quick_options_palette_visible;
-        self.editor.status = if self.quick_options_palette_visible {
+        self.host.document.editor.status = if self.quick_options_palette_visible {
             self.language
                 .translate("Quick Options palette shown")
                 .into()
@@ -626,6 +748,19 @@ impl AtelierApp {
     }
 
     pub(super) fn quick_options_bar(&mut self, ui: &mut Ui) {
+        if matches!(self.view, View::Figure(_)) {
+            let language = self.language;
+            let axon = matches!(self.view, View::Figure(id) if self.host.document.editor.project.drawings.diagrams.iter().any(|f| f.id==id && f.definition.presentation.is_axon()));
+            egui::Panel::bottom("quick_options_bar").show(ui, |ui| {
+                ui.label(language.translate(if axon {
+                    "Orthographic axon · XYZ directions · paper scale unspecified"
+                } else {
+                    "Linked figure · metric model scale bar · paper scale unspecified"
+                }));
+            });
+            return;
+        }
+
         let language = self.language;
         egui::Panel::bottom("quick_options_bar")
             .frame(
@@ -639,7 +774,14 @@ impl AtelierApp {
                     .show(ui, |ui| {
                         ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 1.0;
-                            let zoom = format!("{:.1}%", self.plan_zoom_percent());
+                            self.navigation_bar(ui);
+                            self.input_origins_menu(ui);
+                            let zoom = if self.navigation_pane() == viewport_navigation::Pane::Model
+                            {
+                                "N/A".to_owned()
+                            } else {
+                                format!("{:.1}%", self.plan_zoom_percent())
+                            };
                             let response = Self::quick_option_button(
                                 ui,
                                 "Zoom In",
@@ -648,11 +790,18 @@ impl AtelierApp {
                                 84.,
                                 &format!("{} · {zoom}", language.translate("Zoom")),
                             );
-                            Popup::menu(&response).show(|ui| self.zoom_menu_contents(ui));
+                            if self.navigation_pane() == viewport_navigation::Pane::Plan {
+                                Popup::menu(&response).show(|ui| self.zoom_menu_contents(ui));
+                            }
                             ui.separator();
                             let orientation = format!(
                                 "{:.2}°",
-                                self.editor.project.plan_options.normalized_orientation()
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .normalized_orientation()
                             );
                             let response = Self::quick_option_button(
                                 ui,
@@ -664,8 +813,10 @@ impl AtelierApp {
                             );
                             Popup::menu(&response).show(|ui| self.orientation_menu_contents(ui));
                             ui.separator();
-                            let scale =
-                                format!("1:{}", self.editor.project.plan_options.drawing_scale);
+                            let scale = format!(
+                                "1:{}",
+                                self.host.document.editor.project.plan_options.drawing_scale
+                            );
                             let response = Self::quick_option_button(
                                 ui,
                                 "Scale",
@@ -691,7 +842,13 @@ impl AtelierApp {
                             Popup::menu(&response).show(|ui| self.layers_menu_contents(ui));
                             ui.separator();
                             let partial = language.translate(
-                                self.editor.project.plan_options.partial_structure.name(),
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .partial_structure
+                                    .name(),
                             );
                             let response = Self::quick_option_button(
                                 ui,
@@ -704,8 +861,15 @@ impl AtelierApp {
                             Popup::menu(&response)
                                 .show(|ui| self.partial_structure_menu_contents(ui));
                             ui.separator();
-                            let pen =
-                                language.translate(self.editor.project.plan_options.pen_set.name());
+                            let pen = language.translate(
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .pen_set
+                                    .name(),
+                            );
                             let response = Self::quick_option_button(
                                 ui,
                                 "Pen Set",
@@ -716,8 +880,15 @@ impl AtelierApp {
                             );
                             Popup::menu(&response).show(|ui| self.pen_set_menu_contents(ui));
                             ui.separator();
-                            let model_view = language
-                                .translate(self.editor.project.plan_options.model_view.name());
+                            let model_view = language.translate(
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .model_view
+                                    .name(),
+                            );
                             let response = Self::quick_option_button(
                                 ui,
                                 "Model View",
@@ -732,7 +903,13 @@ impl AtelierApp {
                             Popup::menu(&response).show(|ui| self.model_view_menu_contents(ui));
                             ui.separator();
                             let overrides = language.translate(
-                                self.editor.project.plan_options.graphic_overrides.name(),
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .graphic_overrides
+                                    .name(),
                             );
                             let response = Self::quick_option_button(
                                 ui,
@@ -749,7 +926,13 @@ impl AtelierApp {
                                 .show(|ui| self.graphic_overrides_menu_contents(ui));
                             ui.separator();
                             let renovation = language.translate(
-                                self.editor.project.plan_options.renovation_filter.name(),
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .renovation_filter
+                                    .name(),
                             );
                             let response = Self::quick_option_button(
                                 ui,
@@ -765,11 +948,15 @@ impl AtelierApp {
                             Popup::menu(&response).show(|ui| self.renovation_menu_contents(ui));
                             ui.separator();
                             let design = self
+                                .host
+                                .document
                                 .editor
                                 .project
                                 .plan_options
                                 .active_design_option
-                                .and_then(|id| self.editor.project.design_options.name(id))
+                                .and_then(|id| {
+                                    self.host.document.editor.project.design_options.name(id)
+                                })
                                 .unwrap_or(language.translate("Main Model Only"));
                             let response = Self::quick_option_button(
                                 ui,
@@ -781,8 +968,15 @@ impl AtelierApp {
                             );
                             Popup::menu(&response).show(|ui| self.design_options_menu_contents(ui));
                             ui.separator();
-                            let dimensions = language
-                                .translate(self.editor.project.plan_options.dimension_style.name());
+                            let dimensions = language.translate(
+                                self.host
+                                    .document
+                                    .editor
+                                    .project
+                                    .plan_options
+                                    .dimension_style
+                                    .name(),
+                            );
                             let response = Self::quick_option_button(
                                 ui,
                                 "Dimension Style",
@@ -837,12 +1031,20 @@ impl AtelierApp {
                 });
                 let orientation = format!(
                     "{:.2}°",
-                    self.editor.project.plan_options.normalized_orientation()
+                    self.host
+                        .document
+                        .editor
+                        .project
+                        .plan_options
+                        .normalized_orientation()
                 );
                 Self::palette_row(ui, language.translate("Orientation"), orientation, |ui| {
                     self.orientation_menu_contents(ui)
                 });
-                let scale = format!("1:{}", self.editor.project.plan_options.drawing_scale);
+                let scale = format!(
+                    "1:{}",
+                    self.host.document.editor.project.plan_options.drawing_scale
+                );
                 Self::palette_row(ui, language.translate("Scale"), scale, |ui| {
                     self.scale_menu_contents(ui)
                 });
@@ -851,19 +1053,43 @@ impl AtelierApp {
                     self.layers_menu_contents(ui)
                 });
                 let partial = language
-                    .translate(self.editor.project.plan_options.partial_structure.name())
+                    .translate(
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .partial_structure
+                            .name(),
+                    )
                     .to_owned();
                 Self::palette_row(ui, language.translate("Partial Structure"), partial, |ui| {
                     self.partial_structure_menu_contents(ui)
                 });
                 let pen = language
-                    .translate(self.editor.project.plan_options.pen_set.name())
+                    .translate(
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .pen_set
+                            .name(),
+                    )
                     .to_owned();
                 Self::palette_row(ui, language.translate("Pen Set"), pen, |ui| {
                     self.pen_set_menu_contents(ui)
                 });
                 let model_view = language
-                    .translate(self.editor.project.plan_options.model_view.name())
+                    .translate(
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .model_view
+                            .name(),
+                    )
                     .to_owned();
                 Self::palette_row(
                     ui,
@@ -872,7 +1098,15 @@ impl AtelierApp {
                     |ui| self.model_view_menu_contents(ui),
                 );
                 let overrides = language
-                    .translate(self.editor.project.plan_options.graphic_overrides.name())
+                    .translate(
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .graphic_overrides
+                            .name(),
+                    )
                     .to_owned();
                 Self::palette_row(
                     ui,
@@ -881,7 +1115,15 @@ impl AtelierApp {
                     |ui| self.graphic_overrides_menu_contents(ui),
                 );
                 let renovation = language
-                    .translate(self.editor.project.plan_options.renovation_filter.name())
+                    .translate(
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .renovation_filter
+                            .name(),
+                    )
                     .to_owned();
                 Self::palette_row(
                     ui,
@@ -890,18 +1132,28 @@ impl AtelierApp {
                     |ui| self.renovation_menu_contents(ui),
                 );
                 let design = self
+                    .host
+                    .document
                     .editor
                     .project
                     .plan_options
                     .active_design_option
-                    .and_then(|id| self.editor.project.design_options.name(id))
+                    .and_then(|id| self.host.document.editor.project.design_options.name(id))
                     .unwrap_or(language.translate("Main Model Only"))
                     .to_owned();
                 Self::palette_row(ui, language.translate("Design Options"), design, |ui| {
                     self.design_options_menu_contents(ui)
                 });
                 let dimensions = language
-                    .translate(self.editor.project.plan_options.dimension_style.name())
+                    .translate(
+                        self.host
+                            .document
+                            .editor
+                            .project
+                            .plan_options
+                            .dimension_style
+                            .name(),
+                    )
                     .to_owned();
                 Self::palette_row(ui, language.translate("Dimensions"), dimensions, |ui| {
                     self.dimensions_menu_contents(ui)
@@ -912,7 +1164,8 @@ impl AtelierApp {
                     .clicked()
                 {
                     self.quick_options_visible = false;
-                    self.editor.status = language.translate("Quick Options bar hidden").into();
+                    self.host.document.editor.status =
+                        language.translate("Quick Options bar hidden").into();
                 }
             });
         self.quick_options_palette_visible = open;

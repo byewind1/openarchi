@@ -1,7 +1,7 @@
 //! Pure, current-story wall distance queries and validated distance edits.
 use crate::model::{Point, Project, Shape};
 
-const EPS: f32 = 1e-4;
+const EPS: f64 = 1e-4;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DistanceMeasurement {
@@ -10,9 +10,9 @@ pub struct DistanceMeasurement {
     pub context_id: u64,
     pub reference_start: Point,
     pub reference_end: Point,
-    pub distance: f32,
+    pub distance: f64,
     /// Sign relative to the reference segment's left-hand normal.
-    pub signed_distance: f32,
+    pub signed_distance: f64,
     pub edges: bool,
 }
 
@@ -22,10 +22,10 @@ fn add(a: Point, b: Point) -> Point {
 fn sub(a: Point, b: Point) -> Point {
     Point::new(a.x - b.x, a.y - b.y)
 }
-fn scale(a: Point, amount: f32) -> Point {
+fn scale(a: Point, amount: f64) -> Point {
     Point::new(a.x * amount, a.y * amount)
 }
-fn dot(a: Point, b: Point) -> f32 {
+fn dot(a: Point, b: Point) -> f64 {
     a.x * b.x + a.y * b.y
 }
 fn midpoint(a: Point, b: Point) -> Point {
@@ -153,7 +153,7 @@ pub fn measurements(
 }
 
 /// Position a point at a positive distance on its current side of a reference.
-pub fn target_at_distance(measurement: &DistanceMeasurement, value: f32) -> Result<Point, String> {
+pub fn target_at_distance(measurement: &DistanceMeasurement, value: f64) -> Result<Point, String> {
     if !value.is_finite() || value <= 0. || value >= 100_000. {
         return Err("Distance must be finite, positive and below 100000 m".into());
     }
@@ -222,7 +222,7 @@ pub fn apply_distance(
     project: &Project,
     measurement: &DistanceMeasurement,
     selected_id: u64,
-    value: f32,
+    value: f64,
 ) -> Result<Project, String> {
     let selected = project
         .elements
@@ -293,7 +293,7 @@ mod tests {
     use super::*;
     use crate::model::Material;
 
-    fn wall(project: &mut Project, a: (f32, f32), b: (f32, f32)) -> u64 {
+    fn wall(project: &mut Project, a: (f64, f64), b: (f64, f64)) -> u64 {
         project.add(
             0,
             Material::Concrete,
@@ -305,7 +305,7 @@ mod tests {
             },
         )
     }
-    fn near(a: f32, b: f32) {
+    fn near(a: f64, b: f64) {
         assert!((a - b).abs() < EPS, "{a} != {b}");
     }
 
@@ -371,13 +371,13 @@ mod tests {
         let m = measurements(&p, 0, Point::new(1., 3.), None, false)[0];
         near(m.target.x, 2.);
         near(m.target.y, 2.);
-        let point = target_at_distance(&m, 2_f32.sqrt() * 2.).unwrap();
+        let point = target_at_distance(&m, 2_f64.sqrt() * 2.).unwrap();
         near(point.x, 0.);
         near(point.y, 4.);
-        for value in [f32::NAN, f32::INFINITY, -1., 0., 100_000.] {
+        for value in [f64::NAN, f64::INFINITY, -1., 0., 100_000.] {
             assert!(target_at_distance(&m, value).is_err());
         }
-        assert!(measurements(&p, 0, Point::new(f32::NAN, 0.), None, false).is_empty());
+        assert!(measurements(&p, 0, Point::new(f64::NAN, 0.), None, false).is_empty());
     }
 
     #[test]
@@ -435,7 +435,7 @@ mod tests {
         let id = wall(&mut p, (2., 2.), (6., 2.));
         let m = measurements(&p, 0, Point::new(4., 2.), Some(id), false)[0];
         let mut invalid = m;
-        invalid.distance = f32::NAN;
+        invalid.distance = f64::NAN;
         assert!(target_at_distance(&invalid, 3.).is_err());
         assert!(apply_distance(&p, &invalid, id, 3.).is_err());
         invalid = m;

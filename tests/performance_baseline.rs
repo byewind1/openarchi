@@ -19,8 +19,8 @@ use std::time::{Duration, Instant};
 fn walls(count: usize) -> Project {
     let mut project = Project::default();
     for index in 0..count {
-        let x = (index % 1_000) as f32 * 2.0;
-        let y = (index / 1_000) as f32 * 2.0;
+        let x = (index % 1_000) as f64 * 2.0;
+        let y = (index / 1_000) as f64 * 2.0;
         project.add(
             0,
             Material::Plaster,
@@ -127,6 +127,39 @@ fn snapshot_undo_baseline_for_1k_10k_50k_walls() {
 
         println!(
             "baseline walls={count} selection={selected} create_ms={create:.2} move_ms={move_ms:.2} undo_ms={undo_ms:.2} redo_ms={redo_ms:.2} history_element_snapshots={history_snapshots} mesh_ms={mesh_ms:.2} footprint_ms={footprint_ms:.2} outline_ms={outline_ms:.2} corners_ms={corners_ms:.2} triangulate_ms={triangulate_ms:.2} pick_ms={pick_ms:.2}"
+        );
+    }
+}
+
+/// Actual shared polygon consumers used by plan/render (still CPU only).
+#[test]
+#[ignore = "manual shared wall polygon consumer baseline"]
+fn shared_wall_polygon_consumer_baseline() {
+    let sizes = std::env::var("OPENARCHI_PERF_SIZES").unwrap_or_else(|_| "1000,10000".into());
+    for count in sizes.split(',').map(|n| n.parse::<usize>().unwrap()) {
+        let project = walls(count);
+        let walls: Vec<_> = project.elements.iter().collect();
+        let groups = vec![1; count];
+        let start = Instant::now();
+        let polygons = geometry::plan_wall_polygons(&walls, &groups);
+        let polygons_ms = elapsed_ms(start.elapsed());
+        assert_eq!(polygons.len(), count);
+        let start = Instant::now();
+        let attached = geometry::plan_wall_polygon_attached_ends(&walls, &polygons, &groups);
+        let attached_ms = elapsed_ms(start.elapsed());
+        assert!(
+            attached.is_empty(),
+            "separated fixture must have no attached caps"
+        );
+        let start = Instant::now();
+        let paths = geometry::wall_outline_paths_from_segments(
+            geometry::wall_polygon_outline_segments(&polygons),
+        );
+        let outlines_ms = elapsed_ms(start.elapsed());
+        assert_eq!(paths.len(), count);
+        black_box((polygons, paths, attached));
+        println!(
+            "shared_wall_consumers walls={count} polygons_ms={polygons_ms:.2} attached_ms={attached_ms:.2} outlines_ms={outlines_ms:.2}"
         );
     }
 }

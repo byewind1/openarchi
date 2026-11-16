@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "api_version": 1,
+  "id": "example.zone_program",
+  "version": 1,
+  "label": "Zone requirement review",
+  "panel_title": "Declared requirements and authored Zone candidates",
+  "permissions": ["read_authored_geometry", "read_program", "execute_local_program"],
+  "dependencies": [],
+  "commands": [{"id": "example.zone_program.review", "label": "Review current Zones against declared requirements", "operation": "zone_requirements"}],
+  "provider": {"protocol_version": 1, "timeout_ms": 30000}
+}

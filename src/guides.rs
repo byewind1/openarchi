@@ -3,9 +3,9 @@ use crate::geometry::{arc_center_sweep, footprint};
 use crate::model::{ArcSegment, Element, Point, Project, Shape};
 use serde::{Deserialize, Serialize};
 
-const EPS: f32 = 1e-5;
+const EPS: f64 = 1e-5;
 const MAX_MARKERS: usize = 2048;
-const WORLD_LIMIT: f32 = 100_000.;
+const WORLD_LIMIT: f64 = 100_000.;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SnapMethod {
@@ -50,8 +50,8 @@ pub struct GuideSettings {
     pub distance_guides_enabled: bool,
     pub method: SnapMethod,
     pub divisions: u16,
-    pub percent: f32,
-    pub distance: f32,
+    pub percent: f64,
+    pub distance: f64,
     pub scope: SnapScope,
     pub origin: SnapOrigin,
     pub distance_reference: DistanceReference,
@@ -101,7 +101,7 @@ pub enum GuidePrimitive {
     },
     Circle {
         center: Point,
-        radius: f32,
+        radius: f64,
     },
     Arc {
         start: Point,
@@ -157,7 +157,7 @@ impl GuidePrimitive {
 
     /// Signed left offset of lines/segments, outward radial offset of circles/arcs.
     /// Returns a validated value; callers decide preview/commit history.
-    pub fn offset(&self, distance: f32) -> Result<Self, &'static str> {
+    pub fn offset(&self, distance: f64) -> Result<Self, &'static str> {
         self.validate()?;
         if !distance.is_finite() {
             return Err("Guide offset must be finite");
@@ -292,7 +292,7 @@ pub fn nearest_guide(
     guides: &[PersistentGuide],
     story: u32,
     cursor: Point,
-    tolerance: f32,
+    tolerance: f64,
 ) -> Option<Point> {
     if !cursor.finite() || !tolerance.is_finite() || tolerance < 0. {
         return None;
@@ -338,18 +338,18 @@ impl GuideEdge {
             arc: None,
         }
     }
-    pub fn length(&self) -> f32 {
+    pub fn length(&self) -> f64 {
         self.circle().map_or_else(
             || self.start.distance(self.end),
             |(_, radius, sweep)| radius * sweep.abs(),
         )
     }
-    fn circle(&self) -> Option<(Point, f32, f32)> {
+    fn circle(&self) -> Option<(Point, f64, f64)> {
         let arc = self.arc?;
         let (center, sweep) = arc_center_sweep(self.start, self.end, arc)?;
         Some((center, arc.radius, sweep))
     }
-    pub fn point_at(&self, distance: f32) -> Point {
+    pub fn point_at(&self, distance: f64) -> Point {
         let t = (distance / self.length().max(EPS)).clamp(0., 1.);
         if t == 0. {
             return self.start;
@@ -368,14 +368,14 @@ impl GuideEdge {
         }
     }
     /// Return closest point and distance along this edge.
-    pub fn project(&self, cursor: Point) -> (Point, f32) {
+    pub fn project(&self, cursor: Point) -> (Point, f64) {
         if let Some((center, radius, sweep)) = self.circle() {
             let angle = (cursor.y - center.y).atan2(cursor.x - center.x);
             let start_angle = (self.start.y - center.y).atan2(self.start.x - center.x);
             let progress = if sweep > 0. {
-                (angle - start_angle).rem_euclid(std::f32::consts::TAU)
+                (angle - start_angle).rem_euclid(std::f64::consts::TAU)
             } else {
-                (start_angle - angle).rem_euclid(std::f32::consts::TAU)
+                (start_angle - angle).rem_euclid(std::f64::consts::TAU)
             };
             if progress <= sweep.abs() + EPS {
                 let along = (progress * radius).min(self.length());
@@ -419,15 +419,15 @@ pub struct GuidePath {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PathProjection {
     pub point: Point,
-    pub distance: f32,
-    pub along: f32,
+    pub distance: f64,
+    pub along: f64,
     pub edge_index: usize,
 }
 impl GuidePath {
-    pub fn length(&self) -> f32 {
+    pub fn length(&self) -> f64 {
         self.edges.iter().map(GuideEdge::length).sum()
     }
-    pub fn point_at(&self, distance: f32) -> Option<Point> {
+    pub fn point_at(&self, distance: f64) -> Option<Point> {
         if !distance.is_finite() {
             return None;
         }
@@ -473,6 +473,14 @@ fn perimeter(points: &[Point]) -> GuidePath {
 }
 pub fn element_paths(element: &Element, reference: DistanceReference) -> Vec<GuidePath> {
     let path = match &element.shape {
+        Shape::Column {
+            inclination: Some(_),
+            ..
+        } => return Vec::new(),
+        Shape::Column {
+            section: crate::column::ColumnSection::Circular { .. },
+            ..
+        } => return Vec::new(),
         Shape::Wall { start, end, .. } if reference == DistanceReference::ReferenceLines => {
             GuidePath {
                 edges: vec![GuideEdge::line(*start, *end)],
@@ -504,7 +512,7 @@ pub fn snap_candidates(
     project: &Project,
     story: u32,
     cursor: Point,
-    tolerance: f32,
+    tolerance: f64,
     settings: &GuideSettings,
 ) -> Vec<Point> {
     if !settings.snap_enabled
@@ -518,7 +526,11 @@ pub fn snap_candidates(
     let paths: Vec<(u64, GuidePath)> = project
         .elements
         .iter()
-        .filter(|e| e.story == story)
+        .filter(|e| {
+            project.plan_options.element_visible(e, &project.layers)
+                && crate::geometry::element_on_plan_story(project, e, story)
+                && e.worksheet == project.plan_options.active_worksheet
+        })
         .flat_map(|e| {
             element_paths(e, DistanceReference::ReferenceLines)
                 .into_iter()
@@ -538,7 +550,7 @@ pub fn snap_candidates(
     let (start, end) = match settings.scope {
         SnapScope::EntireElement => (0., path.length()),
         SnapScope::BetweenNodes => {
-            let start: f32 = path.edges[..projection.edge_index]
+            let start: f64 = path.edges[..projection.edge_index]
                 .iter()
                 .map(GuideEdge::length)
                 .sum();
@@ -560,7 +572,7 @@ pub fn snap_candidates(
                 }
                 offset += edge.length();
             }
-            breaks.sort_by(f32::total_cmp);
+            breaks.sort_by(f64::total_cmp);
             breaks.dedup_by(|a, b| (*a - *b).abs() < EPS);
             let interval = breaks
                 .windows(2)
@@ -580,16 +592,16 @@ pub fn snap_candidates(
 }
 
 /// Interval markers as distances from a path interval's start.
-pub fn interval_distances(length: f32, cursor_along: f32, settings: &GuideSettings) -> Vec<f32> {
+pub fn interval_distances(length: f64, cursor_along: f64, settings: &GuideSettings) -> Vec<f64> {
     interval_from_origin(length, cursor_along, cursor_along > length * 0.5, settings)
 }
 
 fn interval_from_origin(
-    length: f32,
-    cursor_along: f32,
+    length: f64,
+    cursor_along: f64,
     nearer_end: bool,
     settings: &GuideSettings,
-) -> Vec<f32> {
+) -> Vec<f64> {
     if !length.is_finite()
         || length <= EPS
         || !cursor_along.is_finite()
@@ -600,7 +612,7 @@ fn interval_from_origin(
     let cursor = cursor_along.clamp(0., length);
     let evenly = |parts: usize| {
         (1..parts.min(MAX_MARKERS + 1))
-            .map(|n| length * n as f32 / parts as f32)
+            .map(|n| length * n as f64 / parts as f64)
             .collect::<Vec<_>>()
     };
     match settings.method {
@@ -613,7 +625,7 @@ fn interval_from_origin(
             let error =
                 |parts: usize| (length as f64 / parts as f64 - settings.distance as f64).abs();
             let parts = if error(high) < error(low) { high } else { low };
-            marker_window(length, cursor, length / parts as f32, 0.)
+            marker_window(length, cursor, length / parts as f64, 0.)
         }
         SnapMethod::Percent | SnapMethod::Distance => {
             let origin = if settings.origin == SnapOrigin::Midpoint {
@@ -648,7 +660,7 @@ fn interval_from_origin(
     }
 }
 
-fn marker_window(length: f32, cursor: f32, spacing: f32, origin: f32) -> Vec<f32> {
+fn marker_window(length: f64, cursor: f64, spacing: f64, origin: f64) -> Vec<f64> {
     if !spacing.is_finite() || spacing <= 0. {
         return vec![];
     }
@@ -662,7 +674,7 @@ fn marker_window(length: f32, cursor: f32, spacing: f32, origin: f32) -> Vec<f32
     };
     let count = ((upper - first + 1.).max(0.) as usize).min(MAX_MARKERS);
     (0..count)
-        .map(|i| (origin as f64 + (first + i as f64) * spacing as f64) as f32)
+        .map(|i| (origin as f64 + (first + i as f64) * spacing as f64) as f64)
         .filter(|v| *v > EPS && *v < length - EPS)
         .collect()
 }
@@ -673,16 +685,16 @@ fn add(a: Point, b: Point) -> Point {
 fn sub(a: Point, b: Point) -> Point {
     Point::new(a.x - b.x, a.y - b.y)
 }
-fn scale(a: Point, factor: f32) -> Point {
+fn scale(a: Point, factor: f64) -> Point {
     Point::new(a.x * factor, a.y * factor)
 }
-fn dot(a: Point, b: Point) -> f32 {
+fn dot(a: Point, b: Point) -> f64 {
     a.x * b.x + a.y * b.y
 }
-fn cross(a: Point, b: Point) -> f32 {
+fn cross(a: Point, b: Point) -> f64 {
     a.x * b.y - a.y * b.x
 }
-fn norm(a: Point) -> f32 {
+fn norm(a: Point) -> f64 {
     a.x.hypot(a.y)
 }
 fn world_point(point: Point) -> bool {
@@ -701,8 +713,8 @@ fn project_line(p: Point, origin: Point, direction: Point, bounded: bool) -> Poi
         ((p.x as f64 - origin.x as f64) * dx + (p.y as f64 - origin.y as f64) * dy) / denominator;
     let t = if bounded { t.clamp(0., 1.) } else { t };
     Point::new(
-        (origin.x as f64 + dx * t) as f32,
-        (origin.y as f64 + dy * t) as f32,
+        (origin.x as f64 + dx * t) as f64,
+        (origin.y as f64 + dy * t) as f64,
     )
 }
 fn line_data(primitive: GuidePrimitive) -> Option<(Point, Point, bool)> {
@@ -790,13 +802,13 @@ fn primitive_intersections(a: GuidePrimitive, b: GuidePrimitive) -> Vec<Point> {
 mod tests {
     use super::*;
     use crate::model::Material;
-    fn p(x: f32, y: f32) -> Point {
+    fn p(x: f64, y: f64) -> Point {
         Point::new(x, y)
     }
-    fn close(a: f32, b: f32) {
+    fn close(a: f64, b: f64) {
         assert!((a - b).abs() < 1e-4, "{a} != {b}");
     }
-    fn points(a: &[f32], b: &[f32]) {
+    fn points(a: &[f64], b: &[f64]) {
         assert_eq!(a.len(), b.len(), "{a:?} != {b:?}");
         for (a, b) in a.iter().zip(b) {
             close(*a, *b);
@@ -832,7 +844,7 @@ mod tests {
         s.divisions = 101;
         assert!(s.validate().is_err());
         s.divisions = 3;
-        s.percent = f32::NAN;
+        s.percent = f64::NAN;
         assert!(s.validate().is_err());
         s.percent = 100.;
         assert!(s.validate().is_err());
@@ -910,10 +922,10 @@ mod tests {
                 large_arc: false,
             }),
         };
-        close(edge.length(), std::f32::consts::FRAC_PI_2);
+        close(edge.length(), std::f64::consts::FRAC_PI_2);
         let midpoint = edge.point_at(edge.length() / 2.);
-        close(midpoint.x, 0.5_f32.sqrt());
-        close(midpoint.y, 0.5_f32.sqrt());
+        close(midpoint.x, 0.5_f64.sqrt());
+        close(midpoint.y, 0.5_f64.sqrt());
         let (projected, along) = edge.project(p(2., 2.));
         close(projected.distance(midpoint), 0.);
         close(along, edge.length() / 2.);
@@ -932,7 +944,7 @@ mod tests {
         };
         let intersections = edge.intersections(&GuideEdge::line(p(-2., 0.5), p(2., 0.5)));
         assert_eq!(intersections.len(), 1);
-        close(intersections[0].x, 0.75_f32.sqrt());
+        close(intersections[0].x, 0.75_f64.sqrt());
         close(intersections[0].y, 0.5);
     }
     #[test]
@@ -1111,7 +1123,7 @@ mod tests {
         assert_eq!(points.len(), 2);
         for point in points {
             close(point.x, 0.5);
-            close(point.y.abs(), 0.75_f32.sqrt());
+            close(point.y.abs(), 0.75_f64.sqrt());
         }
         assert!(circle.intersections(&circle).is_empty());
         assert!(
@@ -1136,8 +1148,8 @@ mod tests {
         };
         assert!(arc.validate().is_ok());
         let projected = arc.project(p(2., 2.)).unwrap();
-        close(projected.x, 0.5_f32.sqrt());
-        close(projected.y, 0.5_f32.sqrt());
+        close(projected.x, 0.5_f64.sqrt());
+        close(projected.y, 0.5_f64.sqrt());
         assert_eq!(arc.project(p(0., -2.)), Some(p(1., 0.)));
         let guide = PersistentGuide {
             story: 1,
@@ -1177,14 +1189,14 @@ mod tests {
         };
         let crossing = arc.intersections(&horizontal);
         assert_eq!(crossing.len(), 1);
-        close(crossing[0].distance(p(0.75_f32.sqrt(), 0.5)), 0.);
+        close(crossing[0].distance(p(0.75_f64.sqrt(), 0.5)), 0.);
         let circle = GuidePrimitive::Circle {
             center: p(1., 0.),
             radius: 1.,
         };
         let crossing = arc.intersections(&circle);
         assert_eq!(crossing.len(), 1);
-        close(crossing[0].distance(p(0.5, 0.75_f32.sqrt())), 0.);
+        close(crossing[0].distance(p(0.5, 0.75_f64.sqrt())), 0.);
         let other_arc = GuidePrimitive::Arc {
             start: p(0., 0.),
             end: p(1., 1.),
@@ -1197,7 +1209,7 @@ mod tests {
         assert!(other_arc.validate().is_ok());
         let crossing = arc.intersections(&other_arc);
         assert_eq!(crossing.len(), 1);
-        close(crossing[0].distance(p(0.5, 0.75_f32.sqrt())), 0.);
+        close(crossing[0].distance(p(0.5, 0.75_f64.sqrt())), 0.);
         assert_eq!(arc.intersections(&other_arc), other_arc.intersections(&arc));
         let beyond = GuidePrimitive::Segment {
             start: p(-2., 0.5),
@@ -1210,8 +1222,8 @@ mod tests {
         for point in [
             p(100_000., 0.),
             p(-100_000., 0.),
-            p(0., f32::INFINITY),
-            p(f32::NAN, 0.),
+            p(0., f64::INFINITY),
+            p(f64::NAN, 0.),
         ] {
             assert!(
                 GuidePrimitive::Segment {
@@ -1238,7 +1250,7 @@ mod tests {
                 .is_err()
             );
         }
-        for radius in [0., -1., 100_001., f32::NAN, f32::INFINITY] {
+        for radius in [0., -1., 100_001., f64::NAN, f64::INFINITY] {
             assert!(
                 GuidePrimitive::Circle {
                     center: p(0., 0.),
@@ -1283,7 +1295,7 @@ mod tests {
         assert!(
             GuidePrimitive::Line {
                 origin: p(0., 0.),
-                direction: p(f32::MAX, f32::MAX)
+                direction: p(f64::MAX, f64::MAX)
             }
             .validate()
             .is_err()

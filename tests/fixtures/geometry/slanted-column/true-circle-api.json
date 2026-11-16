@@ -1,0 +1,57 @@
+{
+  "detailsOfElements": [
+    {
+      "details": {
+        "origin": {
+          "x": 6.2067574,
+          "y": 16.271672365
+        },
+        "coreAnchor": "Center",
+        "zCoordinate": 0,
+        "height": 2.8,
+        "bottomOffset": 0,
+        "axisRotationAngle": 0.523598776,
+        "isSlanted": true,
+        "slantAngle": 0.630704713,
+        "slantDirectionAngle": -1.570796327,
+        "isFlipped": false,
+        "wrapping": false,
+        "topOffset": -0.2,
+        "relativeTopStory": 1,
+        "cutFillPen": {
+          "overridden": false
+        },
+        "cutFillBackgroundPen": {
+          "overridden": false
+        },
+        "coverFill": {
+          "use": true,
+          "useFromSurface": false,
+          "orientationComesFrom3D": false,
+          "fillId": {},
+          "foregroundPen": 88,
+          "backgroundPen": -1,
+          "transformationType": "Global",
+          "transformation": {
+            "origin": {
+              "x": 0,
+              "y": 0
+            },
+            "xAxis": {
+              "x": 1,
+              "y": 0
+            },
+            "yAxis": {
+              "x": 0,
+              "y": 1
+            }
+          }
+        },
+        "width": 0.6,
+        "depth": 0.6,
+        "isWidthAndHeightLinked": true,
+        "circleBased": true
+      }
+    }
+  ]
+}

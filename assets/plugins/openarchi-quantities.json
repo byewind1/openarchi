@@ -1,0 +1,1 @@
+{"schema_version":1,"api_version":1,"id":"org.openarchi.quantities","version":1,"label":"Authored quantity review","panel_title":"Current candidate quantities","permissions":["read_authored_geometry"],"dependencies":[],"commands":[{"id":"org.openarchi.quantities.report","label":"Review current candidate quantities","operation":"authored_quantities"}]}

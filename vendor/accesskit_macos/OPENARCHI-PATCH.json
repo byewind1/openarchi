@@ -1,0 +1,14 @@
+{
+  "original_version": "0.26.3",
+  "original_crate_sha256": "ce02dc63b43f0c9296af9ac946312a2dc8814427d7a64d2d600971dac55b6076",
+  "subclass_and_tests_from": "0.27.2",
+  "fixed_crate_sha256": "123828ceeec755b05255e3976cb0852993202de98a0626c97dd8d34246991f84",
+  "fixed_vcs": {
+    "git": {
+      "sha1": "f3026222559c7f5f46d8f25cb7404de68eb149f0"
+    },
+    "path_in_vcs": "adapters/macos"
+  },
+  "source": "https://github.com/AccessKit/accesskit/pull/835",
+  "modified_module_sha256": "5c7a77f089b3b38ba244a28cb495fdb2ddd6f054679cb6044bf28e78d75a1b2a"
+}

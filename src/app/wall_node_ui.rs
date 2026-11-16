@@ -91,6 +91,8 @@ impl WallPetCommand {
 }
 pub(super) struct WallInsert {
     id: u64,
+    /// UI input owner, separate from the shared model and the edit's Z plane.
+    model_canvas: Option<bool>,
     ids: Vec<u64>,
     junction: Option<Vec<u64>>,
     endpoint: Option<usize>,
@@ -98,15 +100,16 @@ pub(super) struct WallInsert {
     slab_edge: Option<usize>,
     slab_node: Option<usize>,
     slab_arc: bool,
+    mass: bool,
     polygon_ready: bool,
-    edge_angle: f32,
+    edge_angle: f64,
     edge_surface: Option<Material>,
     edge_scope: crate::slab_geometry::SlabEdgeScope,
     revision: u64,
     anchor: Point,
-    split: f32,
+    split: f64,
     point: Point,
-    elevation: Option<f32>,
+    elevation: Option<f64>,
     palette_at: Pos2,
     numeric: bool,
     pub(super) confirm: bool,
@@ -117,10 +120,15 @@ pub(super) struct WallInsert {
     pub(super) command: WallPetCommand,
     stages: Vec<Point>,
     copies: usize,
-    height: f32,
-    corner: f32,
+    height: f64,
+    corner: f64,
 }
 impl WallInsert {
+    pub(super) fn set_model_plane(&mut self, z: f64, dragging: bool) {
+        self.model_canvas = Some(true);
+        self.elevation = Some(z);
+        self.canvas_drag = dragging;
+    }
     pub(super) fn cycle(&mut self, backwards: bool) {
         let commands = self.commands();
         let i = commands.iter().position(|c| *c == self.command).unwrap();
@@ -128,7 +136,14 @@ impl WallInsert {
             commands[(i + if backwards { commands.len() - 1 } else { 1 }) % commands.len()],
         );
     }
-    fn commands(&self) -> &'static [WallPetCommand] {
+    fn commands(&self) -> Vec<WallPetCommand> {
+        self.base_commands()
+            .iter()
+            .copied()
+            .filter(|c| !self.mass || *c != WallPetCommand::CustomEdge)
+            .collect()
+    }
+    fn base_commands(&self) -> &'static [WallPetCommand] {
         if self.slab_edge.is_some() {
             if self.slab_node.is_some() {
                 return &[
@@ -256,12 +271,22 @@ impl WallInsert {
                 _ => None,
             };
             if let Some(change) = change {
-                return Ok(Some(ReshapeCommand::SlabEdit {
-                    id: self.id,
-                    index: self.slab_node.unwrap_or(index),
-                    change,
-                    anchor: self.anchor,
-                    point: self.point,
+                return Ok(Some(if self.mass {
+                    ReshapeCommand::MassFootprint {
+                        id: self.id,
+                        index: self.slab_node.unwrap_or(index),
+                        change,
+                        anchor: self.anchor,
+                        point: self.point,
+                    }
+                } else {
+                    ReshapeCommand::SlabEdit {
+                        id: self.id,
+                        index: self.slab_node.unwrap_or(index),
+                        change,
+                        anchor: self.anchor,
+                        point: self.point,
+                    }
                 }));
             }
         }
@@ -428,7 +453,9 @@ impl AtelierApp {
         // Reuse the wall session, with only the object-specific geometry context changed.
         let point = node
             .and_then(|i| {
-                self.editor
+                self.host
+                    .document
+                    .editor
                     .project
                     .elements
                     .iter()
@@ -436,7 +463,8 @@ impl AtelierApp {
                     .and_then(|e| {
                         if let Shape::Polyline { points, .. } = &e.shape {
                             points.get(i).copied()
-                        } else if matches!(e.shape, Shape::Slab { .. }) {
+                        } else if matches!(e.shape, Shape::Slab { .. } | Shape::ConceptMass { .. })
+                        {
                             crate::slab_geometry::rings(e)
                                 .iter()
                                 .flat_map(|r| r.points.iter())
@@ -448,12 +476,9 @@ impl AtelierApp {
                     })
             })
             .unwrap_or(point);
-        let slab = self
-            .editor
-            .project
-            .elements
-            .iter()
-            .any(|e| e.id == id && matches!(e.shape, Shape::Slab { .. }));
+        let slab = self.host.document.editor.project.elements.iter().any(|e| {
+            e.id == id && matches!(e.shape, Shape::Slab { .. } | Shape::ConceptMass { .. })
+        });
         if slab && dragging && node.is_none() {
             self.start_direct_pointer_drag(point);
             return;
@@ -462,20 +487,35 @@ impl AtelierApp {
         self.start_wall_pet(WallPetCommand::Drag);
 
         self.wall_edit = None;
-        let slab = self
-            .editor
-            .project
-            .elements
-            .iter()
-            .any(|e| e.id == id && matches!(e.shape, Shape::Slab { .. }));
+        let slab = self.host.document.editor.project.elements.iter().any(|e| {
+            e.id == id && matches!(e.shape, Shape::Slab { .. } | Shape::ConceptMass { .. })
+        });
         if let Some(edit) = &mut self.wall_insert {
+            edit.mass = self
+                .host
+                .document
+                .editor
+                .project
+                .elements
+                .iter()
+                .any(|e| e.id == id && matches!(e.shape, Shape::ConceptMass { .. }));
             if slab {
                 edit.slab_edge = edge.or(node);
                 edit.slab_node = node;
-                if let Some(element) = self.editor.project.elements.iter().find(|e| e.id == id) {
+                if let Some(element) = self
+                    .host
+                    .document
+                    .editor
+                    .project
+                    .elements
+                    .iter()
+                    .find(|e| e.id == id)
+                {
                     let contour = crate::slab_geometry::contour(element);
-                    edit.elevation =
-                        Some(self.editor.project.elevation(element.story) + contour.elevation);
+                    edit.elevation = Some(
+                        self.host.document.editor.project.elevation(element.story)
+                            + contour.elevation,
+                    );
                     let mut remaining = edge.or(node).unwrap_or(0);
                     for ring in crate::slab_geometry::rings(element) {
                         if remaining < ring.points.len() {
@@ -500,13 +540,15 @@ impl AtelierApp {
             } else {
                 WallPetCommand::InsertNode
             });
-            self.editor.status = edit.label().into();
+            self.host.document.editor.status = edit.label().into();
         }
     }
 
-    pub(super) fn set_wall_edit_hit(&mut self, point: Point, elevation: Option<f32>) {
+    pub(super) fn set_wall_edit_hit(&mut self, point: Point, elevation: Option<f64>) {
         if let Some(edit) = self.wall_edit.as_mut() {
             if let Some(wall) = self
+                .host
+                .document
                 .editor
                 .project
                 .elements
@@ -529,6 +571,8 @@ impl AtelierApp {
             return;
         };
         let Some(wall) = self
+            .host
+            .document
             .editor
             .project
             .elements
@@ -551,18 +595,20 @@ impl AtelierApp {
         };
         self.wall_insert = Some(WallInsert {
             id: edit.element_id,
-            ids: self.editor.selection_ids(),
+            model_canvas: edit.model_canvas,
+            ids: self.host.document.editor.selection_ids(),
             junction: None,
             endpoint: edit.node,
             polyline: None,
             slab_edge: None,
             slab_node: None,
             slab_arc: false,
+            mass: false,
             polygon_ready: false,
             edge_angle: 90.,
             edge_surface: None,
             edge_scope: crate::slab_geometry::SlabEdgeScope::Clicked,
-            revision: self.editor.revision,
+            revision: self.host.document.editor.revision,
             anchor,
             split,
             point: anchor,
@@ -581,14 +627,14 @@ impl AtelierApp {
             corner: 0.25,
         });
         self.wall_edit_palette_rect = None;
-        self.editor.status = self.wall_insert.as_ref().unwrap().label().into();
+        self.host.document.editor.status = self.wall_insert.as_ref().unwrap().label().into();
     }
     pub(super) fn start_wall_junction(
         &mut self,
         origin: Point,
         ids: Vec<u64>,
         at: Pos2,
-        elevation: Option<f32>,
+        elevation: Option<f64>,
         dragging: bool,
     ) {
         self.open_wall_edit(ids[0], None, at);
@@ -600,17 +646,17 @@ impl AtelierApp {
             edit.point = origin;
             edit.canvas_drag = dragging;
         }
-        self.editor.status = "Move node".into();
+        self.host.document.editor.status = "Move node".into();
     }
     pub(super) fn selected_wall_junction_plan(
         &self,
         point: Point,
-        tolerance: f32,
+        tolerance: f64,
     ) -> Option<(Point, Vec<u64>)> {
         reshape::wall_junctions(
-            &self.editor.project,
-            &self.editor.selection_ids(),
-            self.editor.story,
+            &self.host.document.editor.project,
+            &self.host.document.editor.selection_ids(),
+            self.host.document.editor.story,
         )
         .into_iter()
         .filter(|(q, _)| q.distance(point) <= tolerance)
@@ -620,16 +666,32 @@ impl AtelierApp {
         &self,
         r: Rect,
         pos: Pos2,
-    ) -> Option<(Point, Vec<u64>, f32)> {
-        let mut best: Option<(f32, Point, Vec<u64>, f32)> = None;
-        let mut stories: Vec<_> = self
+    ) -> Option<(Point, Vec<u64>, f64)> {
+        let selected = self.host.document.editor.selection_ids();
+        let filter = self.model_view_filter(&selected);
+        let visible: Vec<_> = self
+            .host
+            .document
             .editor
             .project
             .elements
             .iter()
             .filter(|e| {
-                self.editor.selection_ids().contains(&e.id)
-                    && (self.all_stories || e.story == self.editor.story)
+                selected.contains(&e.id) && filter.includes(&self.host.document.editor.project, e)
+            })
+            .map(|e| e.id)
+            .collect();
+        let mut best: Option<(f64, Point, Vec<u64>, f64)> = None;
+        let mut stories: Vec<_> = self
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .filter(|e| {
+                visible.contains(&e.id)
+                    && (self.all_stories || e.story == self.host.document.editor.story)
             })
             .map(|e| e.story)
             .collect();
@@ -637,35 +699,47 @@ impl AtelierApp {
         stories.dedup();
         for story in stories {
             for (q, ids) in
-                reshape::wall_junctions(&self.editor.project, &self.editor.selection_ids(), story)
+                reshape::wall_junctions(&self.host.document.editor.project, &visible, story)
             {
                 let mut elevations: Vec<_> = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
                     .iter()
                     .filter(|e| ids.contains(&e.id))
                     .flat_map(|wall| {
-                        let c = geometry::corners(&self.editor.project, wall);
-                        [c[0].z, c[4].z]
+                        crate::wall_solid::vertical_range(&self.host.document.editor.project, wall)
+                            .map_or([0., 0.], |(lo, hi)| [lo, hi])
                     })
                     .collect();
-                elevations.sort_by(f32::total_cmp);
+                elevations.sort_by(f64::total_cmp);
                 elevations.dedup_by(|a, b| (*a - *b).abs() < 0.0001);
                 for z in elevations {
+                    if !filter.contains_anchor(q, z) {
+                        continue;
+                    }
                     let sharing: Vec<_> = ids
                         .iter()
                         .copied()
                         .filter(|id| {
                             let wall = self
+                                .host
+                                .document
                                 .editor
                                 .project
                                 .elements
                                 .iter()
                                 .find(|e| e.id == *id)
                                 .unwrap();
-                            let c = geometry::corners(&self.editor.project, wall);
-                            (c[0].z - z).abs() < 0.0001 || (c[4].z - z).abs() < 0.0001
+                            crate::wall_solid::vertical_range(
+                                &self.host.document.editor.project,
+                                wall,
+                            )
+                            .is_some_and(|(lo, hi)| {
+                                (lo - z).abs() < 0.0001 || (hi - z).abs() < 0.0001
+                            })
                         })
                         .collect();
                     if sharing.len() < 2 {
@@ -673,9 +747,12 @@ impl AtelierApp {
                     }
                     if let Some(screen) = self.wall_project_point(r, q, z) {
                         let distance = screen.distance(pos);
-                        if distance <= 10. && best.as_ref().is_none_or(|(d, _, _, _)| distance < *d)
+                        if distance <= 10.
+                            && best
+                                .as_ref()
+                                .is_none_or(|(d, _, _, _)| f64::from(distance) < *d)
                         {
-                            best = Some((distance, q, sharing, z));
+                            best = Some((distance.into(), q, sharing, z));
                         }
                     }
                 }
@@ -683,17 +760,17 @@ impl AtelierApp {
         }
         best.map(|(_, q, ids, z)| (q, ids, z))
     }
-    pub(super) fn wall_project_point(&self, r: Rect, point: Point, elevation: f32) -> Option<Pos2> {
-        let clip =
-            self.camera.matrix(r.aspect_ratio()) * glam::Vec4::new(point.x, point.y, elevation, 1.);
+    pub(super) fn wall_project_point(&self, r: Rect, point: Point, elevation: f64) -> Option<Pos2> {
+        let clip = self.camera.matrix(r.aspect_ratio().into())
+            * glam::DVec4::new(point.x, point.y, elevation, 1.);
         if !clip.is_finite() || clip.w <= 0. {
             return None;
         }
         let ndc = clip.truncate() / clip.w;
         (ndc.z >= 0. && ndc.z <= 1.).then(|| {
             pos2(
-                r.left() + (ndc.x + 1.) * r.width() * 0.5,
-                r.top() + (1. - ndc.y) * r.height() * 0.5,
+                f64::from(r.left()) + (ndc.x + 1.) * f64::from(r.width()) * 0.5,
+                f64::from(r.top()) + (1. - ndc.y) * f64::from(r.height()) * 0.5,
             )
         })
     }
@@ -701,38 +778,58 @@ impl AtelierApp {
         &self,
         r: Rect,
         pos: Pos2,
-    ) -> Option<(u64, Option<usize>, Point, f32)> {
-        let ids = self.editor.selection_ids();
+    ) -> Option<(u64, Option<usize>, Point, f64)> {
+        let ids = self.host.document.editor.selection_ids();
+        let filter = self.model_view_filter(&ids);
         let mut best = None;
-        for wall in self.editor.project.elements.iter().filter(|e| {
-            ids.contains(&e.id)
-                && (self.all_stories || e.story == self.editor.story)
-                && self
-                    .editor
-                    .project
-                    .plan_options
-                    .element_visible(e, &self.editor.project.layers)
-        }) {
+        for wall in self
+            .host
+            .document
+            .editor
+            .project
+            .elements
+            .iter()
+            .filter(|e| {
+                ids.contains(&e.id)
+                    && filter.includes(&self.host.document.editor.project, e)
+                    && self
+                        .host
+                        .document
+                        .editor
+                        .project
+                        .plan_options
+                        .element_visible(e, &self.host.document.editor.project.layers)
+            })
+        {
             let Shape::Wall { start, end, .. } = wall.shape else {
                 continue;
             };
-            let corners = geometry::corners(&self.editor.project, wall);
+            let Some((lo, hi)) =
+                crate::wall_solid::vertical_range(&self.host.document.editor.project, wall)
+            else {
+                continue;
+            };
             let path = crate::wall_geometry::reference_path(wall);
-            for z in [corners[0].z, corners[4].z] {
-                let node = if self
-                    .wall_project_point(r, start, z)
-                    .is_some_and(|a| pos.distance(a) < 9.)
+            for z in [lo, hi] {
+                let node = if filter.contains_anchor(start, z)
+                    && self
+                        .wall_project_point(r, start, z)
+                        .is_some_and(|a| pos.distance(a) < 9.)
                 {
                     Some(0)
-                } else if self
-                    .wall_project_point(r, end, z)
-                    .is_some_and(|b| pos.distance(b) < 9.)
+                } else if filter.contains_anchor(end, z)
+                    && self
+                        .wall_project_point(r, end, z)
+                        .is_some_and(|b| pos.distance(b) < 9.)
                 {
                     Some(1)
                 } else {
                     None
                 };
-                for segment in path.windows(2) {
+                for segment in path
+                    .windows(2)
+                    .flat_map(|pair| filter.reference_segments(pair[0], pair[1], z))
+                {
                     let (Some(a), Some(b)) = (
                         self.wall_project_point(r, segment[0], z),
                         self.wall_project_point(r, segment[1], z),
@@ -740,19 +837,36 @@ impl AtelierApp {
                         continue;
                     };
                     let (distance, t) = reshape::distance_segment(
-                        Point::new(pos.x, pos.y),
-                        Point::new(a.x, a.y),
-                        Point::new(b.x, b.y),
+                        Point::new(pos.x.into(), pos.y.into()),
+                        Point::new(a.x.into(), a.y.into()),
+                        Point::new(b.x.into(), b.y.into()),
                     );
                     if distance > 10. || best.as_ref().is_some_and(|(d, _, _, _, _)| *d <= distance)
                     {
                         continue;
                     }
-                    let point =
+                    let mut point =
                         Self::screen_to_ground(&self.camera, r, pos, z).unwrap_or(Point::new(
                             segment[0].x + (segment[1].x - segment[0].x) * t,
                             segment[0].y + (segment[1].y - segment[0].y) * t,
                         ));
+                    if filter.clip_area().is_some() {
+                        // The mouse tolerance can extend outside the clipped edge.
+                        // Bind its anchor to the surviving segment, including caps.
+                        let dx = segment[1].x - segment[0].x;
+                        let dy = segment[1].y - segment[0].y;
+                        let length_squared = dx * dx + dy * dy;
+                        if length_squared <= 1e-12 {
+                            continue;
+                        }
+                        let u = (((point.x - segment[0].x) * dx + (point.y - segment[0].y) * dy)
+                            / length_squared)
+                            .clamp(0., 1.);
+                        point = Point::new(segment[0].x + dx * u, segment[0].y + dy * u);
+                    }
+                    if !filter.contains_anchor(point, z) {
+                        continue;
+                    }
                     best = Some((distance, wall.id, node, point, z));
                 }
             }
@@ -895,10 +1009,21 @@ impl AtelierApp {
         response: &Response,
         model: bool,
     ) -> bool {
+        if let Some(edit) = self.wall_insert.as_mut() {
+            // Both split panes render each frame. Only the initiating pane may
+            // consume a press/release/Enter or draw the shared Area IDs. A sole
+            // viewport can adopt the session after a view-layout change.
+            if self.view == View::Split && edit.model_canvas.is_some_and(|owner| owner != model) {
+                return true;
+            }
+            edit.model_canvas = Some(model);
+        }
         let Some(mut edit) = self.wall_insert.take() else {
             return false;
         };
-        if edit.revision != self.editor.revision || self.editor.tool != Tool::Select {
+        if edit.revision != self.host.document.editor.revision
+            || self.host.document.editor.tool != Tool::Select
+        {
             self.wall_edit_palette_rect = None;
             return true;
         }
@@ -925,7 +1050,7 @@ impl AtelierApp {
             edit.palette_at,
             Some(edit.command),
             edit.junction.is_some() || edit.endpoint.is_some(),
-            edit.commands(),
+            &edit.commands(),
         );
         // Hover is presentation only. An icon's completed left click is the
         // sole pointer transition that activates another editing command.
@@ -936,16 +1061,21 @@ impl AtelierApp {
             edit.command = WallPetCommand::InsertArcNode;
             edit.point = edit.anchor;
             match edit
-                .operation(&self.editor.project)
+                .operation(&self.host.document.editor.project)
                 .and_then(|op| op.ok_or_else(|| "Invalid edit parameters".into()))
-                .and_then(|op| self.editor.reshape(op))
+                .and_then(|op| self.host.document.editor.reshape(op))
             {
                 Ok(()) => {
                     self.wall_edit_palette_rect = None;
-                    self.editor.status = "Slab edited".into();
+                    self.host.document.editor.status = if edit.mass {
+                        "Concept mass edited"
+                    } else {
+                        "Slab edited"
+                    }
+                    .into();
                 }
                 Err(error) => {
-                    self.editor.status = error;
+                    self.host.document.editor.status = error;
                     self.wall_insert = Some(edit);
                 }
             }
@@ -955,7 +1085,7 @@ impl AtelierApp {
             && command != edit.command
         {
             edit.switch(command);
-            self.editor.status = edit.label().into();
+            self.host.document.editor.status = edit.label().into();
             ui.ctx().request_repaint();
         }
         if edit.command == WallPetCommand::InsertNode
@@ -965,6 +1095,7 @@ impl AtelierApp {
             // state, including its established magnetic reference-line snap.
             self.open_wall_edit(edit.id, Some(node), edit.palette_at - vec2(14., 12.));
             if let Some(endpoint) = &mut self.wall_edit {
+                endpoint.model_canvas = edit.model_canvas;
                 endpoint.insert_anchor = edit.anchor;
                 endpoint.elevation = edit.elevation;
             }
@@ -975,7 +1106,7 @@ impl AtelierApp {
             && !over_palette
             && !edit.numeric
             && !edit.tracker_focused
-            && let Some(pos) = pointer
+            && let Some(pos) = pointer.filter(|p| r.contains(*p))
         {
             let q = if model {
                 Self::screen_to_ground(&self.camera, r, pos, edit.elevation.unwrap_or(0.))
@@ -990,13 +1121,13 @@ impl AtelierApp {
                 };
             }
         }
-        let operation = edit.operation(&self.editor.project);
+        let operation = edit.operation(&self.host.document.editor.project);
         let preview = operation.as_ref().map_err(Clone::clone).and_then(|op| {
             op.as_ref()
-                .map(|c| reshape::candidate(&self.editor.project, c))
+                .map(|c| reshape::candidate(&self.host.document.editor.project, c))
                 .transpose()
         });
-        let project_point = |p: Point, z: f32| {
+        let project_point = |p: Point, z: f64| {
             if model {
                 self.wall_project_point(r, p, z)
             } else {
@@ -1005,21 +1136,40 @@ impl AtelierApp {
         };
         let painter = ui.painter_at(r);
         if let Ok(Some((project, ids))) = &preview {
-            let straight_walls: Vec<_> = project
-                .elements
-                .iter()
-                .filter(|wall| {
-                    wall.story == self.editor.story
-                        && matches!(wall.shape, Shape::Wall { .. })
-                        && wall.wall_contour.is_none()
-                })
-                .collect();
-            let groups = project.layers.wall_groups(&straight_walls);
-            let joined: std::collections::HashMap<_, _> =
-                geometry::plan_wall_polygons_by_id(&straight_walls, &groups)
-                    .into_iter()
-                    .collect();
+            let mut wall_queries = crate::wall_solid::WallQuery::new(project);
             for element in project.elements.iter().filter(|e| ids.contains(&e.id)) {
+                if let Shape::ConceptMass { spec } = &element.shape {
+                    if let Ok(g) =
+                        crate::concept_mass::derive(element, project.elevation(element.story))
+                    {
+                        if model {
+                            for [a, b] in &g.edges {
+                                if let (Some(a), Some(b)) = (
+                                    project_point(Point::new(a.x, a.y), a.z),
+                                    project_point(Point::new(b.x, b.y), b.z),
+                                ) {
+                                    painter.line_segment([a, b], Stroke::new(2., ACCENT));
+                                }
+                            }
+                        } else {
+                            for ring in &g.plan_paths {
+                                painter.add(egui::Shape::closed_line(
+                                    ring.iter()
+                                        .filter_map(|p| {
+                                            project_point(
+                                                *p,
+                                                project.elevation(element.story)
+                                                    + spec.bottom_offset,
+                                            )
+                                        })
+                                        .collect(),
+                                    Stroke::new(2., ACCENT),
+                                ));
+                            }
+                        }
+                    }
+                    continue;
+                }
                 if matches!(element.shape, Shape::Slab { .. }) {
                     let elevation = project.elevation(element.story)
                         + crate::slab_geometry::contour(element).elevation;
@@ -1082,23 +1232,32 @@ impl AtelierApp {
                 .iter()
                 .filter(|e| ids.contains(&e.id) && matches!(e.shape, Shape::Wall { .. }))
             {
-                let c = geometry::corners(project, wall);
-                for z in if model {
-                    vec![c[0].z, c[4].z]
+                let Ok(g) = wall_queries.wall(wall.id) else {
+                    continue;
+                };
+                let Some((lo, hi)) = crate::wall_solid::vertical_range(project, wall) else {
+                    continue;
+                };
+                if model {
+                    for [a, b] in &g.geometry.mesh.edges {
+                        if let (Some(a), Some(b)) = (
+                            project_point(Point::new(a.x, a.y), a.z),
+                            project_point(Point::new(b.x, b.y), b.z),
+                        ) {
+                            painter.line_segment([a, b], Stroke::new(1.5, ACCENT));
+                        }
+                    }
                 } else {
-                    vec![c[0].z]
-                } {
-                    let outline = joined
-                        .get(&wall.id)
-                        .cloned()
-                        .unwrap_or_else(|| crate::wall_geometry::outline(wall));
+                    let outline = &g.geometry.plan_path;
                     let points: Vec<_> = outline
                         .iter()
-                        .filter_map(|p| project_point(*p, z))
+                        .filter_map(|p| project_point(*p, lo))
                         .collect();
                     if points.len() == outline.len() {
                         painter.add(egui::Shape::closed_line(points, Stroke::new(1.5, ACCENT)));
                     }
+                }
+                for z in if model { vec![lo, hi] } else { vec![lo] } {
                     let points: Vec<_> = crate::wall_geometry::reference_path(wall)
                         .into_iter()
                         .filter_map(|p| project_point(p, z))
@@ -1420,7 +1579,10 @@ impl AtelierApp {
                             }
                         }
                         if let Some(error) = &preview_error {
-                            ui.colored_label(Color32::from_rgb(240, 125, 110), error);
+                            ui.colored_label(
+                                Color32::from_rgb(240, 125, 110),
+                                self.language.translate(error),
+                            );
                         }
                     });
             });
@@ -1450,7 +1612,7 @@ impl AtelierApp {
         edit.confirm = false;
         if cancel_custom {
             self.wall_edit_palette_rect = None;
-            self.editor.status = "Edit cancelled".into();
+            self.host.document.editor.status = "Edit cancelled".into();
             return true;
         }
         if changed {
@@ -1472,6 +1634,8 @@ impl AtelierApp {
             .filter(|pos| r.contains(*pos) && !over_controls(*pos))
             .map(|pos| {
                 let on_original = self
+                    .host
+                    .document
                     .editor
                     .project
                     .elements
@@ -1484,6 +1648,16 @@ impl AtelierApp {
                     .any(|wall| {
                         let paths = if let Shape::Polyline { points, arcs } = &wall.shape {
                             vec![geometry::polyline_path(points, arcs)]
+                        } else if let Shape::ConceptMass { spec } = &wall.shape {
+                            spec.paths()
+                                .into_iter()
+                                .map(|mut p| {
+                                    if let Some(first) = p.first().copied() {
+                                        p.push(first);
+                                    }
+                                    p
+                                })
+                                .collect()
                         } else if matches!(wall.shape, Shape::Slab { .. }) {
                             crate::slab_geometry::outlines(wall)
                                 .into_iter()
@@ -1506,9 +1680,9 @@ impl AtelierApp {
                                 .collect();
                             points.windows(2).any(|pair| {
                                 reshape::distance_segment(
-                                    Point::new(pos.x, pos.y),
-                                    Point::new(pair[0].x, pair[0].y),
-                                    Point::new(pair[1].x, pair[1].y),
+                                    Point::new(pos.x.into(), pos.y.into()),
+                                    Point::new(pair[0].x.into(), pair[0].y.into()),
+                                    Point::new(pair[1].x.into(), pair[1].y.into()),
                                 )
                                 .0 <= 4.
                             })
@@ -1565,26 +1739,28 @@ impl AtelierApp {
                 edit.stages.push(edit.point);
                 edit.numeric = false;
                 edit.tracker_focused = false;
-                self.editor.status = edit.label().into();
+                self.host.document.editor.status = edit.label().into();
                 self.wall_insert = Some(edit);
             } else {
                 match edit
-                    .operation(&self.editor.project)
+                    .operation(&self.host.document.editor.project)
                     .and_then(|op| op.ok_or_else(|| "Invalid edit parameters".into()))
-                    .and_then(|op| self.editor.reshape(op))
+                    .and_then(|op| self.host.document.editor.reshape(op))
                 {
                     Ok(()) => {
                         if edit.junction.is_some() {
                             let mut selected = edit.ids.clone();
-                            for id in self.editor.selection_ids() {
+                            for id in self.host.document.editor.selection_ids() {
                                 if !selected.contains(&id) {
                                     selected.push(id);
                                 }
                             }
-                            self.editor.set_selection(selected);
+                            self.host.document.editor.set_selection(selected);
                         }
                         self.wall_edit_palette_rect = None;
-                        self.editor.status = if edit.slab_edge.is_some() {
+                        self.host.document.editor.status = if edit.mass {
+                            "Concept mass edited"
+                        } else if edit.slab_edge.is_some() {
                             "Slab edited"
                         } else if edit.polyline.is_some() {
                             "Polyline edited"
@@ -1594,7 +1770,7 @@ impl AtelierApp {
                         .into();
                     }
                     Err(error) => {
-                        self.editor.status = error;
+                        self.host.document.editor.status = error;
                         self.wall_insert = Some(edit);
                     }
                 }
@@ -1606,16 +1782,16 @@ impl AtelierApp {
     }
 }
 fn paint_pet_icon(p: &Painter, r: Rect, command: WallPetCommand, color: Color32) {
-    let pt = |x: f32, y: f32| {
+    let pt = |x: f64, y: f64| {
         pos2(
-            r.left() + 4. + x * (r.width() - 8.),
-            r.top() + 4. + y * (r.height() - 8.),
+            f64::from(r.left()) + 4. + x * f64::from(r.width() - 8.),
+            f64::from(r.top()) + 4. + y * f64::from(r.height() - 8.),
         )
     };
-    let line = |a: (f32, f32), b: (f32, f32)| {
+    let line = |a: (f64, f64), b: (f64, f64)| {
         p.line_segment([pt(a.0, a.1), pt(b.0, b.1)], Stroke::new(1.1, color));
     };
-    let poly = |v: &[(f32, f32)], closed: bool| {
+    let poly = |v: &[(f64, f64)], closed: bool| {
         let points = v.iter().map(|v| pt(v.0, v.1)).collect();
         p.add(if closed {
             egui::Shape::closed_line(points, Stroke::new(1.1, color))
@@ -1684,7 +1860,7 @@ fn paint_pet_icon(p: &Painter, r: Rect, command: WallPetCommand, color: Color32)
         WallPetCommand::Fillet => {
             let v: Vec<_> = (0..=12)
                 .map(|i| {
-                    let a = i as f32 / 12. * std::f32::consts::FRAC_PI_2;
+                    let a = i as f64 / 12. * std::f64::consts::FRAC_PI_2;
                     (1. - a.cos(), 1. - a.sin())
                 })
                 .collect();
@@ -1699,8 +1875,8 @@ fn paint_pet_icon(p: &Painter, r: Rect, command: WallPetCommand, color: Color32)
         WallPetCommand::Curve | WallPetCommand::Tangent => {
             let v: Vec<_> = (0..=20)
                 .map(|i| {
-                    let t = i as f32 / 20.;
-                    (t, 0.75 - 0.6 * (std::f32::consts::PI * t).sin())
+                    let t = i as f64 / 20.;
+                    (t, 0.75 - 0.6 * (std::f64::consts::PI * t).sin())
                 })
                 .collect();
             poly(&v, false);
@@ -1749,7 +1925,7 @@ fn paint_pet_icon(p: &Painter, r: Rect, command: WallPetCommand, color: Color32)
         }
         WallPetCommand::Multiply => {
             for i in 0..3 {
-                let t = i as f32 * 0.2;
+                let t = i as f64 * 0.2;
                 poly(
                     &[
                         (t, 0.4 - t),
@@ -1783,6 +1959,7 @@ mod tests {
             p,
             WallInsert {
                 id,
+                model_canvas: None,
                 ids: vec![id],
                 junction: None,
                 endpoint: None,
@@ -1790,6 +1967,7 @@ mod tests {
                 slab_edge: None,
                 slab_node: None,
                 slab_arc: false,
+                mass: false,
                 polygon_ready: false,
                 edge_angle: 90.,
                 edge_surface: None,

@@ -1,0 +1,15 @@
+{
+  "schema_version": 1,
+  "id": "openarchi.architecture",
+  "mode": "Architecture",
+  "commands": [
+    "Conditions",
+    "Select",
+    "Wall",
+    "ConceptMass",
+    "Zone",
+    "Plan",
+    "Model",
+    "Save"
+  ]
+}

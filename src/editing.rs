@@ -23,7 +23,7 @@ pub enum EditCommand {
     MergeWalls,
     Corner {
         node: usize,
-        radius: f32,
+        radius: f64,
         chamfer: bool,
     },
     Group,
@@ -37,8 +37,8 @@ pub enum EditCommand {
     Transform {
         offset: Point,
         origin: Point,
-        angle: f32,
-        scale: f32,
+        angle: f64,
+        scale: f64,
         mirror: bool,
         copies: usize,
     },
@@ -54,9 +54,9 @@ pub enum EditCommand {
         target: u32,
         preserve_elevation: bool,
     },
-    Elevate(f32),
+    Elevate(f64),
     InvertWall,
-    WallReference(f32),
+    WallReference(f64),
     Explode,
     Consolidate,
     Split {
@@ -67,7 +67,7 @@ pub enum EditCommand {
         a: Point,
         b: Point,
     },
-    Offset(f32),
+    Offset(f64),
     Unify,
 }
 
@@ -86,26 +86,26 @@ pub fn bounds(project: &Project, element: &Element) -> Option<(Point, Point)> {
     }
     Some((lo, hi))
 }
-fn axis(p: Point, a: usize) -> f32 {
+fn axis(p: Point, a: usize) -> f64 {
     if a == 0 { p.x } else { p.y }
 }
-fn shift(a: usize, v: f32) -> Point {
+fn shift(a: usize, v: f64) -> Point {
     if a == 0 {
         Point::new(v, 0.)
     } else {
         Point::new(0., v)
     }
 }
-fn cross(a: Point, b: Point) -> f32 {
+fn cross(a: Point, b: Point) -> f64 {
     a.x * b.y - a.y * b.x
 }
 fn sub(a: Point, b: Point) -> Point {
     Point::new(a.x - b.x, a.y - b.y)
 }
-fn lerp(a: Point, b: Point, t: f32) -> Point {
+fn lerp(a: Point, b: Point, t: f64) -> Point {
     Point::new(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t)
 }
-fn intersection(a: Point, b: Point, c: Point, d: Point) -> Option<f32> {
+fn intersection(a: Point, b: Point, c: Point, d: Point) -> Option<f64> {
     let v = sub(b, a);
     let w = sub(d, c);
     let den = cross(v, w);
@@ -134,11 +134,11 @@ fn set_segment(e: &mut Element, a: Point, b: Point) {
         _ => {}
     }
 }
-fn transform(
+pub(crate) fn transform(
     e: &mut Element,
     origin: Point,
-    angle: f32,
-    scale: f32,
+    angle: f64,
+    scale: f64,
     mirror: bool,
     offset: Point,
 ) -> Result<(), String> {
@@ -165,6 +165,28 @@ fn transform(
         return Ok(());
     }
     match &mut e.shape {
+        Shape::ConceptMass { spec } => spec.transform(f),
+        Shape::Zone { spec } => spec.transform(f),
+        Shape::Roof { spec } => {
+            if angle.abs() > 1e-5 || mirror || (scale - 1.).abs() > 1e-5 {
+                return Err("Roof supports translation only".into());
+            }
+            spec.translate(offset);
+        }
+        Shape::Beam { start, end, .. } => {
+            if angle.abs() > 1e-5 || mirror || (scale - 1.).abs() > 1e-5 {
+                return Err("Beam supports translation only".into());
+            }
+            *start = f(*start);
+            *end = f(*end);
+        }
+        Shape::Column { center, .. } => {
+            if angle.abs() > 1e-5 || mirror || (scale - 1.).abs() > 1e-5 {
+                return Err("Column supports translation only".into());
+            }
+            *center = f(*center);
+        }
+
         Shape::Wall {
             start,
             end,
@@ -208,13 +230,25 @@ fn transform(
         } => {
             *along *= scale;
             *width *= scale;
+            if mirror && let Some(settings) = e.opening_joinery.as_mut() {
+                settings.opens_positive = !settings.opens_positive;
+            }
         }
     }
     Ok(())
 }
 
 impl Editor {
-    pub fn expanded_selection(&self, mut ids: Vec<u64>) -> Vec<u64> {
+    pub fn expanded_selection(&self, ids: Vec<u64>) -> Vec<u64> {
+        self.expanded_selection_unscoped(ids)
+            .into_iter()
+            .filter(|id| self.selection_scope_allows(*id))
+            .collect()
+    }
+
+    // Scope-aware selection setters must expand a new group's membership
+    // independently of the previous viewport's allowed set.
+    pub(crate) fn expanded_selection_unscoped(&self, mut ids: Vec<u64>) -> Vec<u64> {
         if !self.project.edit_state.suspend_groups {
             loop {
                 let n = ids.len();
@@ -230,7 +264,12 @@ impl Editor {
                 }
             }
         }
-        ids.retain(|id| self.project.elements.iter().any(|e| e.id == *id));
+        ids.retain(|id| {
+            self.project
+                .elements
+                .iter()
+                .any(|e| e.id == *id && e.worksheet == self.project.plan_options.active_worksheet)
+        });
         ids
     }
     pub fn edit(&mut self, command: EditCommand) -> Result<usize, String> {
@@ -268,7 +307,11 @@ impl Editor {
         let result = apply_edit(&mut candidate, &affected, &command)?;
         candidate.validate()?;
         let before = std::mem::replace(&mut self.project, candidate);
-        self.commit(before);
+        if !self.commit_checked(before) {
+            // The shared transition/geometry guard already restored the project.
+            // Preserve its refusal and do not turn a rolled-back edit into success.
+            return Err(self.status.clone());
+        }
         if let Some(ids) = result {
             self.set_selection(ids);
         }
@@ -395,7 +438,7 @@ pub(crate) fn apply_edit(
                 let la = u.x.hypot(u.y);
                 let lb = v.x.hypot(v.y);
                 let angle = ((u.x * v.x + u.y * v.y) / (la * lb)).clamp(-1., 1.).acos();
-                if angle < 0.01 || (std::f32::consts::PI - angle) < 0.01 {
+                if angle < 0.01 || (std::f64::consts::PI - angle) < 0.01 {
                     return Err("Parallel elements cannot intersect".into());
                 }
                 let distance = if chamfer {
@@ -510,9 +553,11 @@ pub(crate) fn apply_edit(
                 return Err("Invalid edit parameters".into());
             }
             let originals: Vec<_> = p.elements.iter().filter(selected).cloned().collect();
-            if originals.iter().any(
+            let independent_openings = originals.iter().any(
                 |e| matches!(e.shape,Shape::Opening{host_wall,..} if !ids.contains(&host_wall)),
-            ) {
+            );
+            let translation_only = angle == 0. && scale == 1. && !mirror && copies == 0;
+            if independent_openings && !translation_only {
                 return Err("Select the host wall with its openings".into());
             }
             if p.elements
@@ -522,7 +567,11 @@ pub(crate) fn apply_edit(
             {
                 return Err("Invalid project size".into());
             }
-            if copies == 0 {
+            if independent_openings {
+                // Match MoveElements/nudge: project the displacement onto each
+                // host, clamp to its ends, and avoid moving hosted elements twice.
+                p.translate_many(ids, offset);
+            } else if copies == 0 {
                 for e in p.elements.iter_mut().filter(|e| ids.contains(&e.id)) {
                     transform(e, origin, angle, scale, mirror, offset)?;
                 }
@@ -532,8 +581,12 @@ pub(crate) fn apply_edit(
                 for n in 1..=copies {
                     let mut map = BTreeMap::new();
                     for e in &originals {
+                        let next = p
+                            .next_id
+                            .checked_add(1)
+                            .ok_or("Invalid element identity or story")?;
                         map.insert(e.id, p.next_id);
-                        p.next_id += 1;
+                        p.next_id = next;
                     }
                     for e in &originals {
                         let mut copy = e.clone();
@@ -544,10 +597,10 @@ pub(crate) fn apply_edit(
                         transform(
                             &mut copy,
                             origin,
-                            angle * n as f32,
+                            angle * n as f64,
                             scale.powi(n as i32),
                             mirror && n % 2 == 1,
-                            Point::new(offset.x * n as f32, offset.y * n as f32),
+                            Point::new(offset.x * n as f64, offset.y * n as f64),
                         )?;
                         added.push(copy.id);
                         p.elements.push(copy);
@@ -580,11 +633,11 @@ pub(crate) fn apply_edit(
             let low = items
                 .iter()
                 .map(|(_, b)| axis(b.0, a))
-                .fold(f32::INFINITY, f32::min);
+                .fold(f64::INFINITY, f64::min);
             let high = items
                 .iter()
                 .map(|(_, b)| axis(b.1, a))
-                .fold(f32::NEG_INFINITY, f32::max);
+                .fold(f64::NEG_INFINITY, f64::max);
             let target = if edge < 0 {
                 low
             } else if edge > 0 {
@@ -622,9 +675,9 @@ pub(crate) fn apply_edit(
                 }
                 items.sort_by(|a, b| a.1.total_cmp(&b.1));
                 let first = items[0].1;
-                let step = (items.last().unwrap().1 - first) / (items.len() - 1) as f32;
+                let step = (items.last().unwrap().1 - first) / (items.len() - 1) as f64;
                 for (i, (id, at)) in items.into_iter().enumerate() {
-                    p.translate_many(&[id], shift(a, first + i as f32 * step - at));
+                    p.translate_many(&[id], shift(a, first + i as f64 * step - at));
                 }
             }
         }
@@ -704,6 +757,10 @@ pub(crate) fn apply_edit(
                 {
                     if let Some(len) = lengths.get(host_wall) {
                         *offset = *len - *offset;
+                        if let Some(settings) = e.opening_joinery.as_mut() {
+                            settings.opens_positive = !settings.opens_positive;
+                            settings.hinge_at_start = !settings.hinge_at_start;
+                        }
                     }
                 }
             }
@@ -748,6 +805,10 @@ pub(crate) fn apply_edit(
                     return Err("Explode requires a straight wall".into());
                 }
                 let (points, arcs) = match &e.shape {
+                    Shape::Column {
+                        section: crate::column::ColumnSection::Circular { .. },
+                        ..
+                    } => return Err("Column supports translation only".into()),
                     Shape::Polyline { points, arcs } => (points.clone(), arcs.clone()),
                     Shape::Opening { .. } => return Err("Select independent elements".into()),
                     _ => {
@@ -938,13 +999,15 @@ pub(crate) fn apply_edit(
     }
     Ok(None)
 }
-fn elevate(e: &mut Element, dz: f32) -> Result<(), String> {
+fn elevate(e: &mut Element, dz: f64) -> Result<(), String> {
     if matches!(e.shape, Shape::Slab { .. }) {
         let mut c = crate::slab_geometry::contour(e);
         c.elevation += dz;
         return crate::slab_geometry::sync(e, c);
     }
     match &mut e.shape {
+        Shape::ConceptMass { spec } => spec.bottom_offset += dz,
+        Shape::Zone { spec } => spec.bottom_offset += dz,
         Shape::Wall { .. } => {
             let geometry = &mut e
                 .wall_settings
@@ -981,7 +1044,7 @@ mod tests {
         e.set_selection(vec![1, 2, 3]);
         e
     }
-    fn move_by(x: f32, copies: usize) -> EditCommand {
+    fn move_by(x: f64, copies: usize) -> EditCommand {
         EditCommand::Transform {
             offset: Point::new(x, 0.),
             origin: Point::default(),
@@ -1044,7 +1107,7 @@ mod tests {
         e.redo();
         assert_eq!(e.project, after);
         e.set_selection(vec![1]);
-        assert!(e.edit(move_by(f32::NAN, 0)).is_err());
+        assert!(e.edit(move_by(f64::NAN, 0)).is_err());
         assert_eq!(e.project, after);
         assert_eq!(e.undo.len(), 1);
     }

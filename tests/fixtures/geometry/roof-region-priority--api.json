@@ -1,0 +1,48 @@
+{
+  "details": {
+    "structuredContent": {
+      "detailsOfElements": [
+        {
+          "details": {
+            "roofClass": "SinglePlane",
+            "structureType": "Composite",
+            "thickness": 0.3,
+            "level": 3,
+            "zCoordinate": 3,
+            "compositeId": {},
+            "angle": 0.785398163,
+            "pivotLine": {
+              "begin": {
+                "x": -12.966213002,
+                "y": -2.901298037
+              },
+              "end": {
+                "x": 25.379727801,
+                "y": -2.901298037
+              }
+            },
+            "polygonOutline": [
+              {
+                "x": -12.966213002,
+                "y": 6.685187164
+              },
+              {
+                "x": 8.337087444,
+                "y": 27.98848761
+              },
+              {
+                "x": 34.966213002,
+                "y": 6.685187164
+              },
+              {
+                "x": -12.966213002,
+                "y": 6.685187164
+              }
+            ],
+            "holes": []
+          }
+        }
+      ]
+    }
+  }
+}

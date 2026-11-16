@@ -1,0 +1,12 @@
+{
+  "reference": "NREL TP-560-34302 Table A5.1 geometric elevation and pvlib published expected_solpos_multi; numbers only, no SPA source bundled",
+  "sources": ["https://docs.nlr.gov/docs/fy08osti/34302.pdf", "https://github.com/pvlib/pvlib-python/blob/main/tests/test_solarposition.py"],
+  "convention": "UTC, east-positive longitude; unrefracted topocentric reference compared with approximate geocentric implementation, not apparent elevation",
+  "frozen_max_angular_error_deg": 0.02,
+  "location": {"latitude_deg":39.742476,"longitude_deg":-105.1786},
+  "cases": [
+    {"time":{"year":2003,"month":10,"day":17,"hour":19,"minute":30,"second":30},"elevation_deg":39.872046,"azimuth_deg":194.340241},
+    {"time":{"year":2003,"month":10,"day":18,"hour":19,"minute":30,"second":30},"elevation_deg":39.505196,"azimuth_deg":194.311132}
+  ],
+  "limits": "Two reference instants at one location do not certify the whole date/latitude range, atmospheric refraction, sunrise or statutory sunlight. Broader references remain a parent gate. Frozen before first evaluation."
+}

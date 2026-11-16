@@ -3,7 +3,10 @@ use crate::{
     geometry,
     model::{ArcSegment, Element, Point, Shape, SlabContour, SlabEdgeSettings},
 };
-use geo::{BooleanOps, Coord, LineString, Polygon, TriangulateEarcut};
+mod clipped;
+
+use crate::derived_geometry::triangulate_with_boundary;
+use geo::{Area, BooleanOps, Coord, Intersects, LineString, Polygon};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlabEdgeScope {
@@ -23,18 +26,23 @@ pub enum SlabChange {
     AddPolygon(Vec<Point>),
     SubtractPolygon(Vec<Point>),
     SetEdge {
-        angle_degrees: f32,
+        angle_degrees: f64,
         surface: Option<crate::model::Material>,
         scope: SlabEdgeScope,
     },
-    Elevate(f32),
-    Fillet(f32),
-    Chamfer(f32),
+    Elevate(f64),
+    Fillet(f64),
+    Chamfer(f64),
 }
 fn invalid<T>() -> Result<T, String> {
     Err("Invalid edit parameters".into())
 }
 pub fn contour(e: &Element) -> SlabContour {
+    // The same ordered ring adapter serves exact concept-mass editing.
+    // Slab-only operations still check the shape before applying a change.
+    if let Shape::ConceptMass { spec } = &e.shape {
+        return spec.contour();
+    }
     e.slab_contour.clone().unwrap_or_else(|| SlabContour {
         points: geometry::footprint(e).to_vec(),
         ..Default::default()
@@ -75,13 +83,10 @@ pub fn ring_path(r: &SlabContour) -> Vec<Point> {
     path
 }
 pub fn outline(e: &Element) -> Vec<Point> {
-    if !matches!(e.shape, Shape::Slab { .. }) {
-        return Vec::new();
-    }
-    ring_path(&contour(e))
+    outlines(e).into_iter().next().unwrap_or_default()
 }
 pub fn outlines(e: &Element) -> Vec<Vec<Point>> {
-    rings(e).iter().map(ring_path).collect()
+    derive(e, 0.).map(|g| g.plan_paths).unwrap_or_default()
 }
 pub fn closed_path(e: &Element) -> Vec<Point> {
     let mut p = outline(e);
@@ -93,8 +98,8 @@ pub fn closed_path(e: &Element) -> Vec<Point> {
 pub fn bounds(points: &[Point]) -> (Point, Point) {
     points.iter().fold(
         (
-            Point::new(f32::INFINITY, f32::INFINITY),
-            Point::new(f32::NEG_INFINITY, f32::NEG_INFINITY),
+            Point::new(f64::INFINITY, f64::INFINITY),
+            Point::new(f64::NEG_INFINITY, f64::NEG_INFINITY),
         ),
         |(a, b), p| {
             (
@@ -104,23 +109,13 @@ pub fn bounds(points: &[Point]) -> (Point, Point) {
         },
     )
 }
-fn signed_area(p: &[Point]) -> f32 {
-    if p.len() < 3 {
-        return 0.;
-    }
-    (0..p.len())
-        .map(|i| {
-            let a = p[i];
-            let b = p[(i + 1) % p.len()];
-            a.x * b.y - a.y * b.x
-        })
-        .sum::<f32>()
-        * 0.5
+fn signed_area(p: &[Point]) -> f64 {
+    geometry::polygon_area(p)
 }
-pub fn area(p: &[Point]) -> f32 {
+pub fn area(p: &[Point]) -> f64 {
     signed_area(p).abs()
 }
-fn signed_ring_area(r: &SlabContour) -> f32 {
+fn signed_ring_area(r: &SlabContour) -> f64 {
     let mut result = signed_area(&r.points);
     for (i, arc) in arcs(r).iter().enumerate() {
         if let Some(a) = arc
@@ -132,14 +127,16 @@ fn signed_ring_area(r: &SlabContour) -> f32 {
     }
     result
 }
-fn ring_area(r: &SlabContour) -> f32 {
+fn ring_area(r: &SlabContour) -> f64 {
     signed_ring_area(r).abs()
 }
-pub fn actual_area(e: &Element) -> f32 {
-    let c = contour(e);
-    ring_area(&c) - c.holes.iter().map(ring_area).sum::<f32>()
+pub fn contour_area(c: &SlabContour) -> f64 {
+    ring_area(c) - c.holes.iter().map(ring_area).sum::<f64>()
 }
-fn on_arc(q: Point, a: Point, b: Point, arc: ArcSegment, tolerance: f32) -> bool {
+pub fn actual_area(e: &Element) -> f64 {
+    contour_area(&contour(e))
+}
+fn on_arc(q: Point, a: Point, b: Point, arc: ArcSegment, tolerance: f64) -> bool {
     let Some((center, sweep)) = geometry::arc_center_sweep(a, b, arc) else {
         return false;
     };
@@ -149,11 +146,13 @@ fn on_arc(q: Point, a: Point, b: Point, arc: ArcSegment, tolerance: f32) -> bool
     let start = (a.y - center.y).atan2(a.x - center.x);
     let angle = (q.y - center.y).atan2(q.x - center.x);
     let t = if sweep > 0. {
-        (angle - start).rem_euclid(std::f32::consts::TAU)
+        (angle - start).rem_euclid(std::f64::consts::TAU)
     } else {
-        (start - angle).rem_euclid(std::f32::consts::TAU)
+        (start - angle).rem_euclid(std::f64::consts::TAU)
     };
-    q.distance(a) <= tolerance || q.distance(b) <= tolerance || t <= sweep.abs() + 1e-5
+    q.distance(a) <= tolerance
+        || q.distance(b) <= tolerance
+        || t <= sweep.abs() + crate::precision::GeometryContext::TOPOLOGY.arc_endpoint_angle_rad
 }
 pub fn contour_bounds(r: &SlabContour) -> (Point, Point) {
     let mut points = r.points.clone();
@@ -194,7 +193,18 @@ fn line_string(points: &[Point]) -> LineString<f64> {
     LineString::new(v)
 }
 pub fn polygon(e: &Element) -> Polygon<f64> {
-    polygon_contour(&contour(e))
+    derive(e, 0.)
+        .map(|g| {
+            Polygon::new(
+                line_string(&g.plan_paths[0]),
+                g.plan_paths
+                    .iter()
+                    .skip(1)
+                    .map(|p| line_string(p))
+                    .collect(),
+            )
+        })
+        .unwrap_or_else(|_| Polygon::new(LineString::new(vec![]), vec![]))
 }
 fn polygon_contour(c: &SlabContour) -> Polygon<f64> {
     Polygon::new(
@@ -203,24 +213,24 @@ fn polygon_contour(c: &SlabContour) -> Polygon<f64> {
     )
 }
 pub fn triangles(e: &Element) -> Vec<[Point; 3]> {
-    polygon(e)
-        .earcut_triangles()
-        .into_iter()
-        .map(|t| [t.v1(), t.v2(), t.v3()].map(|p| Point::new(p.x as f32, p.y as f32)))
-        .collect()
+    derive(e, 0.).map(|g| g.plan_triangles).unwrap_or_default()
 }
-fn validate_path(points: &[Point], minimum: f32) -> Result<(), String> {
+fn validate_path(points: &[Point], minimum: f64) -> Result<(), String> {
     let n = points.len();
     if !(3..=100_000).contains(&n)
         || points
             .iter()
             .any(|p| !p.finite() || p.x.abs() >= 100000. || p.y.abs() >= 100000.)
-        || area(points) < 1e-6
+        || !crate::precision::area_meets_minimum(
+            area(points),
+            crate::precision::GeometryContext::CONSTRUCTION.minimum_path_area_m2,
+            crate::precision::coordinate_scale(points.iter().copied()),
+        )
     {
         return invalid();
     }
     for i in 0..n {
-        if points[i].distance(points[(i + 1) % n]) < minimum {
+        if !crate::precision::segment_meets_minimum(points[i], points[(i + 1) % n], minimum) {
             return invalid();
         }
         for j in i + 1..n {
@@ -242,6 +252,169 @@ fn validate_path(points: &[Point], minimum: f32) -> Result<(), String> {
 pub fn validate(points: &[Point]) -> Result<(), String> {
     validate_path(points, 0.01)
 }
+
+/// Resolve a closed straight creation path using non-zero winding.
+///
+/// Returns every region, including its holes; ordering is not a selection
+/// policy. Empty geometry (collinear or fully cancelled input) returns no
+/// regions. This does not modify a project or choose which region to commit.
+pub fn regularize_creation_path(
+    points: &[Point],
+    elevation: f64,
+) -> Result<Vec<SlabContour>, String> {
+    regularize_creation_regions(points, elevation)
+        .map(|regions| regions.into_iter().map(|region| region.contour).collect())
+}
+
+/// One creation region before any application-level selection policy.
+#[derive(Clone, Debug, PartialEq)]
+pub struct RegularizedSlabRegion {
+    pub contour: SlabContour,
+    /// Net area in square metres, including holes, measured on the f64 boolean
+    /// result before contour vertices are rounded to the model's f64 precision.
+    /// This retains computation precision; it cannot recover quantized input.
+    pub net_area: f64,
+    source_polygon: Polygon<f64>,
+    input_bounds: [f64; 4],
+}
+
+impl RegularizedSlabRegion {
+    /// Read membership from the same boolean result as `net_area`, before model
+    /// rounding, using the boolean kernel's coordinate grid. Includes outer/hole
+    /// boundaries but excludes hole interiors; this is not infinite precision.
+    /// This is geometry inspection, not a region-selection policy.
+    pub fn contains_precise_point(&self, point: crate::creation_input::CreationPoint) -> bool {
+        let [min_x, max_x, min_y, max_y] = self.input_bounds;
+        if !point.valid()
+            || point.x < min_x
+            || point.x > max_x
+            || point.y < min_y
+            || point.y > max_y
+        {
+            return false;
+        }
+        let adapter = i_float::adapter::FloatPointAdapter::<[f64; 2], f64>::new(
+            i_float::float::rect::FloatRect {
+                min_x,
+                max_x,
+                min_y,
+                max_y,
+            },
+        );
+        let grid = adapter.float_to_int(&[point.x, point.y]);
+        let mapped = adapter.int_to_float(&grid);
+        self.source_polygon
+            .intersects(&geo::Point::new(mapped[0], mapped[1]))
+    }
+}
+
+/// Inspectable result, never an implicit fallback to boolean-library order.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum CreationRegionChoice {
+    Empty,
+    Unique(usize),
+    Ambiguous(Vec<usize>),
+}
+
+/// Compare pre-rounding net areas, then narrow exact ties by input-node order.
+/// This does not commit geometry. Remaining ties stay explicit; in particular,
+/// no application-level epsilon or unobserved final ordering is invented here.
+pub fn inspect_creation_region_choice(
+    regions: &[RegularizedSlabRegion],
+    input: &[crate::creation_input::CreationPoint],
+) -> CreationRegionChoice {
+    let Some(maximum) = regions.iter().map(|r| r.net_area).reduce(f64::max) else {
+        return CreationRegionChoice::Empty;
+    };
+    let mut candidates: Vec<_> = regions
+        .iter()
+        .enumerate()
+        .filter_map(|(i, region)| (region.net_area == maximum).then_some(i))
+        .collect();
+    for &point in input {
+        if candidates.len() == 1 {
+            break;
+        }
+        let containing: Vec<_> = candidates
+            .iter()
+            .copied()
+            .filter(|&i| regions[i].contains_precise_point(point))
+            .collect();
+        if !containing.is_empty() {
+            candidates = containing;
+        }
+    }
+    if candidates.len() == 1 {
+        CreationRegionChoice::Unique(candidates[0])
+    } else {
+        CreationRegionChoice::Ambiguous(candidates)
+    }
+}
+
+/// Resolve all non-zero winding regions, retaining their pre-rounding areas.
+/// Validation and ordering are identical to `regularize_creation_path`.
+pub fn regularize_creation_regions(
+    points: &[Point],
+    elevation: f64,
+) -> Result<Vec<RegularizedSlabRegion>, String> {
+    let precise: Vec<_> = points
+        .iter()
+        .copied()
+        .map(crate::creation_input::CreationPoint::from)
+        .collect();
+    regularize_precise_creation_regions(&precise, elevation)
+}
+
+/// Preserve numeric input through boolean regularization; model contours are
+/// converted only after measuring each region. No region is selected here.
+pub fn regularize_precise_creation_regions(
+    points: &[crate::creation_input::CreationPoint],
+    elevation: f64,
+) -> Result<Vec<RegularizedSlabRegion>, String> {
+    use geo::algorithm::bool_ops::FillRule;
+
+    if !(3..=10_000).contains(&points.len())
+        || !elevation.is_finite()
+        || points.iter().any(|p| !p.valid())
+    {
+        return invalid();
+    }
+    let input_bounds = points.iter().fold(
+        [
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+            f64::INFINITY,
+            f64::NEG_INFINITY,
+        ],
+        |b, p| [b[0].min(p.x), b[1].max(p.x), b[2].min(p.y), b[3].max(p.y)],
+    );
+    let path = Polygon::new(
+        LineString::from(points.iter().map(|p| (p.x, p.y)).collect::<Vec<_>>()),
+        vec![],
+    );
+    let empty = Polygon::new(LineString::new(vec![]), vec![]);
+    path.union_with_fill_rule(&empty, FillRule::NonZero)
+        .0
+        .into_iter()
+        .map(|polygon| {
+            let net_area = polygon.unsigned_area();
+            let mut contour = restore_ring(polygon.exterior(), &[]);
+            contour.holes = polygon
+                .interiors()
+                .iter()
+                .map(|ring| restore_ring(ring, &[]))
+                .collect();
+            contour.elevation = elevation;
+            validate_contour(&contour)?;
+            Ok(RegularizedSlabRegion {
+                contour,
+                net_area,
+                source_polygon: polygon,
+                input_bounds,
+            })
+        })
+        .collect()
+}
 fn validate_ring(r: &SlabContour) -> Result<(), String> {
     let n = r.points.len();
     if !(3..=10_000).contains(&n)
@@ -252,7 +425,13 @@ fn validate_ring(r: &SlabContour) -> Result<(), String> {
         return invalid();
     }
     for i in 0..n {
-        if !r.points[i].finite() || r.points[i].distance(r.points[(i + 1) % n]) < 0.01 {
+        if !r.points[i].finite()
+            || !crate::precision::segment_meets_minimum(
+                r.points[i],
+                r.points[(i + 1) % n],
+                crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+            )
+        {
             return invalid();
         }
     }
@@ -305,7 +484,16 @@ pub fn validate_contour(c: &SlabContour) -> Result<(), String> {
         }
         holes.push(path);
     }
-    if ring_area(c) - c.holes.iter().map(ring_area).sum::<f32>() < 0.0001 {
+    if !crate::precision::area_meets_minimum(
+        ring_area(c) - c.holes.iter().map(ring_area).sum::<f64>(),
+        crate::precision::GeometryContext::CONSTRUCTION.minimum_contour_area_m2,
+        crate::precision::coordinate_scale(
+            c.points
+                .iter()
+                .chain(c.holes.iter().flat_map(|h| h.points.iter()))
+                .copied(),
+        ),
+    ) {
         return invalid();
     }
     Ok(())
@@ -323,8 +511,8 @@ pub fn sync(e: &mut Element, c: SlabContour) -> Result<(), String> {
     e.slab_contour = Some(c);
     Ok(())
 }
-pub fn transform(e: &mut Element, f: impl Fn(Point) -> Point, scale: f32, mirror: bool) {
-    fn ring(r: &mut SlabContour, f: &impl Fn(Point) -> Point, s: f32, m: bool) {
+pub fn transform(e: &mut Element, f: impl Fn(Point) -> Point, scale: f64, mirror: bool) {
+    fn ring(r: &mut SlabContour, f: &impl Fn(Point) -> Point, s: f64, m: bool) {
         for p in &mut r.points {
             *p = f(*p);
         }
@@ -364,7 +552,7 @@ fn ring_mut(c: &mut SlabContour, index: usize) -> &mut SlabContour {
         &mut c.holes[index - 1]
     }
 }
-fn normal(r: &SlabContour, i: usize, p: Point) -> Result<Point, String> {
+pub(crate) fn normal(r: &SlabContour, i: usize, p: Point) -> Result<Point, String> {
     let a = r.points[i];
     let b = r.points[(i + 1) % r.points.len()];
     if let Some(arc) = arcs(r)[i] {
@@ -386,14 +574,14 @@ fn normal(r: &SlabContour, i: usize, p: Point) -> Result<Point, String> {
 fn sub(a: Point, b: Point) -> Point {
     Point::new(a.x - b.x, a.y - b.y)
 }
-fn cross(a: Point, b: Point) -> f32 {
+fn cross(a: Point, b: Point) -> f64 {
     a.x * b.y - a.y * b.x
 }
 #[derive(Clone, Copy)]
 struct Support {
     a: Point,
     b: Point,
-    circle: Option<(Point, f32)>,
+    circle: Option<(Point, f64)>,
 }
 fn intersections(a: Support, b: Support) -> Vec<Point> {
     match (a.circle, b.circle) {
@@ -441,12 +629,12 @@ fn intersections(a: Support, b: Support) -> Vec<Point> {
         }
     }
 }
-fn offset_edge(r: &mut SlabContour, index: usize, distance: f32) -> Result<(), String> {
+fn offset_edge(r: &mut SlabContour, index: usize, distance: f64) -> Result<(), String> {
     let mut distances = vec![0.; r.points.len()];
     distances[index] = distance;
     offset_distances(r, &distances)
 }
-fn offset_distances(r: &mut SlabContour, distances: &[f32]) -> Result<(), String> {
+fn offset_distances(r: &mut SlabContour, distances: &[f64]) -> Result<(), String> {
     let n = r.points.len();
     let source = r.points.clone();
     let mut aa = arcs(r);
@@ -499,7 +687,7 @@ fn offset_distances(r: &mut SlabContour, distances: &[f32]) -> Result<(), String
 pub fn bottom_contour(e: &Element) -> Result<SlabContour, String> {
     let mut c = contour(e);
     validate_contour(&c)?;
-    fn lower(r: &mut SlabContour, thickness: f32, hole: bool) -> Result<(), String> {
+    fn lower(r: &mut SlabContour, thickness: f64, hole: bool) -> Result<(), String> {
         let sign = signed_ring_area(r).signum() * if hole { -1. } else { 1. };
         let distances: Vec<_> = settings(r)
             .iter()
@@ -523,9 +711,15 @@ pub fn bottom_contour(e: &Element) -> Result<SlabContour, String> {
     validate_contour(&c)?;
     Ok(c)
 }
-fn edge_sample(r: &SlabContour, i: usize, t: f32) -> Point {
+fn edge_sample(r: &SlabContour, i: usize, t: f64) -> Point {
     let a = r.points[i];
     let b = r.points[(i + 1) % r.points.len()];
+    if t == 0. {
+        return a;
+    }
+    if t == 1. {
+        return b;
+    }
     if let Some(arc) = arcs(r)[i]
         && let Some((center, sweep)) = geometry::arc_center_sweep(a, b, arc)
     {
@@ -546,25 +740,37 @@ fn edge_samples(a: &SlabContour, b: &SlabContour, i: usize) -> usize {
                 geometry::arc_center_sweep(r.points[i], r.points[(i + 1) % r.points.len()], arc)
             })
         })
-        .map(|(_, s)| (s.abs() / 5_f32.to_radians()).ceil() as usize)
+        .map(|(_, s)| {
+            (s.abs() / crate::precision::GeometryContext::SAMPLING.polyline_arc_max_step_rad).ceil()
+                as usize
+        })
         .max()
         .unwrap_or(1)
         .max(1)
 }
+// Earcut may omit collinear boundary vertices; retain them so cap/side faces
+// share identical edges rather than a geometrical T junction.
+
 /// Hole-aware top and bottom caps use the exact same boundary samples as side_faces.
-pub fn cap_triangles(e: &Element, base: f32) -> Result<Vec<[glam::Vec3; 3]>, String> {
-    let top = contour(e);
-    let bottom = bottom_contour(e)?;
+pub fn cap_triangles(e: &Element, base: f64) -> Result<Vec<[glam::DVec3; 3]>, String> {
+    derive(e, base).map(|g| g.caps).map_err(|d| d.message)
+}
+fn caps_between(
+    e: &Element,
+    base: f64,
+    top: &SlabContour,
+    bottom: &SlabContour,
+) -> Result<Vec<[glam::DVec3; 3]>, String> {
     let mut paths = vec![Vec::new(), Vec::new()];
-    for (a, b) in std::iter::once(&top)
+    for (a, b) in std::iter::once(top)
         .chain(top.holes.iter())
-        .zip(std::iter::once(&bottom).chain(bottom.holes.iter()))
+        .zip(std::iter::once(bottom).chain(bottom.holes.iter()))
     {
         let mut pair = [Vec::new(), Vec::new()];
         for i in 0..a.points.len() {
             let n = edge_samples(a, b, i);
             for j in 0..n {
-                let t = j as f32 / n as f32;
+                let t = j as f64 / n as f64;
                 pair[0].push(edge_sample(a, i, t));
                 pair[1].push(edge_sample(b, i, t));
             }
@@ -577,9 +783,8 @@ pub fn cap_triangles(e: &Element, base: f32) -> Result<Vec<[glam::Vec3; 3]>, Str
     for (k, mut rings) in paths.into_iter().enumerate() {
         let poly = Polygon::new(rings.remove(0), rings);
         let z = base + top.elevation - if k == 0 { 0. } else { e.thickness() };
-        for triangle in poly.earcut_triangles() {
-            let mut q = [triangle.v1(), triangle.v2(), triangle.v3()]
-                .map(|p| glam::Vec3::new(p.x as f32, p.y as f32, z));
+        for triangle in triangulate_with_boundary(&poly) {
+            let mut q = triangle.map(|p| glam::DVec3::new(p.x as f64, p.y as f64, z));
             if k == 1 {
                 q.swap(0, 2);
             }
@@ -591,22 +796,28 @@ pub fn cap_triangles(e: &Element, base: f32) -> Result<Vec<[glam::Vec3; 3]>, Str
 /// Side quads retain the source edge's surface settings for shared picking/rendering.
 pub fn side_faces(
     e: &Element,
-    base: f32,
-) -> Result<Vec<(SlabEdgeSettings, [glam::Vec3; 4])>, String> {
-    let top = contour(e);
-    let bottom = bottom_contour(e)?;
+    base: f64,
+) -> Result<Vec<(SlabEdgeSettings, [glam::DVec3; 4])>, String> {
+    derive(e, base).map(|g| g.sides).map_err(|d| d.message)
+}
+fn sides_between(
+    e: &Element,
+    base: f64,
+    top: &SlabContour,
+    bottom: &SlabContour,
+) -> Result<Vec<(SlabEdgeSettings, [glam::DVec3; 4])>, String> {
     let z = base + top.elevation;
     let mut result = Vec::new();
-    for (a, b) in std::iter::once(&top)
+    for (a, b) in std::iter::once(top)
         .chain(top.holes.iter())
-        .zip(std::iter::once(&bottom).chain(bottom.holes.iter()))
+        .zip(std::iter::once(bottom).chain(bottom.holes.iter()))
     {
         for i in 0..a.points.len() {
             let samples = edge_samples(a, b, i);
             let setting = settings(a)[i].clone();
             for j in 0..samples {
-                let t0 = j as f32 / samples as f32;
-                let t1 = (j + 1) as f32 / samples as f32;
+                let t0 = j as f64 / samples as f64;
+                let t1 = (j + 1) as f64 / samples as f64;
                 let points = [
                     edge_sample(a, i, t0),
                     edge_sample(a, i, t1),
@@ -616,7 +827,7 @@ pub fn side_faces(
                 result.push((
                     setting.clone(),
                     std::array::from_fn(|k| {
-                        glam::Vec3::new(
+                        glam::DVec3::new(
                             points[k].x,
                             points[k].y,
                             if k < 2 { z } else { z - e.thickness() },
@@ -628,14 +839,307 @@ pub fn side_faces(
     }
     Ok(result)
 }
-pub fn solid_triangles(e: &Element, base: f32) -> Result<Vec<[glam::Vec3; 3]>, String> {
-    let mut result = cap_triangles(e, base)?;
-    for (_, q) in side_faces(e, base)? {
-        result.extend([[q[0], q[1], q[2]], [q[0], q[2], q[3]]]);
+pub const SLAB_DERIVATION_VERSION: u32 = 1;
+
+pub use crate::derived_geometry::{
+    DiagnosticSeverity, GeometryDiagnostic, GeometryIdentity, VolumeSource,
+};
+#[derive(Clone, Debug, PartialEq)]
+pub struct DerivedSlab {
+    pub identity: GeometryIdentity,
+    pub top_contour: SlabContour,
+    pub plan_paths: Vec<Vec<Point>>,
+    pub plan_triangles: Vec<[Point; 3]>,
+    pub(crate) vertex_pairs: Vec<[glam::DVec3; 2]>,
+    pub bottom_contour: SlabContour,
+    pub caps: Vec<[glam::DVec3; 3]>,
+    pub sides: Vec<(SlabEdgeSettings, [glam::DVec3; 4])>,
+    pub edges: Vec<[glam::DVec3; 2]>,
+    pub bounds: [glam::DVec3; 2],
+    pub plan_area_m2: f64,
+    pub volume_m3: f64,
+    pub sampled_volume_m3: f64,
+    pub volume_source: VolumeSource,
+}
+impl DerivedSlab {
+    pub fn clipped(
+        &self,
+        polygon: &[Point],
+        z_range: Option<(f64, f64)>,
+    ) -> Result<ClippedSlabMesh, GeometryDiagnostic> {
+        clipped::build(self, polygon, z_range)
     }
+    pub fn triangles(&self) -> impl Iterator<Item = [glam::DVec3; 3]> + '_ {
+        self.caps.iter().copied().chain(
+            self.sides
+                .iter()
+                .flat_map(|(_, q)| [[q[0], q[1], q[2]], [q[0], q[2], q[3]]]),
+        )
+    }
+}
+
+/// One validated source for full slab surfaces, outlines and true extents.
+/// A pure snapshot has no editor revision; Editor::slab_geometry binds it explicitly.
+pub fn derive(e: &Element, base: f64) -> Result<DerivedSlab, GeometryDiagnostic> {
+    derive_prism(e, base, 5.)
+}
+pub(crate) fn derive_space_prism(
+    e: &Element,
+    base: f64,
+) -> Result<DerivedSlab, GeometryDiagnostic> {
+    derive_prism(e, base, 100.)
+}
+fn derive_prism(
+    e: &Element,
+    base: f64,
+    max_height: f64,
+) -> Result<DerivedSlab, GeometryDiagnostic> {
+    use sha2::{Digest, Sha256};
+    let diagnostic = |code: &str, feature: &str, message: String| GeometryDiagnostic {
+        code: code.into(),
+        severity: DiagnosticSeverity::Error,
+        location_m: None,
+        element_id: e.id,
+        feature: feature.into(),
+        message,
+    };
+    let Shape::Slab {
+        min,
+        max,
+        thickness,
+    } = e.shape
+    else {
+        return Err(diagnostic(
+            "NOT_A_SLAB",
+            "element",
+            "Element is not a slab".into(),
+        ));
+    };
+    if !base.is_finite()
+        || !thickness.is_finite()
+        || !(0.01..=max_height).contains(&thickness)
+        || !crate::precision::GeometryContext::point_in_range(min)
+        || !crate::precision::GeometryContext::point_in_range(max)
+        || !crate::precision::axis_meets_minimum(
+            min.x,
+            max.x,
+            crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+        )
+        || !crate::precision::axis_meets_minimum(
+            min.y,
+            max.y,
+            crate::precision::GeometryContext::CONSTRUCTION.minimum_edge_m,
+        )
+    {
+        return Err(diagnostic(
+            "INVALID_SLAB_PARAMETERS",
+            "parameters",
+            "Invalid slab elevation or thickness".into(),
+        ));
+    }
+    let top = contour(e);
+    validate_contour(&top).map_err(|m| diagnostic("INVALID_SLAB_CONTOUR", "top_contour", m))?;
+    let (expected_min, expected_max) = contour_bounds(&top);
+    if min.distance(expected_min) > 1e-4 || max.distance(expected_max) > 1e-4 {
+        return Err(diagnostic(
+            "SLAB_SOURCE_BOUNDS_MISMATCH",
+            "top_contour",
+            "Slab stored bounds do not match its parameter contour".into(),
+        ));
+    }
+    let bottom =
+        bottom_contour(e).map_err(|m| diagnostic("INVALID_SLAB_BOTTOM", "bottom_contour", m))?;
+    let top_z = base + top.elevation;
+    let bottom_z = top_z - thickness;
+    if !top_z.is_finite() || !bottom_z.is_finite() || top_z <= bottom_z {
+        return Err(diagnostic(
+            "INVALID_SLAB_ELEVATION",
+            "elevation",
+            "Slab surfaces have invalid elevation".into(),
+        ));
+    }
+    let mut caps = caps_between(e, base, &top, &bottom)
+        .map_err(|m| diagnostic("SLAB_CAP_FAILED", "caps", m))?;
+    for t in &mut caps {
+        let normal = (t[1] - t[0]).cross(t[2] - t[0]);
+        let upper = (t[0].z - top_z).abs() < (t[0].z - bottom_z).abs();
+        if (normal.z > 0.) != upper {
+            t.swap(1, 2);
+        }
+    }
+    let mut sides = sides_between(e, base, &top, &bottom)
+        .map_err(|m| diagnostic("SLAB_SIDE_FAILED", "sides", m))?;
+    let mut edges = Vec::new();
+    let mut offset = 0;
+    let mut plan_paths = Vec::new();
+    let mut vertex_pairs = Vec::new();
+    for (ring_index, (a, b)) in std::iter::once(&top)
+        .chain(top.holes.iter())
+        .zip(std::iter::once(&bottom).chain(bottom.holes.iter()))
+        .enumerate()
+    {
+        let reverse = (signed_area(&a.points) > 0.) != (ring_index > 0);
+        let mut path = Vec::new();
+        for i in 0..a.points.len() {
+            let samples = edge_samples(a, b, i);
+            for j in 0..samples {
+                path.push(edge_sample(a, i, j as f64 / samples as f64));
+                let q = &mut sides[offset].1;
+                edges.extend([[q[0], q[1]], [q[2], q[3]]]);
+                vertex_pairs.push([q[0], q[3]]);
+                if reverse {
+                    q.swap(1, 3);
+                }
+                offset += 1;
+            }
+        }
+        plan_paths.push(path);
+        for (p, q) in a.points.iter().zip(&b.points) {
+            edges.push([
+                glam::DVec3::new(p.x, p.y, top_z),
+                glam::DVec3::new(q.x, q.y, bottom_z),
+            ]);
+        }
+    }
+    let (a, b) = contour_bounds(&top);
+    let (c, d) = contour_bounds(&bottom);
+    let bounds = [
+        glam::DVec3::new(a.x.min(c.x), a.y.min(c.y), bottom_z),
+        glam::DVec3::new(b.x.max(d.x), b.y.max(d.y), top_z),
+    ];
+    let mut hash = Sha256::new();
+    hash.update(
+        serde_json::to_vec(&(&e.shape, &e.slab_contour))
+            .map_err(|m| diagnostic("SLAB_IDENTITY_FAILED", "input", m.to_string()))?,
+    );
+    hash.update(base.to_bits().to_le_bytes());
+    let plan_area_m2 = actual_area(e);
+    let volume_source = if top == bottom {
+        VolumeSource::AnalyticPrism
+    } else {
+        VolumeSource::SampledSurface
+    };
+    let mut result = DerivedSlab {
+        identity: GeometryIdentity {
+            element_id: e.id,
+            input_revision: None,
+            document_session: None,
+            policy_version: crate::precision::GEOMETRY_POLICY_VERSION,
+            algorithm_version: SLAB_DERIVATION_VERSION,
+            input_fingerprint: hash.finalize().into(),
+        },
+        plan_triangles: caps
+            .iter()
+            .filter(|t| (t[0].z - top_z).abs() < (t[0].z - bottom_z).abs())
+            .map(|t| t.map(|v| Point::new(v.x, v.y)))
+            .collect(),
+        plan_paths,
+        vertex_pairs,
+        top_contour: top,
+        bottom_contour: bottom,
+        caps,
+        sides,
+        edges,
+        bounds,
+        plan_area_m2,
+        volume_m3: 0.,
+        sampled_volume_m3: 0.,
+        volume_source,
+    };
+    let origin = bounds[0];
+    let mut sampled_volume = 0.;
+    let mut count = 0;
+    let mut adjacency = std::collections::BTreeMap::<([u64; 3], [u64; 3]), (usize, i32)>::new();
+    for [a, b, c] in result.triangles() {
+        if !a.is_finite()
+            || !b.is_finite()
+            || !c.is_finite()
+            || (b - a).cross(c - a).length_squared() == 0.
+        {
+            return Err(diagnostic(
+                "INVALID_SLAB_SURFACE",
+                "mesh",
+                "Slab contains non-finite or degenerate triangles".into(),
+            ));
+        }
+        let key = |v: glam::DVec3| {
+            v.to_array().map(|x| {
+                if x == 0. {
+                    0.0_f64.to_bits()
+                } else {
+                    x.to_bits()
+                }
+            })
+        };
+        for (x, y) in [(a, b), (b, c), (c, a)] {
+            let (x, y) = (key(x), key(y));
+            let (edge, direction) = if x < y { ((x, y), 1) } else { ((y, x), -1) };
+            let entry = adjacency.entry(edge).or_default();
+            entry.0 += 1;
+            entry.1 += direction;
+        }
+        sampled_volume += (a - origin).dot((b - origin).cross(c - origin)) / 6.;
+        count += 1;
+    }
+    if count == 0 || !sampled_volume.is_finite() || sampled_volume <= 0. {
+        return Err(diagnostic(
+            "INVALID_SLAB_VOLUME",
+            "mesh",
+            "Slab does not enclose a positive oriented volume".into(),
+        ));
+    }
+    if adjacency
+        .values()
+        .any(|&(count, direction)| count != 2 || direction != 0)
+    {
+        return Err(diagnostic("NON_MANIFOLD_SLAB","mesh","Slab edges must have two oppositely oriented neighbouring faces; review perimeter and edge slopes".into()));
+    }
+    result.sampled_volume_m3 = sampled_volume;
+    result.volume_m3 = if volume_source == VolumeSource::AnalyticPrism {
+        plan_area_m2 * thickness
+    } else {
+        sampled_volume
+    };
     Ok(result)
 }
-fn offset_all(r: &mut SlabContour, d: f32) -> Result<(), String> {
+
+/// Shared clipped slab surfaces, grouped only to preserve existing renderer shading.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SlabClipContext {
+    pub polygon: Vec<Point>,
+    pub z_range: Option<(f64, f64)>,
+}
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct ClippedSlabMesh {
+    pub identity: Option<GeometryIdentity>,
+    pub clipping: Option<SlabClipContext>,
+    pub top: Vec<[glam::DVec3; 3]>,
+    pub bottom: Vec<[glam::DVec3; 3]>,
+    pub sides: Vec<[glam::DVec3; 3]>,
+    pub edges: Vec<[glam::DVec3; 2]>,
+    pub normalization: Option<crate::column_clip::ClipNormalization>,
+    pub metrics: Option<crate::derived_geometry::SurfaceMetrics>,
+}
+impl ClippedSlabMesh {
+    pub fn triangles(self) -> impl Iterator<Item = [glam::DVec3; 3]> {
+        self.top.into_iter().chain(self.bottom).chain(self.sides)
+    }
+}
+pub fn try_clipped_mesh(
+    e: &Element,
+    base: f64,
+    clip: &[Point],
+    z_range: Option<(f64, f64)>,
+) -> Result<ClippedSlabMesh, GeometryDiagnostic> {
+    let geometry = derive(e, base)?;
+    clipped::build(&geometry, clip, z_range)
+}
+pub fn solid_triangles(e: &Element, base: f64) -> Result<Vec<[glam::DVec3; 3]>, String> {
+    derive(e, base)
+        .map(|g| g.triangles().collect())
+        .map_err(|d| d.message)
+}
+fn offset_all(r: &mut SlabContour, d: f64) -> Result<(), String> {
     let mut p = r.points.clone();
     p.push(p[0]);
     let (p, arcs) = geometry::offset_polyline_with_arcs(&p, &arcs(r), d)
@@ -767,14 +1271,14 @@ pub fn changed(
                         let start = (a.y - center.y).atan2(a.x - center.x);
                         let split = (q.y - center.y).atan2(q.x - center.x);
                         let first = if sweep > 0. {
-                            (split - start).rem_euclid(std::f32::consts::TAU)
+                            (split - start).rem_euclid(std::f64::consts::TAU)
                         } else {
-                            -(start - split).rem_euclid(std::f32::consts::TAU)
+                            -(start - split).rem_euclid(std::f64::consts::TAU)
                         };
                         let mut left = arc;
-                        left.large_arc = first.abs() > std::f32::consts::PI;
+                        left.large_arc = first.abs() > std::f64::consts::PI;
                         let mut right = arc;
-                        right.large_arc = (sweep - first).abs() > std::f32::consts::PI;
+                        right.large_arc = (sweep - first).abs() > std::f64::consts::PI;
                         r.points.insert(index + 1, q);
                         r.arcs[index] = Some(left);
                         r.arcs.insert(index + 1, Some(right));
@@ -900,12 +1404,17 @@ fn restore_ring(line: &LineString<f64>, sources: &[SourceEdge]) -> SlabContour {
     let mut points: Vec<_> = line
         .0
         .iter()
-        .map(|p| Point::new(p.x as f32, p.y as f32))
+        .map(|p| Point::new(p.x as f64, p.y as f64))
         .collect();
-    if points.len() > 1 && points[0].distance(*points.last().unwrap()) < 1e-5 {
+    if points.len() > 1
+        && points[0].distance(*points.last().unwrap())
+            < crate::precision::GeometryContext::TOPOLOGY.restored_ring_merge_m
+    {
         points.pop();
     }
-    points.dedup_by(|a, b| a.distance(*b) < 1e-5);
+    points.dedup_by(|a, b| {
+        a.distance(*b) < crate::precision::GeometryContext::TOPOLOGY.restored_ring_merge_m
+    });
     let n = points.len();
     if n < 3 {
         return SlabContour {
@@ -963,8 +1472,8 @@ fn restore_ring(line: &LineString<f64>, sources: &[SourceEdge]) -> SlabContour {
                     .arc
                     .into_iter()
                     .chain(sources[b].arc)
-                    .map(|a| a.radius * (1. - (std::f32::consts::PI / 72.).cos()))
-                    .fold(0.001, f32::max);
+                    .map(|a| a.radius * (1. - (std::f64::consts::PI / 72.).cos()))
+                    .fold(0.001, f64::max);
                 if q.distance(points[i]) <= error * 2. + 0.001 {
                     points[i] = q;
                 }
@@ -1000,7 +1509,7 @@ fn restore_ring(line: &LineString<f64>, sources: &[SourceEdge]) -> SlabContour {
                     sweep += cross(a, b).atan2(a.x * b.x + a.y * b.y);
                 }
                 arc.clockwise = sweep < 0.;
-                arc.large_arc = sweep.abs() > std::f32::consts::PI;
+                arc.large_arc = sweep.abs() > std::f64::consts::PI;
                 restored = Some(arc);
             }
         }
@@ -1114,7 +1623,7 @@ mod tests {
         assert_eq!(poly.len(), 5);
         let triangles = geometry::triangulate_polygon(&poly);
         assert_eq!(triangles.len(), 3);
-        assert!((triangles.iter().map(|t| area(t)).sum::<f32>() - 10.).abs() < 1e-5);
+        assert!((triangles.iter().map(|t| area(t)).sum::<f64>() - 10.).abs() < 1e-5);
         assert_eq!(
             geometry::hit_plan(&candidate, 0, Point::new(2., 2.8), 0.01),
             None
@@ -1152,7 +1661,7 @@ mod tests {
             (0, Point::new(0., 0.)),
             (0, Point::new(2., 4.)),
             (5, Point::new(2., 1.)),
-            (0, Point::new(f32::NAN, 0.)),
+            (0, Point::new(f64::NAN, 0.)),
         ] {
             assert!(
                 e.reshape(ReshapeCommand::InsertSlabNode { id, edge, point })
@@ -1218,14 +1727,14 @@ mod transform_tests {
         insert_node(&mut p.elements[0], 2, Point::new(2., 2.)).unwrap();
         let camera = geometry::Camera {
             yaw: 0.,
-            pitch: std::f32::consts::FRAC_PI_2 - 0.001,
+            pitch: std::f64::consts::FRAC_PI_2 - 0.001,
             span: 10.,
-            target: glam::Vec3::new(2., 1.5, 0.),
+            target: glam::DVec3::new(2., 1.5, 0.),
         };
         for (point, expected) in [(Point::new(2., 2.8), None), (Point::new(1., 1.), Some(id))] {
             let projected = camera
                 .matrix(1.)
-                .project_point3(glam::Vec3::new(point.x, point.y, 0.));
+                .project_point3(glam::DVec3::new(point.x, point.y, 0.));
             assert_eq!(
                 camera.pick(&p, [projected.x, projected.y], 1., Some(0)),
                 expected
@@ -1357,7 +1866,7 @@ mod full_kernel_tests {
         assert_eq!(contour(&e).holes.len(), 1);
         assert!((actual_area(&e) - 11.).abs() < 1e-5);
         let cap = triangles(&e);
-        assert!((cap.iter().map(|t| area(t)).sum::<f32>() - 11.).abs() < 1e-4);
+        assert!((cap.iter().map(|t| area(t)).sum::<f64>() - 11.).abs() < 1e-4);
         assert!(
             cap.iter()
                 .all(|t| !geometry::point_in_polygon(Point::new(1.5, 1.5), t))
@@ -1371,7 +1880,7 @@ mod full_kernel_tests {
         )
         .unwrap();
         assert_eq!(parts.len(), 2);
-        assert!((parts.iter().map(ring_area).sum::<f32>() - 9.).abs() < 1e-4);
+        assert!((parts.iter().map(ring_area).sum::<f64>() - 9.).abs() < 1e-4);
         let mut e = slab();
         apply(
             &mut e,

@@ -1,0 +1,99 @@
+{
+  "response": {
+    "structuredContent": {
+      "detailsOfElements": [
+        {
+          "details": {
+            "structureType": "Composite",
+            "thickness": 0.3,
+            "level": 0,
+            "offsetFromTop": 0.1,
+            "zCoordinate": 0,
+            "referencePlaneLocation": "CoreTop",
+            "compositeId": {},
+            "topMaterial": {
+              "overridden": false
+            },
+            "sideMaterial": {
+              "overridden": false
+            },
+            "bottomMaterial": {
+              "overridden": false
+            },
+            "cutFillPen": {
+              "overridden": false
+            },
+            "cutFillBackgroundPen": {
+              "overridden": false
+            },
+            "floorFill": {
+              "use": false,
+              "foregroundPen": 89,
+              "backgroundPen": -1,
+              "fillId": {},
+              "use3DHatching": false,
+              "orientation": {
+                "origin": {
+                  "x": 0,
+                  "y": 0
+                },
+                "matrix00": 1,
+                "matrix10": 0,
+                "matrix01": 0,
+                "matrix11": 1,
+                "innerRadius": 0
+              }
+            },
+            "polygonOutline": [
+              {
+                "x": -0.184232734,
+                "y": 25.858157565
+              },
+              {
+                "x": 6.2067574,
+                "y": 45.031127967
+              },
+              {
+                "x": 12.597747533,
+                "y": 25.858157565
+              },
+              {
+                "x": 34.966213002,
+                "y": 25.858157565
+              },
+              {
+                "x": 17.306898158,
+                "y": 11.730705691
+              },
+              {
+                "x": 25.379727801,
+                "y": -12.487783237
+              },
+              {
+                "x": 6.2067574,
+                "y": 2.850593084
+              },
+              {
+                "x": -12.966213002,
+                "y": -12.487783237
+              },
+              {
+                "x": -4.893383359,
+                "y": 11.730705691
+              },
+              {
+                "x": -22.552698202,
+                "y": 25.858157565
+              },
+              {
+                "x": -0.184232734,
+                "y": 25.858157565
+              }
+            ],
+            "holes": []
+          }
+        }
+      ]
+    }
+  }
+}
