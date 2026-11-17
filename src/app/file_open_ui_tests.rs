@@ -158,7 +158,10 @@ mod native_project_open_flow {
             app.language = lang;
             open_test_project(&ctx, &mut app, &input);
             assert_eq!(app.host.document.editor.project, expected);
-            let out = root.join(format!("project-open-roundtrip-{}.openarchi.json", lang.label()));
+            let out = root.join(format!(
+                "project-open-roundtrip-{}.openarchi.json",
+                lang.label()
+            ));
             app.save_project_to(&out.to_string_lossy()).unwrap();
             let stored = Editor::from_stored_document(&out).unwrap().project;
             let mut bound_expected = expected.clone();
