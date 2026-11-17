@@ -92,8 +92,12 @@ def call_host(path, name, arguments):
     data = (json.dumps(frame, separators=(',', ':')) + '\n').encode()
     if len(data) > 65536:
         return {'error': {'code': 'INVALID_FRAME'}}
+    family = getattr(socket, 'AF_UNIX', None)
+    if family is None:
+        return {'error': {'code': 'NO_INSTANCE',
+            'message': 'Local Unix transport is unavailable on this platform.'}}
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as connection:
+        with socket.socket(family, socket.SOCK_STREAM) as connection:
             connection.settimeout(6)
             connection.connect(path)
             connection.sendall(data)

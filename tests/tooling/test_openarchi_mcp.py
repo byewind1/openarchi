@@ -101,7 +101,7 @@ class AdapterTests(unittest.TestCase):
         for method in ['propose_work_environment','cancel_environment_proposal']:
             args={'target':target,'request_id':'original'}
             if method=='propose_work_environment':args={'target':target,'expected_revision':0,'proposal':{'request_id':'original'}}
-            with patch.object(MCP.socket,'socket') as factory:
+            with patch.object(MCP.socket,'socket') as factory, patch.object(MCP.socket,'AF_UNIX',1,create=True):
                 connection=factory.return_value.__enter__.return_value
                 connection.makefile.side_effect=TimeoutError('response lost after send')
                 result=MCP.call_host('/owned',method,args)
@@ -115,7 +115,7 @@ class AdapterTests(unittest.TestCase):
     def test_configuration_invalid_response_is_unknown_after_one_send(self):
         from unittest.mock import patch
         for line in [b'',b'incomplete',b'[]\n',b'{"unexpected":true}\n']:
-            with patch.object(MCP.socket,'socket') as factory:
+            with patch.object(MCP.socket,'socket') as factory, patch.object(MCP.socket,'AF_UNIX',1,create=True):
                 connection=factory.return_value.__enter__.return_value
                 connection.makefile.return_value.__enter__.return_value.readline.return_value=line
                 result=MCP.call_host('/owned','cancel_environment_proposal',{'target':{},'request_id':'original'})
@@ -128,6 +128,13 @@ class AdapterTests(unittest.TestCase):
         result = MCP.dispatch({'method': 'tools/call', 'params': {'name': 'get_target'}}, '/tmp/oa-definitely-absent-mcp.sock')
         self.assertTrue(result['isError'])
         self.assertEqual(result['structuredContent']['error']['code'], 'NO_INSTANCE')
+
+    def test_unavailable_transport_never_dispatches(self):
+        from unittest.mock import patch
+        with patch.object(MCP.socket, 'AF_UNIX', None, create=True), patch.object(MCP.socket, 'socket') as factory:
+            result = MCP.call_host('/unused', 'commit_change', {'request_id': 'original'})
+            factory.assert_not_called()
+        self.assertEqual(result['error']['code'], 'NO_INSTANCE')
 
     def test_unknown_tool_never_reaches_host(self):
         with self.assertRaises(ValueError):
