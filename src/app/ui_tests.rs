@@ -7132,9 +7132,14 @@ fn edit_shortcuts_bilingual_menu_hints_use_the_same_binding() {
     let (_, mut app) = setup();
     for language in [UiLanguage::English, UiLanguage::SimplifiedChinese] {
         app.language = language;
-        assert!(app.edit_menu_label("Drag").contains("⌘D"));
-        assert!(app.edit_menu_label("Redo").contains("⌥⌘Z"));
-        assert!(app.edit_menu_label("Rotate a Copy").contains("⌥⌘R"));
+        let (drag, redo, rotate) = if cfg!(target_os = "macos") {
+            ("⌘D", "⌥⌘Z", "⌥⌘R")
+        } else {
+            ("Ctrl+D", "Alt+Ctrl+Z", "Alt+Ctrl+R")
+        };
+        assert!(app.edit_menu_label("Drag").contains(drag));
+        assert!(app.edit_menu_label("Redo").contains(redo));
+        assert!(app.edit_menu_label("Rotate a Copy").contains(rotate));
         assert!(!app.edit_menu_label("Autogroup").contains('⌘'));
         assert!(
             app.edit_menu_label("Drag")

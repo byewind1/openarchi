@@ -1362,7 +1362,10 @@ mod tests {
         frame(&ctx, &mut a, vec![key(Key::W, false)], true);
         let target = a.camera.target;
         frame(&ctx, &mut a, vec![], true);
-        assert_eq!(a.camera.target, target, "released movement key stops");
+        assert!(
+            (a.camera.target - target).length() < 1e-9,
+            "released movement key stops"
+        );
         frame(&ctx, &mut a, vec![key(Key::Escape, true)], true);
         assert_eq!(a.navigation.mode, Mode::Edit);
         assert_eq!(a.host.document.editor.wall_points, draft);

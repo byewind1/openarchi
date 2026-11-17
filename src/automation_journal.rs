@@ -10,6 +10,42 @@ use std::{
     sync::atomic::{AtomicU64, Ordering},
 };
 static TEMP_SEQUENCE: AtomicU64 = AtomicU64::new(1);
+
+// The temporary file has already been flushed and closed. Keep publication
+// on the same volume and preserve errors as an unknown operation outcome.
+#[cfg(windows)]
+fn publish_journal(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn MoveFileExW(from: *const u16, to: *const u16, flags: u32) -> i32;
+    }
+    let wide = |path: &Path| -> std::io::Result<Vec<u16>> {
+        let mut value: Vec<u16> = path.as_os_str().encode_wide().collect();
+        if value.contains(&0) {
+            return Err(std::io::Error::from(std::io::ErrorKind::InvalidInput));
+        }
+        value.push(0);
+        Ok(value)
+    };
+    let from = wide(temporary)?;
+    let to = wide(destination)?;
+    // MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH; no copy fallback.
+    if unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), 0x1 | 0x8) } == 0 {
+        return Err(std::io::Error::last_os_error());
+    }
+    Ok(())
+}
+#[cfg(not(windows))]
+fn publish_journal(temporary: &Path, destination: &Path) -> std::io::Result<()> {
+    fs::rename(temporary, destination)?;
+    File::open(
+        destination
+            .parent()
+            .ok_or(std::io::ErrorKind::InvalidInput)?,
+    )?
+    .sync_all()
+}
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OperationIdentity {
@@ -253,8 +289,8 @@ impl Journal {
             let mut file = options.open(&temporary)?;
             file.write_all(&bytes)?;
             file.sync_all()?;
-            fs::rename(&temporary, &self.path)?;
-            File::open(parent)?.sync_all()?;
+            drop(file);
+            publish_journal(&temporary, &self.path)?;
             Ok(())
         })();
         if let Err(error) = write {

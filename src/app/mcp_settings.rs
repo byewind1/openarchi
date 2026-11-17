@@ -240,7 +240,17 @@ impl AtelierApp {
             });
             let root = bundle
                 .filter(|p| p.join("tools/mcp-adapter/server.py").is_file())
-                .unwrap_or_else(|| PathBuf::from(env!("CARGO_MANIFEST_DIR")));
+                .or_else(|| {
+                    #[cfg(debug_assertions)]
+                    {
+                        Some(PathBuf::from(env!("CARGO_MANIFEST_DIR")))
+                    }
+                    #[cfg(not(debug_assertions))]
+                    {
+                        None
+                    }
+                })
+                .ok_or("Bundled MCP adapter is missing")?;
             let adapter = root.join("tools/mcp-adapter");
             let mut command = if adapter.join(".venv/bin/python").is_file() {
                 Command::new(adapter.join(".venv/bin/python"))

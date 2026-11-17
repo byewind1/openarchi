@@ -762,7 +762,10 @@ pub fn portable(
             };
             let stored = store(&bytes, directory, ext)?;
             b.sha256 = stored.sha256;
-            b.path = relative.join(stored.path.file_name().ok_or("Invalid CAD asset path")?);
+            b.path = crate::storage::portable_asset_path(
+                relative,
+                stored.path.file_name().ok_or("Invalid CAD asset path")?,
+            );
         }
     }
     Ok(())

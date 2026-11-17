@@ -1,6 +1,6 @@
 use crate::model::{ModelAdapter, Project};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 pub struct JsonAdapter;
 pub const MAX_PROJECT_BYTES: u64 = 32 * 1024 * 1024;
@@ -462,6 +462,30 @@ impl ModelAdapter for JsonAdapter {
         bounded_project_bytes(serde_json::to_vec_pretty(&value).map_err(|e| e.to_string())?)
     }
 }
+/// Use portable separators for asset references written into a document.
+pub(crate) fn portable_asset_path(directory: &Path, filename: &std::ffi::OsStr) -> PathBuf {
+    let path = directory.join(filename);
+    #[cfg(windows)]
+    {
+        use std::os::windows::ffi::{OsStrExt, OsStringExt};
+        let wide: Vec<u16> = path
+            .as_os_str()
+            .encode_wide()
+            .map(|unit| {
+                if unit == b'\\' as u16 {
+                    b'/' as u16
+                } else {
+                    unit
+                }
+            })
+            .collect();
+        PathBuf::from(std::ffi::OsString::from_wide(&wide))
+    }
+    #[cfg(not(windows))]
+    {
+        path
+    }
+}
 fn previous_native_version(p: &Project) -> u32 {
     if needs_linked_space_task_format(p) {
         33
@@ -562,8 +586,10 @@ fn save_impl(
         for page in &mut portable.drawings.pages {
             let bytes = crate::drawings::verified_bytes(page)?;
             let stored = crate::drawings::store(&bytes, &parent.join(&assets_name))?;
-            page.path =
-                Path::new(&assets_name).join(stored.file_name().ok_or("Invalid asset path")?);
+            page.path = portable_asset_path(
+                Path::new(&assets_name),
+                stored.file_name().ok_or("Invalid asset path")?,
+            );
         }
     }
     let mut bytes = JsonAdapter.export(&portable)?;
