@@ -23766,13 +23766,23 @@ fn v4_native_task_unknown_result_retains_identity_and_reconciles_without_mcp_bil
         let request = app.process_ui.preview.as_ref().unwrap().id.clone();
         let source = journal.clone();
         let destination = moved.clone();
+        let blocked_journal = std::rc::Rc::new(std::cell::RefCell::new(None));
+        let blocked_path = blocked_journal.clone();
         app.host
             .operations
             .borrow_mut()
             .set_durability_probe(move |stage| {
                 if stage == crate::automation_change::DurableStage::ModelCommitted {
-                    // Protected fixture only: force commit-marker failure after model success.
-                    std::fs::rename(&source, &destination).unwrap();
+                    // Retain the complete intent file and block its replacement.
+                    // Renaming a directory with its live lock is not portable.
+                    let file = std::fs::read_dir(&source)
+                        .unwrap()
+                        .map(|entry| entry.unwrap().path())
+                        .find(|path| path.extension().is_some_and(|ext| ext == "json"))
+                        .unwrap();
+                    std::fs::rename(&file, &destination).unwrap();
+                    std::fs::create_dir(&file).unwrap();
+                    *blocked_path.borrow_mut() = Some(file);
                 }
             });
         click(&ctx, &mut app, "Confirm design change", false);
@@ -23809,7 +23819,9 @@ fn v4_native_task_unknown_result_retains_identity_and_reconciles_without_mcp_bil
             .unwrap();
         drop(app);
         // Resume the retained original journal after the simulated host failure.
-        std::fs::rename(&moved, &journal).unwrap();
+        let blocked_path = blocked_journal.borrow_mut().take().unwrap();
+        std::fs::remove_dir(&blocked_path).unwrap();
+        std::fs::rename(&moved, &blocked_path).unwrap();
         let (ctx, mut app) = setup();
         ctx.global_style_mut(|style| style.animation_time = 0.);
         app.language = language;

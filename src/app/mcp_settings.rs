@@ -250,7 +250,11 @@ impl AtelierApp {
                         None
                     }
                 })
-                .ok_or("Bundled MCP adapter is missing")?;
+                .ok_or_else(|| {
+                    self.language
+                        .translate("Bundled MCP adapter is missing")
+                        .to_owned()
+                })?;
             let adapter = root.join("tools/mcp-adapter");
             let mut command = if adapter.join(".venv/bin/python").is_file() {
                 Command::new(adapter.join(".venv/bin/python"))

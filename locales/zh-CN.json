@@ -1,4 +1,5 @@
 {
+  "Bundled MCP adapter is missing": "缺少随包提供的 MCP 适配器",
   "Surface quick selection": "表面快速选择",
   "Space-click temporarily reverses surface selection; Shift+Space-click in other tools": "Space＋点击临时反转表面选择；其他工具使用 Shift＋Space＋点击",
   "Overlapping elements · {index}/{count} · Tab": "重叠构件 · {index}/{count} · Tab 切换",
